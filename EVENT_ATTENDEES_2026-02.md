@@ -1,0 +1,58 @@
+# Event attendees for 2026-02
+
+Total events: 55
+- Cryogenics - SubWorld | cryogenicsdnb@gmail.com, paranoise.webradio@gmail.com
+- Bullet 46 | paranoise.webradio@gmail.com, stefanoseomer@gmail.com
+- Olia Vein - Low Class Bourgeois | oliaavein@gmail.com, paranoise.webradio@gmail.com
+- Ntavisia Brave - Mouth Of The Night | ntavisia@gmail.com, paranoise.webradio@gmail.com
+- Thomas Priest - New Ice Age | (none)
+- Kappa - Other Galactic Funk | kappakappahey77@gmail.com, paranoise.webradio@gmail.com
+- Kirchoff - Cicadas | paranoise.webradio@gmail.com, tekasgk@windowslive.com
+- Padaczka - No Safe Space | padaczka02@gmail.com, paranoise.webradio@gmail.com
+- Satanakey - Hi, I'm the lost mixtape | satanakey@gmail.com, paranoise.webradio@gmail.com
+- Tsourkoko - Multimodality | paranoise.webradio@gmail.com
+- SVT - Savattical Sounds | paranoise.webradio@gmail.com, psv.bcn@gmail.com
+- GNNS/SigmaTheta - Error 404 | papageorgiou1987@gmail.com, paranoise.webradio@gmail.com
+- Atak DK - Spectral Leakage | paranoise.webradio@gmail.com, david.kaestel@mailbox.org
+- Illian - Obscure Modulation | paranoise.webradio@gmail.com, ilianeper@gmail.com
+- J Bunny - Elevation Session | paranoise.webradio@gmail.com, chrisisjb@gmail.com
+- Aear0n - Basement | aearon.prod@gmail.com, paranoise.webradio@gmail.com
+- Vegapunk & Twicechild | paranoise.webradio@gmail.com, rage.sum.up@gmail.com
+- Jahnabet - Irie Trip | paranoise.webradio@gmail.com, kmonastiridis@gmail.com
+- Psontis - Tunes & Fumes | psontis@gmail.com, paranoise.webradio@gmail.com
+- Flynt - Electric Sheep | (none)
+- Pan Far - Iz On | pantytek@hotmail.com, paranoise.webradio@gmail.com
+- E.H. Soundsystem - Beats & Pieces | mcavalakis@gmail.com, paranoise.webradio@gmail.com
+- Taki Onqoy - Tower of Echo | lowtrux@gmail.com, paranoise.webradio@gmail.com
+- Chriz - Beats In Junktion | paranoise.webradio@gmail.com, chris.grigoroglou@gmail.com
+- Node - Chopped up Node | node247@googlemail.com, paranoise.webradio@gmail.com
+- DJ Grazzhopa - Hop2This | (none)
+- Azem - Subfernalia | nvardaxis@gmail.com, paranoise.webradio@gmail.com, azemscapes@hotmail.com
+- Doctore Xyramat | paranoise.webradio@gmail.com, dmarth@t-online.de
+- Yardy - Vault | paranoise.webradio@gmail.com, spyreytos@gmail.com, spyridon.moraitis@klarna.com, spyros.moraitis@wolt.com
+- Adne - Sonifications | paranoise.webradio@gmail.com, ariadni.cla@gmail.com
+- DJ Booker & Harris - I Breathe Bass | djbooker1@yahoo.com, paranoise.webradio@gmail.com, funxion@gmail.com
+- Gotanine - HORA | paranoise.webradio@gmail.com, bergmanschild@gmail.com
+- Φί Κάπα - Sk8bored | paranoise.webradio@gmail.com, fkarapatsios@gmail.com
+- Nikolaos Mouchalempis - Burying the Lead | paranoise.webradio@gmail.com, pllxrose@gmail.com
+- Thomas Priest - New Ice Age | paranoise.webradio@gmail.com, thopapa74@hotmail.com
+- Kappa - Other Galactic Funk | kappakappahey77@gmail.com, paranoise.webradio@gmail.com
+- Spaced Cowboy - Psych Hop | paranoise.webradio@gmail.com, spcdcwby@gmail.com
+- Flynt - Electric Sheep | kiriakosdigenakis@gmail.com, paranoise.webradio@gmail.com
+- Zas & Cerb - Heavy Rotation | cerbole@gmail.com, paranoise.webradio@gmail.com, zapente@yahoo.com
+- Kyvie - Down the Rabbithole | vasilikikir07@gmail.com
+- Tsourkoko - Multimodality | paranoise.webradio@gmail.com
+- Gross Diskos - Sonic Space Trek | paranoise.webradio@gmail.com, zoltanheller666@gmail.com
+- Phutyle - From my room to yours ┌(★ｏ☆)┘ | paranoise.webradio@gmail.com, phutyle@hotmail.com
+- GRiD - Nasty Dubz | paranoise.webradio@gmail.com, interfacemusic73@gmail.com
+- ShyNee - Rain Forest | paranoise.webradio@gmail.com, nikshynee@gmail.com
+- Female: Pressure (TBC) | (none)
+- Red - Future Joints | paranoise.webradio@gmail.com, iam.red@hotmail.com
+- A@H2O - Music Juice | paranoise.webradio@gmail.com, toisile@gmail.com
+- Runner - Subbed Out | paranoise.webradio@gmail.com, intarunner@yahoo.com
+- Supergeil - Bass & Co | supergeilinc@gmail.com, paranoise.webradio@gmail.com
+- ΣΠΡΕΫ - Ear-Wax Archeology | paranoise.webradio@gmail.com, rom.pap@gmail.com
+- Flynt - Electric Sheep | kiriakosdigenakis@gmail.com, paranoise.webradio@gmail.com
+- Pan Far - Iz On | pantytek@hotmail.com, paranoise.webradio@gmail.com
+- Loki - Focused | paranoise.webradio@gmail.com, whiteponydigitalbath@hotmail.com
+- omni causa - mindcolormusic | mindcolormusic@gmail.com, paranoise.webradio@gmail.com
