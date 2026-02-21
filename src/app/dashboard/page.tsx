@@ -1,8 +1,30 @@
 import { redirect } from "next/navigation";
+import Image from "next/image";
 import { createClient } from "@/lib/supabase/server";
 import { signOut } from "@/app/actions";
 import { SubmissionForm } from "@/components/submission-form";
 import { getUpcomingShowsByProducerEmail } from "@/lib/google-calendar";
+
+function formatUpcomingShow(startsAt: string) {
+  const date = new Date(startsAt);
+  if (Number.isNaN(date.getTime())) {
+    return startsAt;
+  }
+
+  const formattedDate = new Intl.DateTimeFormat("en-GB", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  }).format(date);
+
+  const formattedTime = new Intl.DateTimeFormat("en-GB", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(date);
+
+  return `${formattedDate} - ${formattedTime}`;
+}
 
 export default async function DashboardPage() {
   const supabase = await createClient();
@@ -16,84 +38,79 @@ export default async function DashboardPage() {
 
   const adminEmail = (process.env.ADMIN_EMAIL || "").toLowerCase();
   const isAdmin = Boolean(user.email && adminEmail && user.email.toLowerCase() === adminEmail);
+  const producerName =
+    typeof user.user_metadata?.full_name === "string" && user.user_metadata.full_name.trim()
+      ? user.user_metadata.full_name.trim()
+      : user.email?.split("@")[0] || "Producer";
 
   let upcomingShows: Awaited<ReturnType<typeof getUpcomingShowsByProducerEmail>> = [];
-  let scheduleError: string | null = null;
 
   if (user.email) {
     try {
       upcomingShows = await getUpcomingShowsByProducerEmail(user.email);
-    } catch {
-      scheduleError =
-        "Could not load upcoming shows. Check Google Calendar service account environment settings.";
-    }
+    } catch {}
   }
 
+  const upcomingShowText = upcomingShows[0]?.startsAt
+    ? formatUpcomingShow(upcomingShows[0].startsAt)
+    : "TBD";
+
   return (
-    <main className="container stack-lg">
-      <section className="card">
-        <div className="row row-top">
-          <div>
-            <p className="eyebrow">Paranoise Console</p>
-            <h1 className="title">Producer Dashboard</h1>
+    <main className="dashboard-screen">
+      <div className="dashboard-shell">
+        <section className="dashboard-panel">
+          <div className="dashboard-header-row">
+            <div className="dashboard-brand-group">
+              <Image
+                src="/branding/navbar-logo.png"
+                alt="Paranoise Radio"
+                width={256}
+                height={55}
+                className="dashboard-logo"
+                priority
+              />
+              <p className="dashboard-overline">Console</p>
+            </div>
+            <form action={signOut}>
+              <button className="dashboard-signout" type="submit">
+                Sign out
+              </button>
+            </form>
           </div>
-          <form action={signOut}>
-            <button className="button button-ghost button-inline" type="submit">
-              Sign out
-            </button>
-          </form>
-        </div>
-        <p className="muted">Signed in as {user.email}</p>
-        <span className="pill">MVP foundation ready</span>
-      </section>
-
-      <section className="card">
-        <div className="section-head">
-          <h2 className="section-title">Upcoming Shows</h2>
-        </div>
-        {scheduleError ? <p className="message message-error">{scheduleError}</p> : null}
-        {!scheduleError && upcomingShows.length === 0 ? (
-          <p className="muted">No upcoming shows found for your producer email.</p>
-        ) : null}
-        {!scheduleError && upcomingShows.length > 0 ? (
-          <div className="stack">
-            {upcomingShows.map((show) => (
-              <div className="row schedule-item" key={show.id}>
-                <div>
-                  <p>{show.title}</p>
-                  <p className="muted">Starts: {show.startsAt}</p>
-                </div>
-                <span className="pill">Scheduled</span>
-              </div>
-            ))}
+          <div className="dashboard-greeting-row">
+            <h1 className="dashboard-greeting">Hello {producerName}!</h1>
           </div>
-        ) : null}
-      </section>
-
-      <section className="card">
-        <div className="section-head">
-          <h2 className="section-title">Radio Show Submission</h2>
-        </div>
-        <p className="muted">
-          Backlog C-0/C-1/C-2/C-6: combined form (title + MP3 up to 200MB + image).
-        </p>
-        <SubmissionForm />
-      </section>
-
-      {isAdmin ? (
-        <section className="card">
-          <div className="section-head">
-            <h2 className="section-title">Google Drive Connection</h2>
-          </div>
-          <p className="muted">
-            Connect the Paranoise Google account once so cover uploads can run in background
-            without asking producers to sign into Google.
-          </p>
-          <a className="button button-inline" href="/api/google-drive/oauth/start">
-            Connect Google Drive (Paranoise)
-          </a>
         </section>
-      ) : null}
+
+        <section className="dashboard-panel">
+          <div className="dashboard-banner">
+            <span>UPCOMING SHOW:</span>
+            <span>{upcomingShowText}</span>
+          </div>
+        </section>
+
+        <section className="dashboard-panel">
+          <div className="section-head">
+            <h2 className="dashboard-section-title">Submit your radio show</h2>
+          </div>
+          <SubmissionForm />
+        </section>
+
+        {isAdmin ? (
+          <section className="dashboard-panel">
+            <div className="section-head">
+              <h2 className="dashboard-section-title">Google Drive Connection</h2>
+            </div>
+            <p className="muted">
+              Connect the Paranoise Google account once so cover uploads can run in background
+              without asking producers to sign into Google.
+            </p>
+            <a className="dashboard-connect" href="/api/google-drive/oauth/start">
+              Connect Google Drive (Paranoise)
+            </a>
+          </section>
+        ) : null}
+      </div>
     </main>
   );
 }

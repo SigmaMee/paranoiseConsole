@@ -15,7 +15,6 @@ export type RouteResult = {
 
 export type PersistPayload = {
   producerEmail: string;
-  title: string;
   audioFilename: string;
   imageFilename: string;
   ftpStatus: "success" | "failed";
@@ -36,20 +35,10 @@ function sanitizeFilename(name: string) {
   return name.replace(/[^a-zA-Z0-9._-]/g, "_");
 }
 
-function buildUploadName(prefix: string, originalName: string) {
-  const safeOriginal = sanitizeFilename(originalName);
-  return `${prefix}-${randomUUID()}-${safeOriginal}`;
-}
-
 export function validateSubmission(
-  title: string,
   audio: File,
   image: File | null,
 ): string | null {
-  if (!title.trim()) {
-    return "Show title is required.";
-  }
-
   const isMp3 =
     audio.type === "audio/mpeg" || audio.name.toLowerCase().endsWith(".mp3");
   if (!isMp3) {
@@ -215,7 +204,7 @@ export async function routeImageToDrive(
   try {
     const auth = await getDriveAuth();
     const drive = google.drive({ version: "v3", auth });
-    const uploadName = buildUploadName("cover", image.name);
+    const uploadName = image.name || `cover-${randomUUID()}`;
     const bytes = Buffer.from(await image.arrayBuffer());
 
     await drive.files.create({
@@ -254,16 +243,33 @@ function createAdminSupabaseClient() {
 export async function persistSubmissionStatus(payload: PersistPayload) {
   const supabase = createAdminSupabaseClient();
 
-  const { error } = await supabase.from("submissions").insert({
+  const baseInsert = {
     producer_email: payload.producerEmail,
-    title: payload.title,
     audio_filename: payload.audioFilename,
     image_filename: payload.imageFilename,
     ftp_status: payload.ftpStatus,
     drive_status: payload.driveStatus,
     ftp_message: payload.ftpMessage,
     drive_message: payload.driveMessage,
-  });
+  };
+
+  const { error } = await supabase.from("submissions").insert(baseInsert);
+
+  const requiresLegacyTitle =
+    error?.message?.toLowerCase().includes('null value in column "title"') ?? false;
+
+  if (requiresLegacyTitle) {
+    const { error: legacyError } = await supabase.from("submissions").insert({
+      ...baseInsert,
+      title: payload.audioFilename,
+    });
+
+    if (!legacyError) {
+      return;
+    }
+
+    throw new Error(legacyError.message);
+  }
 
   if (error) {
     throw new Error(error.message);

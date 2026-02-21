@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useMemo, useState } from "react";
+import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 
@@ -38,46 +39,70 @@ export default function LoginPage() {
   }
 
   return (
-    <main className="container">
-      <section className="login-wrap card">
-        <div className="hero">
-          <p className="eyebrow">Paranoise Radio</p>
-          <h1 className="title">Console Access</h1>
-          <p className="muted">Sign in with your pre-created producer account.</p>
+    <main className="login-screen">
+      <section className="login-panel">
+        <div className="login-brand">
+          <div className="login-header-row">
+            <Image
+              src="/branding/navbar-logo.png"
+              alt="Paranoise Radio"
+              width={256}
+              height={55}
+              className="login-logo"
+              priority
+            />
+            <p className="login-overline">Console</p>
+          </div>
         </div>
 
-        <form className="form" onSubmit={onSubmit}>
-          <label className="field-label" htmlFor="email">
-            Email
-          </label>
+        <form className="login-form" onSubmit={onSubmit}>
+          <Image
+            src="/branding/monogram-white.png"
+            alt="Paranoise monogram"
+            width={790}
+            height={722}
+            className="login-monogram"
+            priority
+          />
+          <div className="login-residents-banner">RESIDENTS ONLY</div>
+          <div className="login-label-row">
+            <label className="login-label" htmlFor="email">
+              Email
+            </label>
+            <p className="login-label-helper">The one used with Paranoise.</p>
+          </div>
           <input
             id="email"
-            className="input"
+            className="login-input"
             type="email"
             placeholder="Producer email"
             value={email}
             onChange={(event) => setEmail(event.target.value)}
             required
           />
-          <label className="field-label" htmlFor="password">
-            Password
-          </label>
+          <div className="login-label-row">
+            <label className="login-label" htmlFor="password">
+              Producer name
+            </label>
+            <p className="login-label-helper">The one in our schedule</p>
+          </div>
           <input
             id="password"
-            className="input"
+            className="login-input"
             type="password"
             placeholder="Password"
             value={password}
             onChange={(event) => setPassword(event.target.value)}
             required
           />
-          <button className="button button-primary" type="submit" disabled={isLoading}>
+          <button className="login-submit" type="submit" disabled={isLoading}>
             {isLoading ? "Signing in..." : "Sign in"}
           </button>
+          <p className="login-label-helper login-footer-helper">Issues logging in? Contact us</p>
         </form>
 
         {message ? (
-          <p className={`message ${isError ? "message-error" : "message-success"}`}>
+          <p className={`login-message ${isError ? "login-message-error" : "login-message-success"}`}>
             {message}
           </p>
         ) : null}

@@ -45,7 +45,6 @@ export async function POST(request: Request) {
     const userEmail = user.email;
 
     const formData = await request.formData();
-    const title = String(formData.get("title") || "");
     const audio = formData.get("audio");
     const image = formData.get("image");
 
@@ -59,7 +58,7 @@ export async function POST(request: Request) {
 
     const optionalImage = image instanceof File && image.size > 0 ? image : null;
 
-    const validationError = validateSubmission(title, audio, optionalImage);
+    const validationError = validateSubmission(audio, optionalImage);
     if (validationError) {
       return NextResponse.json({ error: validationError }, { status: 400 });
     }
@@ -99,7 +98,6 @@ export async function POST(request: Request) {
     try {
       await persistSubmissionStatus({
         producerEmail: userEmail,
-        title,
         audioFilename: audio.name,
         imageFilename: optionalImage?.name || "",
         ftpStatus: ftpResult.success ? "success" : "failed",

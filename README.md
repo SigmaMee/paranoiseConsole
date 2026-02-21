@@ -9,6 +9,7 @@ Next.js + Supabase starter for the Console MVP.
 - Middleware session refresh
 
 ## Setup
+0. Use Node `20.19.0` or newer LTS (`nvm use` if you use nvm).
 1. Copy env template:
 	- `cp .env.example .env.local`
 2. Fill `.env.local`:

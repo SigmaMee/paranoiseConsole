@@ -2,7 +2,6 @@ create table if not exists public.submissions (
   id uuid primary key default gen_random_uuid(),
   created_at timestamptz not null default now(),
   producer_email text not null,
-  title text not null,
   audio_filename text not null,
   image_filename text not null,
   ftp_status text not null,
@@ -25,3 +24,6 @@ for select
 using (
   lower(producer_email) = lower(coalesce(auth.jwt()->>'email', ''))
 );
+
+alter table if exists public.submissions
+  drop column if exists title;
