@@ -11,6 +11,37 @@ import {
   getNextUpcomingShowStartByProducerEmail,
 } from "@/lib/google-calendar";
 
+function formatShowDateDdMmYy(showStart: string) {
+  const directMatch = showStart.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (directMatch) {
+    const [, year, month, day] = directMatch;
+    return `${day}${month}${year.slice(-2)}`;
+  }
+
+  const parsed = new Date(showStart);
+  if (Number.isNaN(parsed.getTime())) {
+    throw new Error("Could not parse show date for cover image filename.");
+  }
+
+  const day = String(parsed.getDate()).padStart(2, "0");
+  const month = String(parsed.getMonth() + 1).padStart(2, "0");
+  const year = String(parsed.getFullYear()).slice(-2);
+  return `${day}${month}${year}`;
+}
+
+function buildCoverFilenamePrefix(producerName: string, showStart: string) {
+  const safeProducer = producerName
+    .trim()
+    .replace(/\s+/g, "-")
+    .replace(/[^a-zA-Z0-9_-]/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
+
+  const producerPart = safeProducer || "producer";
+  const datePart = formatShowDateDdMmYy(showStart);
+  return `${producerPart}-${datePart}`;
+}
+
 async function getProducerFolderNameFromProfilesTable(userEmail: string) {
   const supabase = await createClient();
   const { data, error } = await supabase
@@ -76,6 +107,8 @@ export async function POST(request: Request) {
 
     const ftpPromise = routeAudioToFtp(audio, producerFolderName);
 
+    let uploadedImageFilename = optionalImage?.name || "";
+
     const drivePromise = optionalImage
       ? (async () => {
           const showStart = await getNextUpcomingShowStartByProducerEmail(userEmail);
@@ -84,8 +117,11 @@ export async function POST(request: Request) {
             throw new Error("No upcoming calendar shows found for this producer.");
           }
 
+          const coverFilenamePrefix = buildCoverFilenamePrefix(producerFolderName, showStart);
+          uploadedImageFilename = `${coverFilenamePrefix}-${optionalImage.name}`;
+
           const weekdayFolderId = await getDriveWeekdayFolderIdForShowStart(showStart);
-          return routeImageToDrive(optionalImage, weekdayFolderId);
+          return routeImageToDrive(optionalImage, weekdayFolderId, coverFilenamePrefix);
         })()
       : Promise.resolve({
           success: true,
@@ -99,7 +135,7 @@ export async function POST(request: Request) {
       await persistSubmissionStatus({
         producerEmail: userEmail,
         audioFilename: audio.name,
-        imageFilename: optionalImage?.name || "",
+        imageFilename: uploadedImageFilename,
         ftpStatus: ftpResult.success ? "success" : "failed",
         driveStatus: driveResult.success ? "success" : "failed",
         ftpMessage: ftpResult.message,

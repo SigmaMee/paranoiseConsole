@@ -198,13 +198,15 @@ export async function getDriveWeekdayFolderIdForShowStart(showStart: string) {
 export async function routeImageToDrive(
   image: File,
   destinationFolderId?: string,
+  filenamePrefix?: string,
 ): Promise<RouteResult> {
   const folderId = destinationFolderId || getRequiredEnv("GOOGLE_DRIVE_FOLDER_ID");
 
   try {
     const auth = await getDriveAuth();
     const drive = google.drive({ version: "v3", auth });
-    const uploadName = image.name || `cover-${randomUUID()}`;
+    const originalName = image.name || `cover-${randomUUID()}`;
+    const uploadName = filenamePrefix ? `${filenamePrefix}-${originalName}` : originalName;
     const bytes = Buffer.from(await image.arrayBuffer());
 
     await drive.files.create({
