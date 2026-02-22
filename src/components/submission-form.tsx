@@ -4,7 +4,6 @@ import {
   CSSProperties,
   ChangeEvent,
   DragEvent,
-  FormEvent,
   KeyboardEvent,
   MouseEvent,
   useEffect,
@@ -63,29 +62,43 @@ function submitWithProgress(
 export function SubmissionForm() {
   const [audioFile, setAudioFile] = useState<File | null>(null);
   const [imageFile, setImageFile] = useState<File | null>(null);
+  const [description, setDescription] = useState("");
   const [isAudioDragging, setIsAudioDragging] = useState(false);
   const [isImageDragging, setIsImageDragging] = useState(false);
-  const [message, setMessage] = useState("");
-  const [isError, setIsError] = useState(false);
+  const [errorMessage, setErrorMessage] = useState("");
+  const [audioSuccess, setAudioSuccess] = useState(false);
+  const [coverSuccess, setCoverSuccess] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const audioInputRef = useRef<HTMLInputElement | null>(null);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
+  const audioSuccessTimeoutRef = useRef<number | null>(null);
+  const coverSuccessTimeoutRef = useRef<number | null>(null);
 
   useEffect(() => {
-    if (!message) {
+    return () => {
+      if (audioSuccessTimeoutRef.current !== null) {
+        window.clearTimeout(audioSuccessTimeoutRef.current);
+      }
+      if (coverSuccessTimeoutRef.current !== null) {
+        window.clearTimeout(coverSuccessTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!errorMessage) {
       return;
     }
 
     const timeoutId = window.setTimeout(() => {
-      setMessage("");
-      setIsError(false);
+      setErrorMessage("");
     }, 5000);
 
     return () => {
       window.clearTimeout(timeoutId);
     };
-  }, [message]);
+  }, [errorMessage]);
 
   function onAudioInputChange(event: ChangeEvent<HTMLInputElement>) {
     setAudioFile(event.target.files?.[0] ?? null);
@@ -165,20 +178,30 @@ export function SubmissionForm() {
     }
   }
 
-  function validate() {
-    if (!audioFile) {
-      return "Audio file is required.";
+  function validate(uploadType: "audio" | "cover") {
+    if (uploadType === "audio") {
+      if (!audioFile) {
+        return "Audio file is required.";
+      }
+
+      const isMp3 =
+        audioFile.type === "audio/mpeg" || audioFile.name.toLowerCase().endsWith(".mp3");
+
+      if (!isMp3) {
+        return "Audio must be an MP3 file.";
+      }
+
+      if (audioFile.size > MAX_AUDIO_BYTES) {
+        return "Audio exceeds 200 MB maximum size.";
+      }
+
+      if (!description.trim()) {
+        return "Show description is required.";
+      }
     }
 
-    const isMp3 =
-      audioFile.type === "audio/mpeg" || audioFile.name.toLowerCase().endsWith(".mp3");
-
-    if (!isMp3) {
-      return "Audio must be an MP3 file.";
-    }
-
-    if (audioFile.size > MAX_AUDIO_BYTES) {
-      return "Audio exceeds 200 MB maximum size.";
+    if (uploadType === "cover" && !imageFile) {
+      return "Cover image is required.";
     }
 
     if (imageFile && !imageFile.type.startsWith("image/")) {
@@ -188,19 +211,12 @@ export function SubmissionForm() {
     return null;
   }
 
-  async function onSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setMessage("");
-    setIsError(false);
+  async function onSubmit(uploadType: "audio" | "cover") {
+    setErrorMessage("");
 
-    const validationError = validate();
+    const validationError = validate(uploadType);
     if (validationError) {
-      setIsError(true);
-      setMessage(validationError);
-      return;
-    }
-
-    if (!audioFile) {
+      setErrorMessage(validationError);
       return;
     }
 
@@ -209,8 +225,12 @@ export function SubmissionForm() {
 
     try {
       const payload = new FormData();
-      payload.append("audio", audioFile);
-      if (imageFile) {
+      payload.append("uploadType", uploadType);
+      if (uploadType === "audio" && audioFile) {
+        payload.append("audio", audioFile);
+        payload.append("description", description.trim());
+      }
+      if (uploadType === "cover" && imageFile) {
         payload.append("image", imageFile);
       }
 
@@ -234,14 +254,12 @@ export function SubmissionForm() {
       if (!isSuccessStatus && status !== 207) {
         const errorMessage =
           typeof typed.error === "string" ? typed.error : "Submission failed.";
-        setIsError(true);
-        setMessage(errorMessage);
+        setErrorMessage(errorMessage);
         return;
       }
 
       if (status === 207 || typed.success === false) {
-        setIsError(true);
-        setMessage(
+        setErrorMessage(
           ["Submission completed with partial failure.", ftpMessage, driveMessage]
             .filter((value): value is string => Boolean(value))
             .join(" "),
@@ -249,23 +267,45 @@ export function SubmissionForm() {
         return;
       }
 
-      setMessage("Upload successful.");
-    } catch (error) {
-      setIsError(true);
-      if (error instanceof Error) {
-        setMessage(error.message || "Submission failed unexpectedly.");
+      if (uploadType === "audio") {
+        setAudioSuccess(true);
+        if (audioSuccessTimeoutRef.current !== null) {
+          window.clearTimeout(audioSuccessTimeoutRef.current);
+        }
+        audioSuccessTimeoutRef.current = window.setTimeout(() => {
+          setAudioSuccess(false);
+          audioSuccessTimeoutRef.current = null;
+        }, 5000);
       } else {
-        setMessage("Submission failed unexpectedly.");
+        setCoverSuccess(true);
+        if (coverSuccessTimeoutRef.current !== null) {
+          window.clearTimeout(coverSuccessTimeoutRef.current);
+        }
+        coverSuccessTimeoutRef.current = window.setTimeout(() => {
+          setCoverSuccess(false);
+          coverSuccessTimeoutRef.current = null;
+        }, 5000);
+      }
+    } catch (error) {
+      if (error instanceof Error) {
+        setErrorMessage(error.message || "Submission failed unexpectedly.");
+      } else {
+        setErrorMessage("Submission failed unexpectedly.");
       }
     } finally {
       setIsLoading(false);
-      setAudioFile(null);
-      setImageFile(null);
-      if (audioInputRef.current) {
-        audioInputRef.current.value = "";
+      if (uploadType === "audio") {
+        setAudioFile(null);
+        setDescription("");
+        if (audioInputRef.current) {
+          audioInputRef.current.value = "";
+        }
       }
-      if (imageInputRef.current) {
-        imageInputRef.current.value = "";
+      if (uploadType === "cover") {
+        setImageFile(null);
+        if (imageInputRef.current) {
+          imageInputRef.current.value = "";
+        }
       }
       setIsAudioDragging(false);
       setIsImageDragging(false);
@@ -278,7 +318,7 @@ export function SubmissionForm() {
   } as CSSProperties;
 
   return (
-    <form className="form" onSubmit={onSubmit}>
+    <form className="form" onSubmit={(event) => event.preventDefault()}>
       {isLoading ? (
         <div className="upload-progress-panel" aria-live="polite">
           <div className="upload-progress-monogram" style={monogramProgressStyle}>
@@ -325,7 +365,30 @@ export function SubmissionForm() {
             type="file"
             accept=".mp3,audio/mpeg"
             onChange={onAudioInputChange}
-            required
+          />
+          <button
+            className={audioSuccess ? "button-success-static" : "button button-primary"}
+            type="button"
+            onClick={() => onSubmit("audio")}
+            disabled={isLoading}
+          >
+            {audioSuccess ? "Audio upload successful." : "Upload Audio"}
+          </button>
+
+          <div className="field-label-row">
+            <label className="field-label" htmlFor="show-description">
+              Show description
+            </label>
+            <span className="field-label-helper">
+              briefly describe your show and provide genre tags
+            </span>
+          </div>
+          <textarea
+            id="show-description"
+            className="textarea"
+            value={description}
+            onChange={(event) => setDescription(event.target.value)}
+            rows={4}
           />
 
           <div className="field-label-row">
@@ -363,26 +426,20 @@ export function SubmissionForm() {
             accept="image/*"
             onChange={onImageInputChange}
           />
+          <button
+            className={coverSuccess ? "button-success-static" : "button button-primary"}
+            type="button"
+            onClick={() => onSubmit("cover")}
+            disabled={isLoading}
+          >
+            {coverSuccess ? "Cover upload successful." : "Upload Cover"}
+          </button>
         </>
       )}
 
-      {isLoading ? (
-        <button className="button button-primary" type="submit" disabled>
-          Submitting...
-        </button>
-      ) : message && !isError ? (
-        <p className="button-status-success" role="status" aria-live="polite">
-          {message}
-        </p>
-      ) : (
-        <button className="button button-primary" type="submit">
-          Submit Show
-        </button>
-      )}
-
-      {message && isError ? (
+      {errorMessage ? (
         <p className="message message-error">
-          {message}
+          {errorMessage}
         </p>
       ) : null}
     </form>

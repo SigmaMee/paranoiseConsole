@@ -73,7 +73,15 @@ function toCsvValue(value) {
 }
 
 function toCsv(rows) {
-  const header = ["producer_name", "status", "db_name", "ftp_folder", "match_score", "notes"];
+  const header = [
+    "producer_name",
+    "status",
+    "db_name",
+    "ftp_folder",
+    "verified_email",
+    "match_score",
+    "notes",
+  ];
   const lines = [header.join(",")];
 
   for (const row of rows) {
@@ -83,6 +91,7 @@ function toCsv(rows) {
         row.status,
         row.db_name,
         row.ftp_folder,
+        row.verified_email,
         row.match_score,
         row.notes,
       ]
@@ -94,14 +103,31 @@ function toCsv(rows) {
   return `${lines.join("\n")}\n`;
 }
 
-async function fetchDbProducerNames() {
+function getVerifiedEmailOrBlank(email) {
+  if (typeof email !== "string") {
+    return "";
+  }
+
+  const value = email.trim().toLowerCase();
+  if (!value) {
+    return "";
+  }
+
+  if (value.startsWith("pending+") || value.endsWith("@paranoise.local")) {
+    return "";
+  }
+
+  return value;
+}
+
+async function fetchDbProducers() {
   const supabaseUrl = required("NEXT_PUBLIC_SUPABASE_URL");
   const serviceRole = required("SUPABASE_SERVICE_ROLE_KEY");
   const supabase = createClient(supabaseUrl, serviceRole);
 
   const { data, error } = await supabase
     .from("profiles")
-    .select("full_name")
+    .select("full_name,producer_email")
     .order("full_name", { ascending: true });
 
   if (error) {
@@ -119,7 +145,10 @@ async function fetchDbProducerNames() {
       continue;
     }
     if (!unique.has(key)) {
-      unique.set(key, name);
+      unique.set(key, {
+        name,
+        verifiedEmail: getVerifiedEmailOrBlank(row.producer_email),
+      });
     }
   }
 
@@ -152,10 +181,15 @@ async function fetchFtpFolders() {
   }
 }
 
-function buildComparisonRows(dbNames, ftpFolders) {
+function buildComparisonRows(dbProducers, ftpFolders) {
   const rows = [];
 
-  const dbRemaining = new Map(dbNames.map((name) => [name, normalizeName(name)]));
+  const dbRemaining = new Map(
+    dbProducers.map((producer) => [producer.name, {
+      normalizedName: normalizeName(producer.name),
+      verifiedEmail: producer.verifiedEmail,
+    }]),
+  );
   const ftpRemaining = new Map(ftpFolders.map((folder) => [folder, normalizeName(folder)]));
 
   const exactByNorm = new Map();
@@ -166,7 +200,8 @@ function buildComparisonRows(dbNames, ftpFolders) {
     exactByNorm.get(norm).push(folder);
   }
 
-  for (const [dbName, dbNorm] of Array.from(dbRemaining.entries())) {
+  for (const [dbName, dbData] of Array.from(dbRemaining.entries())) {
+    const dbNorm = dbData.normalizedName;
     const exactFolders = exactByNorm.get(dbNorm);
     if (!exactFolders || exactFolders.length === 0) {
       continue;
@@ -181,6 +216,7 @@ function buildComparisonRows(dbNames, ftpFolders) {
       status: "fully aligned",
       db_name: dbName,
       ftp_folder: ftpFolder,
+      verified_email: dbData.verifiedEmail,
       match_score: "1.00",
       notes: "Exact normalized match",
     });
@@ -209,6 +245,7 @@ function buildComparisonRows(dbNames, ftpFolders) {
       continue;
     }
 
+    const dbData = dbRemaining.get(candidate.dbName);
     usedDb.add(candidate.dbName);
     usedFtp.add(candidate.ftpFolder);
     dbRemaining.delete(candidate.dbName);
@@ -219,17 +256,19 @@ function buildComparisonRows(dbNames, ftpFolders) {
       status: "somewhat aligned",
       db_name: candidate.dbName,
       ftp_folder: candidate.ftpFolder,
+      verified_email: dbData?.verifiedEmail || "",
       match_score: candidate.score.toFixed(2),
       notes: "Fuzzy/token similarity match",
     });
   }
 
-  for (const [dbName] of dbRemaining.entries()) {
+  for (const [dbName, dbData] of dbRemaining.entries()) {
     rows.push({
       producer_name: dbName,
       status: "missing in ftp",
       db_name: dbName,
       ftp_folder: "",
+      verified_email: dbData.verifiedEmail,
       match_score: "",
       notes: "No FTP folder match found",
     });
@@ -241,6 +280,7 @@ function buildComparisonRows(dbNames, ftpFolders) {
       status: "missing in db",
       db_name: "",
       ftp_folder: ftpFolder,
+      verified_email: "",
       match_score: "",
       notes: "No DB producer match found",
     });
@@ -263,10 +303,10 @@ function buildComparisonRows(dbNames, ftpFolders) {
 }
 
 async function run() {
-  const dbNames = await fetchDbProducerNames();
+  const dbProducers = await fetchDbProducers();
   const ftpFolders = await fetchFtpFolders();
 
-  const rows = buildComparisonRows(dbNames, ftpFolders);
+  const rows = buildComparisonRows(dbProducers, ftpFolders);
 
   const outputDir = path.resolve("reports");
   await fs.mkdir(outputDir, { recursive: true });

@@ -35,29 +35,17 @@ function sanitizeFilename(name: string) {
   return name.replace(/[^a-zA-Z0-9._-]/g, "_");
 }
 
-export function validateSubmission(
-  audio: File,
-  image: File | null,
-): string | null {
-  const isMp3 =
-    audio.type === "audio/mpeg" || audio.name.toLowerCase().endsWith(".mp3");
-  if (!isMp3) {
-    return "Audio must be an MP3 file.";
-  }
-
-  if (audio.size > MAX_AUDIO_BYTES) {
-    return "Audio exceeds 200 MB maximum size.";
-  }
-
-  if (image && !image.type.startsWith("image/")) {
-    return "Cover must be a standard image file type.";
-  }
-
-  return null;
+function sanitizeDescriptionToFilenameBase(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 64);
 }
 
-export async function routeAudioToFtp(
-  audio: File,
+async function uploadBytesToFtpProducerFolder(
+  bytes: Buffer,
+  uploadName: string,
   producerFolderName: string,
 ): Promise<RouteResult> {
   const host = getRequiredEnv("FTP_HOST");
@@ -83,22 +71,18 @@ export async function routeAudioToFtp(
   }
 
   const targetDir = `${producerRootDir.replace(/\/$/, "")}/${producerFolderName.trim()}`;
-
   const client = new Client();
   client.ftp.verbose = false;
 
   try {
     await client.access({ host, user, password, secure });
     await client.cd(targetDir);
-
-    const uploadName = sanitizeFilename(audio.name);
-    const bytes = Buffer.from(await audio.arrayBuffer());
     await client.uploadFrom(Readable.from(bytes), uploadName);
 
     return {
       success: true,
       destination: "ftp",
-      message: `Audio uploaded to FTP folder ${targetDir} as ${uploadName}`,
+      message: `File uploaded to FTP folder ${targetDir} as ${uploadName}`,
     };
   } catch (error) {
     return {
@@ -112,6 +96,96 @@ export async function routeAudioToFtp(
   } finally {
     client.close();
   }
+}
+
+export function validateSubmission(
+  audio: File | null,
+  image: File | null,
+  description: string,
+  uploadType: "audio" | "cover",
+): string | null {
+  if (uploadType === "audio") {
+    if (!audio) {
+      return "Audio file is required.";
+    }
+
+    const isMp3 =
+      audio.type === "audio/mpeg" || audio.name.toLowerCase().endsWith(".mp3");
+    if (!isMp3) {
+      return "Audio must be an MP3 file.";
+    }
+
+    if (audio.size > MAX_AUDIO_BYTES) {
+      return "Audio exceeds 200 MB maximum size.";
+    }
+
+    if (!description.trim()) {
+      return "Show description is required.";
+    }
+  }
+
+  if (uploadType === "cover" && !image) {
+    return "Cover image is required.";
+  }
+
+  if (image && !image.type.startsWith("image/")) {
+    return "Cover must be a standard image file type.";
+  }
+
+  return null;
+}
+
+export async function routeAudioToFtp(
+  audio: File,
+  producerFolderName: string,
+): Promise<RouteResult> {
+  const uploadName = sanitizeFilename(audio.name);
+  const bytes = Buffer.from(await audio.arrayBuffer());
+  const result = await uploadBytesToFtpProducerFolder(bytes, uploadName, producerFolderName);
+
+  return {
+    ...result,
+    message: result.success
+      ? `Audio uploaded to FTP as ${uploadName}`
+      : `Audio upload failed: ${result.message}`,
+  };
+}
+
+export async function routeDescriptionToFtp(
+  description: string,
+  producerFolderName: string,
+  baseNameHint?: string,
+): Promise<RouteResult> {
+  const hintBase = sanitizeDescriptionToFilenameBase(baseNameHint || "show-description");
+  const fallbackBase = `show-description-${randomUUID().slice(0, 8)}`;
+  const filenameBase = hintBase || fallbackBase;
+  const uploadName = `${filenameBase}.txt`;
+  const bytes = Buffer.from(description, "utf8");
+
+  const result = await uploadBytesToFtpProducerFolder(bytes, uploadName, producerFolderName);
+  return {
+    ...result,
+    message: result.success
+      ? `Description uploaded to FTP as ${uploadName}`
+      : `Description upload failed: ${result.message}`,
+  };
+}
+
+export async function routeCoverToFtp(
+  image: File,
+  producerFolderName: string,
+  uploadName: string,
+): Promise<RouteResult> {
+  const safeName = sanitizeFilename(uploadName || image.name || `cover-${randomUUID()}`);
+  const bytes = Buffer.from(await image.arrayBuffer());
+
+  const result = await uploadBytesToFtpProducerFolder(bytes, safeName, producerFolderName);
+  return {
+    ...result,
+    message: result.success
+      ? `Cover uploaded to FTP as ${safeName}`
+      : `Cover upload failed: ${result.message}`,
+  };
 }
 
 async function getDriveAuth() {
