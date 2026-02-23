@@ -70,6 +70,25 @@ npm run dev
 
 Open `http://localhost:3000`.
 
+## Deploy to Vercel (Production)
+1. Create a new Vercel project and set the Root Directory to `console-app`.
+2. Framework preset: Next.js.
+3. Build command: `npm run build`.
+4. Output directory: `.next` (default).
+5. Add all environment variables from `.env.example` in Vercel Project Settings → Environment Variables.
+6. Set production site URL:
+	- `NEXT_PUBLIC_SITE_URL=https://<your-domain>`
+7. Set Google OAuth callback URL to your production API route:
+	- `GOOGLE_OAUTH_REDIRECT_URI=https://<your-domain>/api/google-drive/oauth/callback`
+8. In Supabase Auth URL config:
+	- Site URL: `https://<your-domain>`
+	- Redirect URLs include `https://<your-domain>/dashboard`
+9. Deploy.
+
+### Production Notes
+- `/api/submissions` is configured for Node runtime with `maxDuration = 300`.
+- Large multipart uploads can still hit platform limits depending on Vercel plan/runtime constraints. If 200MB audio uploads fail in production, move upload handling to a dedicated backend/worker or shift to direct-to-storage upload flow.
+
 ## Routes
 - `/login`: producer sign-in
 - `/dashboard`: protected page (signed-in users only)

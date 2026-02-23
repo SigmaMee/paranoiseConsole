@@ -1,0 +1,90 @@
+﻿producer_name,status,db_name,ftp_folder,verified_email,match_score,notes,Comments
+A@H2O,fully aligned,A@H2O,A@H2O,toisile@gmail.com,1.00,Exact normalized match,
+Aear0n,fully aligned,Aear0n,Aear0n,aearon.prod@gmail.com,1.00,Exact normalized match,
+Atak DK,fully aligned,Atak DK,ATAK DK,david.kaestel@mailbox.org,1.00,Exact normalized match,
+Azem,fully aligned,Azem,Azem,nvardaxis@gmail.com,1.00,Exact normalized match,
+Chriz,fully aligned,Chriz,Chriz,chris.grigoroglou@gmail.com,1.00,Exact normalized match,
+Daddy Vertigo,fully aligned,Daddy Vertigo,Daddy Vertigo,vertigo2007@hotmail.com,1.00,Exact normalized match,
+DJ Grazzhoppa,fully aligned,DJ Grazzhoppa,DJ Grazzhoppa,grazzhoppa@grazzhoppa.com,1.00,Exact normalized match,
+Doctore Xyramat,fully aligned,Doctore Xyramat,Doctore Xyramat,dmarth@t-online.de,1.00,Exact normalized match,
+Female:Pressure,fully aligned,Female:Pressure,Female Pressure,,1.00,Exact normalized match,
+Flynt,fully aligned,Flynt,Flynt,kiriakosdigenakis@gmail.com,1.00,Exact normalized match,
+GNNS x SigmaTheta,fully aligned,GNNS x SigmaTheta,GNNS x SigmaTheta,papageorgiou1987@gmail.com,1.00,Exact normalized match,
+GRiD,fully aligned,GRiD,GRiD,interfacemusic73@gmail.com,1.00,Exact normalized match,
+Jahnabet,fully aligned,Jahnabet,Jahnabet,kmonastiridis@gmail.com,1.00,Exact normalized match,
+Jessie Onze,fully aligned,Jessie Onze,Jessie Onze,jessieonze@proton.me,1.00,Exact normalized match,
+Kirchoff,fully aligned,Kirchoff,Kirchoff,tekasgk@windowslive.com,1.00,Exact normalized match,
+Kyvie,fully aligned,Kyvie,Kyvie,vasilikikir07@gmail.com,1.00,Exact normalized match,
+Loki,fully aligned,Loki,Loki,lamp.bikas@gmail.com,1.00,Exact normalized match,
+OLIA,fully aligned,OLIA,OLIA,oliaavein@gmail.com,1.00,Exact normalized match,
+Padaczka,fully aligned,Padaczka,padaczka,padaczka02@gmail.com,1.00,Exact normalized match,
+Phutyle,fully aligned,Phutyle,Phutyle,phutyle@hotmail.com,1.00,Exact normalized match,
+Psontis,fully aligned,Psontis,Psontis,psontis@gmail.com,1.00,Exact normalized match,
+Red,fully aligned,Red,Red,iam.red@hotmail.com,1.00,Exact normalized match,
+Satanakey,fully aligned,Satanakey,Satanakey,satanakey@gmail.com,1.00,Exact normalized match,
+Silenic,fully aligned,Silenic,Silenic,silenic.studio@gmail.com,1.00,Exact normalized match,
+SuperGeil,fully aligned,SuperGeil,Supergeil,supergeilinc@gmail.com,1.00,Exact normalized match,
+Taki Onqoy,fully aligned,Taki Onqoy,Taki Onqoy,lowtrux@gmail.com,1.00,Exact normalized match,
+Tsourkoko,fully aligned,Tsourkoko,Tsourkoko,yodavaris@gmail.com,1.00,Exact normalized match,
+Cryogenics,somewhat aligned,Cryogenics,Cryogenics - SubWorld,cryogenicsdnb@gmail.com,0.85,Fuzzy/token similarity match,resolved
+DEPPYT,somewhat aligned,DEPPYT,Deppy,deppytsik78@gmail.com,0.85,Fuzzy/token similarity match,resolved
+Gotanine,somewhat aligned,Gotanine,Gotanine - HORA,bergmanschild@gmail.com,0.85,Fuzzy/token similarity match,resolved
+Node (Gated Recordings),somewhat aligned,Node (Gated Recordings),Node,node247@googlemail.com,0.85,Fuzzy/token similarity match,resolved
+Ntavisia Brave,somewhat aligned,Ntavisia Brave,Ntavisia,ntavisia@gmail.com,0.85,Fuzzy/token similarity match,resolved
+00 Airplays,missing in db,,00 Airplays,,,No DB producer match found,out of scope
+00 Evening Zone,missing in db,,00 Evening Zone,,,No DB producer match found,out of scope
+00 GeneralRotation,missing in db,,00 GeneralRotation,,,No DB producer match found,out of scope
+00 Morning Zone,missing in db,,00 Morning Zone,,,No DB producer match found,out of scope
+00 Morning Zone New,missing in db,,00 Morning Zone New,,,No DB producer match found,out of scope
+00 Saturday zone,missing in db,,00 Saturday zone,,,No DB producer match found,out of scope
+BookerHarris,missing in db,,BookerHarris,,,No DB producer match found,resolved
+Bullet46,missing in db,,Bullet46,,,No DB producer match found,resolved
+EHSoundsystem,missing in db,,EHSoundsystem,,,No DB producer match found,resolved
+FatalError,missing in db,,FatalError,,,No DB producer match found,
+Guest Mixes,missing in db,,Guest Mixes,,,No DB producer match found,out of scope
+Hexae,missing in db,,Hexae,,,No DB producer match found,
+Illian,missing in db,,Illian,,,No DB producer match found,rename to 'Illian'
+Interviews,missing in db,,Interviews,,,No DB producer match found,out of scope
+Jim Captain,missing in db,,Jim Captain,,,No DB producer match found,out of scope
+Jungle Bunny,missing in db,,Jungle Bunny,,,No DB producer match found,resolved
+KeithReggins,missing in db,,KeithReggins,,,No DB producer match found,resolved
+Kostas Karamanlis,missing in db,,Kostas Karamanlis,,,No DB producer match found,resolved
+Ladies on Records,missing in db,,Ladies on Records,,,No DB producer match found,out of scope
+mindcolormusic,missing in db,,mindcolormusic,,,No DB producer match found,resolved
+Noisetapes,missing in db,,Noisetapes,,,No DB producer match found,out of scope
+PanFar,missing in db,,PanFar,,,No DB producer match found,resolved
+ParanoiseRadioSpots,missing in db,,ParanoiseRadioSpots,,,No DB producer match found,out of scope
+Phi Kapa,missing in db,,Phi Kapa,fkarapatsios@gmail.com,,No DB producer match found,resolved
+Runner,missing in db,,Runner,intarunner@yahoo.com,,No DB producer match found,resolved
+Savatt,missing in db,,Savatt,,,No DB producer match found,resolved
+ShyNee,missing in db,,ShyNee,,,No DB producer match found,resolved
+Slowpete,missing in db,,Slowpete,,,No DB producer match found,out of scope
+SpacedCowboy,missing in db,,SpacedCowboy,,,No DB producer match found,resolved
+Sponsor Spots,missing in db,,Sponsor Spots,,,No DB producer match found,out of scope
+SPREY,missing in db,,SPREY,rom.pap@gmail.com,,No DB producer match found,resolved
+SummerList - Flynt,missing in db,,SummerList - Flynt,,,No DB producer match found,out of scope
+SummerList - Jim Captain,missing in db,,SummerList - Jim Captain,,,No DB producer match found,out of scope
+ThomasPriest,missing in db,,ThomasPriest,,,No DB producer match found,resolved
+Yardy,missing in db,,Yardy,spyreytos@gmail.com,,No DB producer match found,resolved
+ZasCerb,missing in db,,ZasCerb,,,No DB producer match found,resolved
+ZoltanHeller,missing in db,,ZoltanHeller,,,No DB producer match found,resolved
+Adne,missing in ftp,Adne,,ariadni.cla@gmail.com,,No FTP folder match found,resolved
+Andrea De Niro,missing in ftp,Andrea De Niro,,,,No FTP folder match found,
+Bullet 46,missing in ftp,Bullet 46,,stefanoseomer@gmail.com,,No FTP folder match found,
+DJ Booker & Harris,missing in ftp,DJ Booker & Harris,,funxion@gmail.com,,No FTP folder match found,resolved
+E.H.,missing in ftp,E.H.,,mcavalakis@gmail.com,,No FTP folder match found,
+Gross Diskos,missing in ftp,Gross Diskos,,zoltanheller666@gmail.com,,No FTP folder match found,
+Hexæ,missing in ftp,Hexæ,,Ponylickstv@gmail.com,,No FTP folder match found,resolved
+Ilian,missing in ftp,Ilian,,ilianeper@gmail.com,,No FTP folder match found,resolved
+J Bunny,missing in ftp,J Bunny,,chrisisjb@gmail.com,,No FTP folder match found,
+Kappa,missing in ftp,Kappa,,kappakappahey77@gmail.com,,No FTP folder match found,
+Nikolaos Mouchalempis,missing in ftp,Nikolaos Mouchalempis,,pllxrose@gmail.com,,No FTP folder match found,
+Omni Causa,missing in ftp,Omni Causa,,mindcolormusic@gmail.com,,No FTP folder match found,
+Pan Far,missing in ftp,Pan Far,,pantytek@hotmail.com,,No FTP folder match found,
+Shy Nee,missing in ftp,Shy Nee,,nikshynee@gmail.com,,No FTP folder match found,
+Sou Tek,missing in ftp,Sou Tek,,gsoutos@gmail.com,,No FTP folder match found,resolved
+Spaced Cowboy,missing in ftp,Spaced Cowboy,,spcdcwby@gmail.com,,No FTP folder match found,
+SVT,missing in ftp,SVT,,psv.bcn@gmail.com,,No FTP folder match found,
+Thomas Priest,missing in ftp,Thomas Priest,,thopapa74@hotmail.com,,No FTP folder match found,
+Vegapunk & Twicechild,missing in ftp,Vegapunk & Twicechild,,rage.sum.up@gmail.com,,No FTP folder match found,resolved
+Zas & Cerb,missing in ftp,Zas & Cerb,,cerbole@gmail.com,,No FTP folder match found,

@@ -14,6 +14,9 @@ import {
   getNextUpcomingShowStartByProducerEmail,
 } from "@/lib/google-calendar";
 
+export const runtime = "nodejs";
+export const maxDuration = 300;
+
 function parseSubmittedTags(value: FormDataEntryValue | null) {
   if (!value || typeof value !== "string") {
     return [] as string[];

@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { upsertGoogleDriveOAuthTokens } from "@/lib/google-drive-oauth";
 
+export const runtime = "nodejs";
+
 function dashboardUrlWithParams(message: string, isError = false) {
   const base = process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
   const url = new URL("/dashboard", base);

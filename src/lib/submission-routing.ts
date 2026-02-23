@@ -127,7 +127,7 @@ export function validateSubmission(
     return null;
   }
 
-  if (uploadType === "audio" || uploadType === "all") {
+  if (uploadType === "audio") {
     if (!audio) {
       return "Audio file is required.";
     }
@@ -151,7 +151,7 @@ export function validateSubmission(
     return "Show description or tags are required.";
   }
 
-  if ((uploadType === "cover" || uploadType === "all") && !image) {
+  if (uploadType === "cover" && !image) {
     return "Cover image is required.";
   }
 
