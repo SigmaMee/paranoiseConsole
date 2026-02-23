@@ -72,7 +72,7 @@ export default async function DashboardPage() {
               <p className="dashboard-overline">Console</p>
             </div>
             <form action={signOut}>
-              <button className="dashboard-signout" type="submit">
+              <button className="btn-neutral" type="submit">
                 Sign out
               </button>
             </form>

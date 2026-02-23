@@ -102,9 +102,9 @@ export function validateSubmission(
   audio: File | null,
   image: File | null,
   description: string,
-  uploadType: "audio" | "cover",
+  uploadType: "audio" | "cover" | "description" | "all",
 ): string | null {
-  if (uploadType === "audio") {
+  if (uploadType === "audio" || uploadType === "all") {
     if (!audio) {
       return "Audio file is required.";
     }
@@ -124,7 +124,11 @@ export function validateSubmission(
     }
   }
 
-  if (uploadType === "cover" && !image) {
+  if (uploadType === "description" && !description.trim()) {
+    return "Show description is required.";
+  }
+
+  if ((uploadType === "cover" || uploadType === "all") && !image) {
     return "Cover image is required.";
   }
 

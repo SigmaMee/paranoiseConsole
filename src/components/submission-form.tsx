@@ -68,12 +68,19 @@ export function SubmissionForm() {
   const [errorMessage, setErrorMessage] = useState("");
   const [audioSuccess, setAudioSuccess] = useState(false);
   const [coverSuccess, setCoverSuccess] = useState(false);
+  const [descriptionSuccess, setDescriptionSuccess] = useState(false);
+  const [submitAllSuccess, setSubmitAllSuccess] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [activeUploadType, setActiveUploadType] = useState<
+    "audio" | "cover" | "description" | "all" | null
+  >(null);
   const [uploadProgress, setUploadProgress] = useState(0);
   const audioInputRef = useRef<HTMLInputElement | null>(null);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
   const audioSuccessTimeoutRef = useRef<number | null>(null);
   const coverSuccessTimeoutRef = useRef<number | null>(null);
+  const descriptionSuccessTimeoutRef = useRef<number | null>(null);
+  const submitAllSuccessTimeoutRef = useRef<number | null>(null);
 
   useEffect(() => {
     return () => {
@@ -82,6 +89,12 @@ export function SubmissionForm() {
       }
       if (coverSuccessTimeoutRef.current !== null) {
         window.clearTimeout(coverSuccessTimeoutRef.current);
+      }
+      if (descriptionSuccessTimeoutRef.current !== null) {
+        window.clearTimeout(descriptionSuccessTimeoutRef.current);
+      }
+      if (submitAllSuccessTimeoutRef.current !== null) {
+        window.clearTimeout(submitAllSuccessTimeoutRef.current);
       }
     };
   }, []);
@@ -178,8 +191,8 @@ export function SubmissionForm() {
     }
   }
 
-  function validate(uploadType: "audio" | "cover") {
-    if (uploadType === "audio") {
+  function validate(uploadType: "audio" | "cover" | "description" | "all") {
+    if (uploadType === "audio" || uploadType === "all") {
       if (!audioFile) {
         return "Audio file is required.";
       }
@@ -200,7 +213,11 @@ export function SubmissionForm() {
       }
     }
 
-    if (uploadType === "cover" && !imageFile) {
+    if (uploadType === "description" && !description.trim()) {
+      return "Show description is required.";
+    }
+
+    if ((uploadType === "cover" || uploadType === "all") && !imageFile) {
       return "Cover image is required.";
     }
 
@@ -211,7 +228,7 @@ export function SubmissionForm() {
     return null;
   }
 
-  async function onSubmit(uploadType: "audio" | "cover") {
+  async function onSubmit(uploadType: "audio" | "cover" | "description" | "all") {
     setErrorMessage("");
 
     const validationError = validate(uploadType);
@@ -221,6 +238,7 @@ export function SubmissionForm() {
     }
 
     setIsLoading(true);
+    setActiveUploadType(uploadType);
     setUploadProgress(0);
 
     try {
@@ -228,10 +246,23 @@ export function SubmissionForm() {
       payload.append("uploadType", uploadType);
       if (uploadType === "audio" && audioFile) {
         payload.append("audio", audioFile);
-        payload.append("description", description.trim());
       }
       if (uploadType === "cover" && imageFile) {
         payload.append("image", imageFile);
+      }
+      if (uploadType === "description") {
+        payload.append("description", description.trim());
+      }
+      if (uploadType === "all") {
+        if (audioFile) {
+          payload.append("audio", audioFile);
+        }
+        if (imageFile) {
+          payload.append("image", imageFile);
+        }
+      }
+      if ((uploadType === "audio" || uploadType === "all") && description.trim()) {
+        payload.append("description", description.trim());
       }
 
       const { status, data } = await submitWithProgress(payload, setUploadProgress);
@@ -276,7 +307,7 @@ export function SubmissionForm() {
           setAudioSuccess(false);
           audioSuccessTimeoutRef.current = null;
         }, 5000);
-      } else {
+      } else if (uploadType === "cover") {
         setCoverSuccess(true);
         if (coverSuccessTimeoutRef.current !== null) {
           window.clearTimeout(coverSuccessTimeoutRef.current);
@@ -284,6 +315,24 @@ export function SubmissionForm() {
         coverSuccessTimeoutRef.current = window.setTimeout(() => {
           setCoverSuccess(false);
           coverSuccessTimeoutRef.current = null;
+        }, 5000);
+      } else if (uploadType === "description") {
+        setDescriptionSuccess(true);
+        if (descriptionSuccessTimeoutRef.current !== null) {
+          window.clearTimeout(descriptionSuccessTimeoutRef.current);
+        }
+        descriptionSuccessTimeoutRef.current = window.setTimeout(() => {
+          setDescriptionSuccess(false);
+          descriptionSuccessTimeoutRef.current = null;
+        }, 5000);
+      } else {
+        setSubmitAllSuccess(true);
+        if (submitAllSuccessTimeoutRef.current !== null) {
+          window.clearTimeout(submitAllSuccessTimeoutRef.current);
+        }
+        submitAllSuccessTimeoutRef.current = window.setTimeout(() => {
+          setSubmitAllSuccess(false);
+          submitAllSuccessTimeoutRef.current = null;
         }, 5000);
       }
     } catch (error) {
@@ -294,15 +343,29 @@ export function SubmissionForm() {
       }
     } finally {
       setIsLoading(false);
+      setActiveUploadType(null);
       if (uploadType === "audio") {
         setAudioFile(null);
-        setDescription("");
         if (audioInputRef.current) {
           audioInputRef.current.value = "";
         }
       }
       if (uploadType === "cover") {
         setImageFile(null);
+        if (imageInputRef.current) {
+          imageInputRef.current.value = "";
+        }
+      }
+      if (uploadType === "description") {
+        setDescription("");
+      }
+      if (uploadType === "all") {
+        setAudioFile(null);
+        setImageFile(null);
+        setDescription("");
+        if (audioInputRef.current) {
+          audioInputRef.current.value = "";
+        }
         if (imageInputRef.current) {
           imageInputRef.current.value = "";
         }
@@ -367,12 +430,16 @@ export function SubmissionForm() {
             onChange={onAudioInputChange}
           />
           <button
-            className={audioSuccess ? "button-success-static" : "button button-primary"}
+            className={audioSuccess ? "button-success-static" : "btn-neutral"}
             type="button"
             onClick={() => onSubmit("audio")}
             disabled={isLoading}
           >
-            {audioSuccess ? "Audio upload successful." : "Upload Audio"}
+            {isLoading && activeUploadType === "audio"
+              ? "Uploading audio..."
+              : audioSuccess
+                ? "Audio upload successful."
+                : "Upload Audio"}
           </button>
 
           <div className="field-label-row">
@@ -390,6 +457,18 @@ export function SubmissionForm() {
             onChange={(event) => setDescription(event.target.value)}
             rows={4}
           />
+          <button
+            className={descriptionSuccess ? "button-success-static" : "btn-neutral"}
+            type="button"
+            onClick={() => onSubmit("description")}
+            disabled={isLoading}
+          >
+            {isLoading && activeUploadType === "description"
+              ? "Uploading description..."
+              : descriptionSuccess
+                ? "Description upload successful."
+                : "Upload Description"}
+          </button>
 
           <div className="field-label-row">
             <label className="field-label" htmlFor="show-cover">
@@ -427,12 +506,28 @@ export function SubmissionForm() {
             onChange={onImageInputChange}
           />
           <button
-            className={coverSuccess ? "button-success-static" : "button button-primary"}
+            className={coverSuccess ? "button-success-static" : "btn-neutral"}
             type="button"
             onClick={() => onSubmit("cover")}
             disabled={isLoading}
           >
-            {coverSuccess ? "Cover upload successful." : "Upload Cover"}
+            {isLoading && activeUploadType === "cover"
+              ? "Uploading cover..."
+              : coverSuccess
+                ? "Cover upload successful."
+                : "Upload Cover"}
+          </button>
+          <button
+            className={submitAllSuccess ? "button-success-static" : "button button-primary"}
+            type="button"
+            onClick={() => onSubmit("all")}
+            disabled={isLoading}
+          >
+            {isLoading && activeUploadType === "all"
+              ? "Submitting all..."
+              : submitAllSuccess
+                ? "Submit all successful."
+                : "Submit all"}
           </button>
         </>
       )}

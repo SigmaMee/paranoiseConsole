@@ -56,14 +56,6 @@ export default function LoginPage() {
         </div>
 
         <form className="login-form" onSubmit={onSubmit}>
-          <Image
-            src="/branding/monogram-white.png"
-            alt="Paranoise monogram"
-            width={790}
-            height={722}
-            className="login-monogram"
-            priority
-          />
           <div className="login-residents-banner">RESIDENTS ONLY</div>
           <div className="login-label-row">
             <label className="login-label" htmlFor="email">
@@ -73,7 +65,7 @@ export default function LoginPage() {
           </div>
           <input
             id="email"
-            className="login-input"
+            className="input"
             type="email"
             placeholder="Producer email"
             value={email}
@@ -88,7 +80,7 @@ export default function LoginPage() {
           </div>
           <input
             id="password"
-            className="login-input"
+            className="input"
             type="password"
             placeholder="Password"
             value={password}

@@ -155,9 +155,9 @@ a {
 .textarea,
 .button,
 .button-ghost {
-  min-height: 42px;
-  border-radius: 6px;
-  border: 1px solid var(--line);
+  min-height: 48px;
+  border-radius: 8px;
+  border: 1px solid #FFFFFF;
   padding: 0 12px;
   font-size: 0.95rem;
   width: 100%;
@@ -179,7 +179,8 @@ a {
 .input:focus,
 .textarea:focus {
   outline: none;
-  border-color: #4a4a4a;
+  border-color: var(--blue);
+  box-shadow: 0 0 0 1px var(--blue);
 }
 
 .button {
@@ -436,7 +437,7 @@ a {
   margin-bottom: var(--spacing-m);
 }
 
-.dashboard-signout,
+.btn-neutral,
 .dashboard-connect {
   display: inline-block;
   min-height: 44px;
@@ -452,7 +453,7 @@ a {
   text-decoration: none;
 }
 
-.dashboard-signout:hover,
+.btn-neutral:hover,
 .dashboard-connect:hover {
   border-color: #d8d8d8;
   background: #292929;
@@ -502,21 +503,6 @@ a {
   font-size: 0.78rem;
 }
 
-.dashboard-screen .input,
-.dashboard-screen .textarea {
-  min-height: 48px;
-  border-radius: 8px;
-  border: 1px solid #2e8eb0;
-  background: #101417;
-  color: var(--white);
-}
-
-.dashboard-screen .input:focus,
-.dashboard-screen .textarea:focus {
-  border-color: var(--orange);
-  box-shadow: 0 0 0 1px var(--orange);
-}
-
 .dashboard-screen .button-primary {
   min-height: 48px;
   border-radius: 8px;
@@ -554,13 +540,13 @@ a {
   gap: 0.35rem;
   text-align: center;
   padding: 0.9rem;
-  cursor: pointer;
+  border: 1px solid #FFFFFF;
 }
 
 .upload-zone:focus-visible {
   outline: none;
-  border-color: #FFFFFF;
-  box-shadow: 0 0 0 1px #FFFFFF;
+  border-color: var(--blue);
+  box-shadow: 0 0 0 1px var(--blue);
 }
 
 .upload-zone-dragging {
@@ -582,18 +568,13 @@ a {
 .upload-clear {
   justify-self: start;
   min-height: auto;
-  border: 0;
-  background: transparent;
+  border: 1px solid #FFFFFF;
   color: #cfd8dc;
   font-size: 0.82rem;
   text-decoration: underline;
   cursor: pointer;
   padding: 0;
   margin-top: -0.4rem;
-}
-
-.upload-clear:hover {
-  color: var(--white);
 }
 
 .upload-progress-panel {
@@ -712,13 +693,6 @@ a {
   gap: var(--spacing-m);
 }
 
-.login-monogram {
-  width: 100%;
-  height: auto;
-  display: block;
-  margin-bottom: var(--spacing-m);
-}
-
 .login-residents-banner {
   width: 100%;
   background: var(--orange);
@@ -752,22 +726,6 @@ a {
 
 .login-footer-helper {
   text-align: right;
-}
-
-.login-input {
-  min-height: 48px;
-  border-radius: 8px;
-  border: 1px solid #2e8eb0;
-  background: #101417;
-  color: var(--white);
-  padding: 0 12px;
-  width: 100%;
-}
-
-.login-input:focus {
-  outline: none;
-  border-color: var(--orange);
-  box-shadow: 0 0 0 1px var(--orange);
 }
 
 .login-submit {

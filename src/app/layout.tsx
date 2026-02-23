@@ -15,6 +15,9 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "Paranoise Console",
   description: "MVP console for Paranoise Radio producers",
+  icons: {
+    icon: "/branding/favicon.png",
+  },
 };
 
 export default function RootLayout({

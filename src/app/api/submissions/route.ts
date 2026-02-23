@@ -80,7 +80,12 @@ export async function POST(request: Request) {
 
     const formData = await request.formData();
     const uploadTypeRaw = String(formData.get("uploadType") || "").toLowerCase();
-    const uploadType = uploadTypeRaw === "cover" ? "cover" : "audio";
+    const uploadType =
+      uploadTypeRaw === "cover" ||
+      uploadTypeRaw === "description" ||
+      uploadTypeRaw === "all"
+        ? uploadTypeRaw
+        : "audio";
     const description = String(formData.get("description") || "");
     const audio = formData.get("audio");
     const image = formData.get("image");
@@ -93,11 +98,9 @@ export async function POST(request: Request) {
 
     const optionalImage = image instanceof File && image.size > 0 ? image : null;
 
-    if (!optionalAudio && !optionalImage) {
-      return NextResponse.json(
-        { error: "At least one file is required." },
-        { status: 400 },
-      );
+    const hasAnyPayload = Boolean(optionalAudio) || Boolean(optionalImage) || Boolean(description.trim());
+    if (!hasAnyPayload) {
+      return NextResponse.json({ error: "At least one upload input is required." }, { status: 400 });
     }
 
     const validationError = validateSubmission(
@@ -125,24 +128,21 @@ export async function POST(request: Request) {
     let driveResult;
     let uploadedImageFilename = optionalImage?.name || "";
 
-    if (uploadType === "audio") {
-      const upcomingShows = await getUpcomingShowsByProducerEmail(userEmail);
-      const nextShow = upcomingShows[0];
-      const descriptionFilenameHint = nextShow
-        ? `${nextShow.title}-${formatShowDateDdMmYy(nextShow.startsAt)}`
-        : optionalAudio?.name || "show-description";
+    const upcomingShows = await getUpcomingShowsByProducerEmail(userEmail);
+    const nextShow = upcomingShows[0];
+    const showStart = nextShow?.startsAt || null;
+    const descriptionFilenameHint = nextShow
+      ? `${nextShow.title}-${formatShowDateDdMmYy(nextShow.startsAt)}`
+      : optionalAudio?.name || "show-description";
 
+    if (uploadType === "audio") {
       const audioResult = await routeAudioToFtp(optionalAudio as File, producerFolderName);
-      const descriptionResult = await routeDescriptionToFtp(
-        description,
-        producerFolderName,
-        descriptionFilenameHint,
-      );
+      
 
       ftpResult = {
-        success: audioResult.success && descriptionResult.success,
+        success: audioResult.success,
         destination: "ftp" as const,
-        message: `${audioResult.message} ${descriptionResult.message}`.trim(),
+        message: audioResult.message,
       };
 
       driveResult = {
@@ -150,9 +150,20 @@ export async function POST(request: Request) {
         destination: "google-drive" as const,
         message: "Cover upload skipped for audio action.",
       };
-    } else {
-      const showStart = await getNextUpcomingShowStartByProducerEmail(userEmail);
+    } else if (uploadType === "description") {
+      const descriptionResult = await routeDescriptionToFtp(
+        description,
+        producerFolderName,
+        descriptionFilenameHint,
+      );
 
+      ftpResult = descriptionResult;
+      driveResult = {
+        success: true,
+        destination: "google-drive" as const,
+        message: "Cover upload skipped for description action.",
+      };
+    } else if (uploadType === "all") {
       if (!showStart) {
         throw new Error("No upcoming calendar shows found for this producer.");
       }
@@ -160,10 +171,36 @@ export async function POST(request: Request) {
       const coverFilenamePrefix = buildCoverFilenamePrefix(producerFolderName, showStart);
       uploadedImageFilename = `${coverFilenamePrefix}-${(optionalImage as File).name}`;
 
-      const [ftpCoverResult, driveCoverResult] = await Promise.all([
+      const [audioResult, descriptionResult, ftpCoverResult, driveCoverResult] = await Promise.all([
+        routeAudioToFtp(optionalAudio as File, producerFolderName),
+        routeDescriptionToFtp(description, producerFolderName, descriptionFilenameHint),
         routeCoverToFtp(optionalImage as File, producerFolderName, uploadedImageFilename),
         (async () => {
           const weekdayFolderId = await getDriveWeekdayFolderIdForShowStart(showStart);
+          return routeImageToDrive(optionalImage as File, weekdayFolderId, coverFilenamePrefix);
+        })(),
+      ]);
+
+      ftpResult = {
+        success: audioResult.success && descriptionResult.success && ftpCoverResult.success,
+        destination: "ftp" as const,
+        message: `${audioResult.message} ${descriptionResult.message} ${ftpCoverResult.message}`.trim(),
+      };
+      driveResult = driveCoverResult;
+    } else {
+      const coverShowStart = showStart || (await getNextUpcomingShowStartByProducerEmail(userEmail));
+
+      if (!coverShowStart) {
+        throw new Error("No upcoming calendar shows found for this producer.");
+      }
+
+      const coverFilenamePrefix = buildCoverFilenamePrefix(producerFolderName, coverShowStart);
+      uploadedImageFilename = `${coverFilenamePrefix}-${(optionalImage as File).name}`;
+
+      const [ftpCoverResult, driveCoverResult] = await Promise.all([
+        routeCoverToFtp(optionalImage as File, producerFolderName, uploadedImageFilename),
+        (async () => {
+          const weekdayFolderId = await getDriveWeekdayFolderIdForShowStart(coverShowStart);
           return routeImageToDrive(optionalImage as File, weekdayFolderId, coverFilenamePrefix);
         })(),
       ]);
