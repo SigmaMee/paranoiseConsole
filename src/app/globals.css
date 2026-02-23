@@ -530,7 +530,7 @@ a {
   border-radius: 8px;
   border: 1px dashed #FFFFFF;
   background: #101417;
-  color: var(--white);
+  color: #aab8be;
   display: grid;
   place-content: center;
   gap: 0.35rem;
@@ -560,12 +560,13 @@ a {
 .upload-zone-primary {
   font-size: 0.95rem;
   font-weight: 500;
+  color: #aab8be;
   font-family: var(--font-geist-mono), monospace;
 }
 
 .upload-zone-secondary {
   font-size: 0.82rem;
-  color: #cfd8dc;
+  color: #aab8be;
   font-family: var(--font-geist-mono), monospace;
 }
 
