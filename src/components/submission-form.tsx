@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import {
   CSSProperties,
   ChangeEvent,
@@ -17,6 +18,24 @@ type SubmissionApiResult = {
   status: number;
   data: unknown;
 };
+
+function createFakeWaveformBars(seedSource: string, totalBars = 72) {
+  let seed = 0;
+  for (let index = 0; index < seedSource.length; index += 1) {
+    seed = (seed * 31 + seedSource.charCodeAt(index)) >>> 0;
+  }
+
+  const bars: number[] = [];
+  for (let barIndex = 0; barIndex < totalBars; barIndex += 1) {
+    seed = (seed * 1664525 + 1013904223) >>> 0;
+    const pseudoRandom = seed / 4294967296;
+    const curve = Math.sin(((barIndex + 1) / totalBars) * Math.PI) * 0.35 + 0.65;
+    const height = Math.round((0.25 + pseudoRandom * 0.75) * curve * 100);
+    bars.push(Math.max(10, Math.min(100, height)));
+  }
+
+  return bars;
+}
 
 function submitWithProgress(
   payload: FormData,
@@ -62,37 +81,26 @@ function submitWithProgress(
 export function SubmissionForm() {
   const [audioFile, setAudioFile] = useState<File | null>(null);
   const [imageFile, setImageFile] = useState<File | null>(null);
+  const [audioPreviewUrl, setAudioPreviewUrl] = useState<string | null>(null);
+  const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null);
+  const [waveformBars, setWaveformBars] = useState<number[]>([]);
+  const [audioDuration, setAudioDuration] = useState(0);
+  const [audioCurrentTime, setAudioCurrentTime] = useState(0);
+  const [isAudioPreviewPlaying, setIsAudioPreviewPlaying] = useState(false);
   const [description, setDescription] = useState("");
   const [isAudioDragging, setIsAudioDragging] = useState(false);
   const [isImageDragging, setIsImageDragging] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
-  const [audioSuccess, setAudioSuccess] = useState(false);
-  const [coverSuccess, setCoverSuccess] = useState(false);
-  const [descriptionSuccess, setDescriptionSuccess] = useState(false);
   const [submitAllSuccess, setSubmitAllSuccess] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
-  const [activeUploadType, setActiveUploadType] = useState<
-    "audio" | "cover" | "description" | "all" | null
-  >(null);
   const [uploadProgress, setUploadProgress] = useState(0);
   const audioInputRef = useRef<HTMLInputElement | null>(null);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
-  const audioSuccessTimeoutRef = useRef<number | null>(null);
-  const coverSuccessTimeoutRef = useRef<number | null>(null);
-  const descriptionSuccessTimeoutRef = useRef<number | null>(null);
+  const audioPreviewRef = useRef<HTMLAudioElement | null>(null);
   const submitAllSuccessTimeoutRef = useRef<number | null>(null);
 
   useEffect(() => {
     return () => {
-      if (audioSuccessTimeoutRef.current !== null) {
-        window.clearTimeout(audioSuccessTimeoutRef.current);
-      }
-      if (coverSuccessTimeoutRef.current !== null) {
-        window.clearTimeout(coverSuccessTimeoutRef.current);
-      }
-      if (descriptionSuccessTimeoutRef.current !== null) {
-        window.clearTimeout(descriptionSuccessTimeoutRef.current);
-      }
       if (submitAllSuccessTimeoutRef.current !== null) {
         window.clearTimeout(submitAllSuccessTimeoutRef.current);
       }
@@ -112,6 +120,47 @@ export function SubmissionForm() {
       window.clearTimeout(timeoutId);
     };
   }, [errorMessage]);
+
+  useEffect(() => {
+    if (!audioFile) {
+      setAudioPreviewUrl(null);
+      setAudioDuration(0);
+      setAudioCurrentTime(0);
+      setIsAudioPreviewPlaying(false);
+      return;
+    }
+
+    const url = URL.createObjectURL(audioFile);
+    setAudioPreviewUrl(url);
+
+    return () => {
+      URL.revokeObjectURL(url);
+    };
+  }, [audioFile]);
+
+  useEffect(() => {
+    if (!imageFile) {
+      setImagePreviewUrl(null);
+      return;
+    }
+
+    const url = URL.createObjectURL(imageFile);
+    setImagePreviewUrl(url);
+
+    return () => {
+      URL.revokeObjectURL(url);
+    };
+  }, [imageFile]);
+
+  useEffect(() => {
+    if (!audioFile) {
+      setWaveformBars([]);
+      return;
+    }
+
+    const seed = `${audioFile.name}-${audioFile.size}-${audioFile.lastModified}`;
+    setWaveformBars(createFakeWaveformBars(seed));
+  }, [audioFile]);
 
   function onAudioInputChange(event: ChangeEvent<HTMLInputElement>) {
     setAudioFile(event.target.files?.[0] ?? null);
@@ -176,7 +225,14 @@ export function SubmissionForm() {
   function clearAudioFile(event: MouseEvent<HTMLButtonElement>) {
     event.preventDefault();
     event.stopPropagation();
+    if (audioPreviewRef.current) {
+      audioPreviewRef.current.pause();
+      audioPreviewRef.current.currentTime = 0;
+    }
     setAudioFile(null);
+    setAudioCurrentTime(0);
+    setAudioDuration(0);
+    setIsAudioPreviewPlaying(false);
     if (audioInputRef.current) {
       audioInputRef.current.value = "";
     }
@@ -191,12 +247,83 @@ export function SubmissionForm() {
     }
   }
 
-  function validate(uploadType: "audio" | "cover" | "description" | "all") {
-    if (uploadType === "audio" || uploadType === "all") {
-      if (!audioFile) {
-        return "Audio file is required.";
-      }
+  function toggleAudioPreviewPlayback() {
+    if (!audioPreviewRef.current) {
+      return;
+    }
 
+    if (audioPreviewRef.current.paused) {
+      void audioPreviewRef.current.play();
+      setIsAudioPreviewPlaying(true);
+      return;
+    }
+
+    audioPreviewRef.current.pause();
+    setIsAudioPreviewPlaying(false);
+  }
+
+  function onAudioPreviewMetadataLoaded() {
+    if (!audioPreviewRef.current) {
+      return;
+    }
+    setAudioDuration(Number.isFinite(audioPreviewRef.current.duration) ? audioPreviewRef.current.duration : 0);
+  }
+
+  function onAudioPreviewTimeUpdate() {
+    if (!audioPreviewRef.current) {
+      return;
+    }
+    setAudioCurrentTime(audioPreviewRef.current.currentTime);
+  }
+
+  function onAudioSeekChange(event: ChangeEvent<HTMLInputElement>) {
+    if (!audioPreviewRef.current) {
+      return;
+    }
+
+    const nextTime = Number(event.target.value);
+    audioPreviewRef.current.currentTime = nextTime;
+    setAudioCurrentTime(nextTime);
+  }
+
+  function onWaveformClick(event: MouseEvent<HTMLDivElement>) {
+    if (!audioPreviewRef.current || audioDuration <= 0) {
+      return;
+    }
+
+    const rect = event.currentTarget.getBoundingClientRect();
+    if (rect.width <= 0) {
+      return;
+    }
+
+    const clickPosition = event.clientX - rect.left;
+    const ratio = Math.max(0, Math.min(1, clickPosition / rect.width));
+    const nextTime = ratio * audioDuration;
+    audioPreviewRef.current.currentTime = nextTime;
+    setAudioCurrentTime(nextTime);
+  }
+
+  function formatSeconds(seconds: number) {
+    if (!Number.isFinite(seconds) || seconds <= 0) {
+      return "0:00";
+    }
+
+    const totalSeconds = Math.floor(seconds);
+    const minutes = Math.floor(totalSeconds / 60);
+    const remainingSeconds = totalSeconds % 60;
+    return `${minutes}:${String(remainingSeconds).padStart(2, "0")}`;
+  }
+
+  function validate() {
+    const hasAudio = Boolean(audioFile);
+    const hasImage = Boolean(imageFile);
+    const hasDescription = Boolean(description.trim());
+
+    if (!hasAudio && !hasImage && !hasDescription) {
+      return "Add at least one of audio, cover image, or show description.";
+    }
+
+    if (audioFile) {
       const isMp3 =
         audioFile.type === "audio/mpeg" || audioFile.name.toLowerCase().endsWith(".mp3");
 
@@ -207,18 +334,6 @@ export function SubmissionForm() {
       if (audioFile.size > MAX_AUDIO_BYTES) {
         return "Audio exceeds 200 MB maximum size.";
       }
-
-      if (!description.trim()) {
-        return "Show description is required.";
-      }
-    }
-
-    if (uploadType === "description" && !description.trim()) {
-      return "Show description is required.";
-    }
-
-    if ((uploadType === "cover" || uploadType === "all") && !imageFile) {
-      return "Cover image is required.";
     }
 
     if (imageFile && !imageFile.type.startsWith("image/")) {
@@ -228,40 +343,28 @@ export function SubmissionForm() {
     return null;
   }
 
-  async function onSubmit(uploadType: "audio" | "cover" | "description" | "all") {
+  async function onSubmit() {
     setErrorMessage("");
 
-    const validationError = validate(uploadType);
+    const validationError = validate();
     if (validationError) {
       setErrorMessage(validationError);
       return;
     }
 
     setIsLoading(true);
-    setActiveUploadType(uploadType);
     setUploadProgress(0);
 
     try {
       const payload = new FormData();
-      payload.append("uploadType", uploadType);
-      if (uploadType === "audio" && audioFile) {
+      payload.append("uploadType", "all");
+      if (audioFile) {
         payload.append("audio", audioFile);
       }
-      if (uploadType === "cover" && imageFile) {
+      if (imageFile) {
         payload.append("image", imageFile);
       }
-      if (uploadType === "description") {
-        payload.append("description", description.trim());
-      }
-      if (uploadType === "all") {
-        if (audioFile) {
-          payload.append("audio", audioFile);
-        }
-        if (imageFile) {
-          payload.append("image", imageFile);
-        }
-      }
-      if ((uploadType === "audio" || uploadType === "all") && description.trim()) {
+      if (description.trim()) {
         payload.append("description", description.trim());
       }
 
@@ -298,43 +401,14 @@ export function SubmissionForm() {
         return;
       }
 
-      if (uploadType === "audio") {
-        setAudioSuccess(true);
-        if (audioSuccessTimeoutRef.current !== null) {
-          window.clearTimeout(audioSuccessTimeoutRef.current);
-        }
-        audioSuccessTimeoutRef.current = window.setTimeout(() => {
-          setAudioSuccess(false);
-          audioSuccessTimeoutRef.current = null;
-        }, 5000);
-      } else if (uploadType === "cover") {
-        setCoverSuccess(true);
-        if (coverSuccessTimeoutRef.current !== null) {
-          window.clearTimeout(coverSuccessTimeoutRef.current);
-        }
-        coverSuccessTimeoutRef.current = window.setTimeout(() => {
-          setCoverSuccess(false);
-          coverSuccessTimeoutRef.current = null;
-        }, 5000);
-      } else if (uploadType === "description") {
-        setDescriptionSuccess(true);
-        if (descriptionSuccessTimeoutRef.current !== null) {
-          window.clearTimeout(descriptionSuccessTimeoutRef.current);
-        }
-        descriptionSuccessTimeoutRef.current = window.setTimeout(() => {
-          setDescriptionSuccess(false);
-          descriptionSuccessTimeoutRef.current = null;
-        }, 5000);
-      } else {
-        setSubmitAllSuccess(true);
-        if (submitAllSuccessTimeoutRef.current !== null) {
-          window.clearTimeout(submitAllSuccessTimeoutRef.current);
-        }
-        submitAllSuccessTimeoutRef.current = window.setTimeout(() => {
-          setSubmitAllSuccess(false);
-          submitAllSuccessTimeoutRef.current = null;
-        }, 5000);
+      setSubmitAllSuccess(true);
+      if (submitAllSuccessTimeoutRef.current !== null) {
+        window.clearTimeout(submitAllSuccessTimeoutRef.current);
       }
+      submitAllSuccessTimeoutRef.current = window.setTimeout(() => {
+        setSubmitAllSuccess(false);
+        submitAllSuccessTimeoutRef.current = null;
+      }, 5000);
     } catch (error) {
       if (error instanceof Error) {
         setErrorMessage(error.message || "Submission failed unexpectedly.");
@@ -343,33 +417,22 @@ export function SubmissionForm() {
       }
     } finally {
       setIsLoading(false);
-      setActiveUploadType(null);
-      if (uploadType === "audio") {
-        setAudioFile(null);
-        if (audioInputRef.current) {
-          audioInputRef.current.value = "";
-        }
+      setAudioFile(null);
+      setImageFile(null);
+      setDescription("");
+      if (audioInputRef.current) {
+        audioInputRef.current.value = "";
       }
-      if (uploadType === "cover") {
-        setImageFile(null);
-        if (imageInputRef.current) {
-          imageInputRef.current.value = "";
-        }
+      if (imageInputRef.current) {
+        imageInputRef.current.value = "";
       }
-      if (uploadType === "description") {
-        setDescription("");
+      if (audioPreviewRef.current) {
+        audioPreviewRef.current.pause();
+        audioPreviewRef.current.currentTime = 0;
       }
-      if (uploadType === "all") {
-        setAudioFile(null);
-        setImageFile(null);
-        setDescription("");
-        if (audioInputRef.current) {
-          audioInputRef.current.value = "";
-        }
-        if (imageInputRef.current) {
-          imageInputRef.current.value = "";
-        }
-      }
+      setAudioCurrentTime(0);
+      setAudioDuration(0);
+      setIsAudioPreviewPlaying(false);
       setIsAudioDragging(false);
       setIsImageDragging(false);
       setUploadProgress(0);
@@ -379,6 +442,11 @@ export function SubmissionForm() {
   const monogramProgressStyle = {
     "--upload-fill": String(uploadProgress / 100),
   } as CSSProperties;
+
+  const playedWaveformBars =
+    waveformBars.length > 0 && audioDuration > 0
+      ? Math.min(waveformBars.length, Math.max(0, Math.round((audioCurrentTime / audioDuration) * waveformBars.length)))
+      : 0;
 
   return (
     <form className="form" onSubmit={(event) => event.preventDefault()}>
@@ -395,31 +463,71 @@ export function SubmissionForm() {
       ) : (
         <>
           <div className="field-label-row">
+            <label className="field-label" htmlFor="show-cover">
+              Cover image
+            </label>
+            <span className="field-label-helper">JPEG 800X800 MIN</span>
+          </div>
+          {!imageFile ? (
+            <div
+              className={`upload-zone upload-zone-square ${isImageDragging ? "upload-zone-dragging" : ""}`}
+              role="button"
+              tabIndex={0}
+              onClick={openImagePicker}
+              onKeyDown={(event) => onDropzoneKeyDown(event, openImagePicker)}
+              onDragOver={onImageDragOver}
+              onDragLeave={onImageDragLeave}
+              onDrop={onImageDrop}
+              aria-label="Upload cover image"
+            >
+              <p className="upload-zone-primary">Drag and drop your cover image here</p>
+              <p className="upload-zone-secondary">or click to upload</p>
+            </div>
+          ) : null}
+          <input
+            ref={imageInputRef}
+            id="show-cover"
+            className="upload-input-hidden"
+            type="file"
+            accept="image/*"
+            onChange={onImageInputChange}
+          />
+          {imagePreviewUrl ? (
+            <div className="cover-preview-card">
+              <Image
+                className="cover-preview-image"
+                src={imagePreviewUrl}
+                alt="Selected cover preview"
+                width={800}
+                height={800}
+                unoptimized
+              />
+              <button className="btn-tertiary" type="button" onClick={clearImageFile}>
+                Remove cover image
+              </button>
+            </div>
+          ) : null}
+          <div className="field-label-row">
             <label className="field-label" htmlFor="show-audio">
               Audio
             </label>
             <span className="field-label-helper">MP3 320KBPS 120’ MAX</span>
           </div>
-          <div
-            className={`upload-zone ${isAudioDragging ? "upload-zone-dragging" : ""}`}
-            role="button"
-            tabIndex={0}
-            onClick={openAudioPicker}
-            onKeyDown={(event) => onDropzoneKeyDown(event, openAudioPicker)}
-            onDragOver={onAudioDragOver}
-            onDragLeave={onAudioDragLeave}
-            onDrop={onAudioDrop}
-            aria-label="Upload audio file"
-          >
-            <p className="upload-zone-primary">
-              {audioFile ? audioFile.name : "Drag and drop your MP3 here"}
-            </p>
-            <p className="upload-zone-secondary">or click to upload</p>
-          </div>
-          {audioFile ? (
-            <button className="upload-clear" type="button" onClick={clearAudioFile}>
-              Remove audio file
-            </button>
+          {!audioFile ? (
+            <div
+              className={`upload-zone ${isAudioDragging ? "upload-zone-dragging" : ""}`}
+              role="button"
+              tabIndex={0}
+              onClick={openAudioPicker}
+              onKeyDown={(event) => onDropzoneKeyDown(event, openAudioPicker)}
+              onDragOver={onAudioDragOver}
+              onDragLeave={onAudioDragLeave}
+              onDrop={onAudioDrop}
+              aria-label="Upload audio file"
+            >
+              <p className="upload-zone-primary">Drag and drop your MP3 here</p>
+              <p className="upload-zone-secondary">or click to upload</p>
+            </div>
           ) : null}
           <input
             ref={audioInputRef}
@@ -429,19 +537,60 @@ export function SubmissionForm() {
             accept=".mp3,audio/mpeg"
             onChange={onAudioInputChange}
           />
-          <button
-            className={audioSuccess ? "button-success-static" : "btn-neutral"}
-            type="button"
-            onClick={() => onSubmit("audio")}
-            disabled={isLoading}
-          >
-            {isLoading && activeUploadType === "audio"
-              ? "Uploading audio..."
-              : audioSuccess
-                ? "Audio upload successful."
-                : "Upload Audio"}
-          </button>
-
+          {audioPreviewUrl ? (
+            <div className="audio-preview-card">
+              <audio
+                ref={audioPreviewRef}
+                src={audioPreviewUrl}
+                preload="metadata"
+                onLoadedMetadata={onAudioPreviewMetadataLoaded}
+                onTimeUpdate={onAudioPreviewTimeUpdate}
+                onPlay={() => setIsAudioPreviewPlaying(true)}
+                onPause={() => setIsAudioPreviewPlaying(false)}
+                onEnded={() => setIsAudioPreviewPlaying(false)}
+              />
+              <div className="audio-preview-main">
+                <button
+                  type="button"
+                  className="audio-preview-icon"
+                  onClick={toggleAudioPreviewPlayback}
+                  aria-label={isAudioPreviewPlaying ? "Pause preview" : "Play preview"}
+                >
+                  {isAudioPreviewPlaying ? "❚❚" : "▶"}
+                </button>
+                <div className="audio-preview-track">
+                  <div className="audio-waveform" onClick={onWaveformClick} role="presentation">
+                    {(waveformBars.length > 0 ? waveformBars : Array.from({ length: 72 }, () => 12)).map(
+                      (barHeight, index) => (
+                        <span
+                          key={`${barHeight}-${index}`}
+                          className={`audio-waveform-bar ${index < playedWaveformBars ? "audio-waveform-bar-played" : ""}`}
+                          style={{ height: `${barHeight}%` }}
+                        />
+                      ),
+                    )}
+                  </div>
+                  <input
+                    type="range"
+                    className="audio-seek"
+                    min={0}
+                    max={audioDuration > 0 ? audioDuration : 0}
+                    step={0.1}
+                    value={audioCurrentTime}
+                    onChange={onAudioSeekChange}
+                    disabled={audioDuration <= 0}
+                    aria-label="Seek audio preview"
+                  />
+                  <span className="audio-preview-time">
+                    {formatSeconds(audioCurrentTime)} / {formatSeconds(audioDuration)}
+                  </span>
+                </div>
+              </div>
+              <button className="btn-tertiary" type="button" onClick={clearAudioFile}>
+                Remove audio file
+              </button>
+            </div>
+          ) : null}
           <div className="field-label-row">
             <label className="field-label" htmlFor="show-description">
               Show description
@@ -458,76 +607,16 @@ export function SubmissionForm() {
             rows={4}
           />
           <button
-            className={descriptionSuccess ? "button-success-static" : "btn-neutral"}
-            type="button"
-            onClick={() => onSubmit("description")}
-            disabled={isLoading}
-          >
-            {isLoading && activeUploadType === "description"
-              ? "Uploading description..."
-              : descriptionSuccess
-                ? "Description upload successful."
-                : "Upload Description"}
-          </button>
-
-          <div className="field-label-row">
-            <label className="field-label" htmlFor="show-cover">
-              Cover image
-            </label>
-            <span className="field-label-helper">JPEG 800X800 MIN</span>
-          </div>
-          <div
-            className={`upload-zone ${isImageDragging ? "upload-zone-dragging" : ""}`}
-            role="button"
-            tabIndex={0}
-            onClick={openImagePicker}
-            onKeyDown={(event) => onDropzoneKeyDown(event, openImagePicker)}
-            onDragOver={onImageDragOver}
-            onDragLeave={onImageDragLeave}
-            onDrop={onImageDrop}
-            aria-label="Upload cover image"
-          >
-            <p className="upload-zone-primary">
-              {imageFile ? imageFile.name : "Drag and drop your cover image here"}
-            </p>
-            <p className="upload-zone-secondary">or click to upload</p>
-          </div>
-          {imageFile ? (
-            <button className="upload-clear" type="button" onClick={clearImageFile}>
-              Remove cover image
-            </button>
-          ) : null}
-          <input
-            ref={imageInputRef}
-            id="show-cover"
-            className="upload-input-hidden"
-            type="file"
-            accept="image/*"
-            onChange={onImageInputChange}
-          />
-          <button
-            className={coverSuccess ? "button-success-static" : "btn-neutral"}
-            type="button"
-            onClick={() => onSubmit("cover")}
-            disabled={isLoading}
-          >
-            {isLoading && activeUploadType === "cover"
-              ? "Uploading cover..."
-              : coverSuccess
-                ? "Cover upload successful."
-                : "Upload Cover"}
-          </button>
-          <button
             className={submitAllSuccess ? "button-success-static" : "button button-primary"}
             type="button"
-            onClick={() => onSubmit("all")}
+            onClick={() => onSubmit()}
             disabled={isLoading}
           >
-            {isLoading && activeUploadType === "all"
-              ? "Submitting all..."
+            {isLoading
+              ? "Submitting show..."
               : submitAllSuccess
-                ? "Submit all successful."
-                : "Submit all"}
+                ? "Show submitted successfully."
+                : "Submit show"}
           </button>
         </>
       )}

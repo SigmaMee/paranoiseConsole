@@ -164,29 +164,63 @@ export async function POST(request: Request) {
         message: "Cover upload skipped for description action.",
       };
     } else if (uploadType === "all") {
-      if (!showStart) {
-        throw new Error("No upcoming calendar shows found for this producer.");
+      const ftpMessages: string[] = [];
+      let ftpSuccess = true;
+
+      if (optionalAudio) {
+        const audioResult = await routeAudioToFtp(optionalAudio, producerFolderName);
+        ftpSuccess = ftpSuccess && audioResult.success;
+        ftpMessages.push(audioResult.message);
       }
 
-      const coverFilenamePrefix = buildCoverFilenamePrefix(producerFolderName, showStart);
-      uploadedImageFilename = `${coverFilenamePrefix}-${(optionalImage as File).name}`;
+      if (description.trim()) {
+        const descriptionResult = await routeDescriptionToFtp(
+          description,
+          producerFolderName,
+          descriptionFilenameHint,
+        );
+        ftpSuccess = ftpSuccess && descriptionResult.success;
+        ftpMessages.push(descriptionResult.message);
+      }
 
-      const [audioResult, descriptionResult, ftpCoverResult, driveCoverResult] = await Promise.all([
-        routeAudioToFtp(optionalAudio as File, producerFolderName),
-        routeDescriptionToFtp(description, producerFolderName, descriptionFilenameHint),
-        routeCoverToFtp(optionalImage as File, producerFolderName, uploadedImageFilename),
-        (async () => {
-          const weekdayFolderId = await getDriveWeekdayFolderIdForShowStart(showStart);
-          return routeImageToDrive(optionalImage as File, weekdayFolderId, coverFilenamePrefix);
-        })(),
-      ]);
+      let driveSuccess = true;
+      let driveMessage = "Cover upload skipped.";
+
+      if (optionalImage) {
+        const coverShowStart = showStart || (await getNextUpcomingShowStartByProducerEmail(userEmail));
+
+        if (!coverShowStart) {
+          throw new Error("No upcoming calendar shows found for this producer.");
+        }
+
+        const coverFilenamePrefix = buildCoverFilenamePrefix(producerFolderName, coverShowStart);
+        uploadedImageFilename = `${coverFilenamePrefix}-${optionalImage.name}`;
+
+        const [ftpCoverResult, driveCoverResult] = await Promise.all([
+          routeCoverToFtp(optionalImage, producerFolderName, uploadedImageFilename),
+          (async () => {
+            const weekdayFolderId = await getDriveWeekdayFolderIdForShowStart(coverShowStart);
+            return routeImageToDrive(optionalImage, weekdayFolderId, coverFilenamePrefix);
+          })(),
+        ]);
+
+        ftpSuccess = ftpSuccess && ftpCoverResult.success;
+        ftpMessages.push(ftpCoverResult.message);
+
+        driveSuccess = driveCoverResult.success;
+        driveMessage = driveCoverResult.message;
+      }
 
       ftpResult = {
-        success: audioResult.success && descriptionResult.success && ftpCoverResult.success,
+        success: ftpSuccess,
         destination: "ftp" as const,
-        message: `${audioResult.message} ${descriptionResult.message} ${ftpCoverResult.message}`.trim(),
+        message: ftpMessages.length > 0 ? ftpMessages.join(" ").trim() : "No FTP payload uploaded.",
       };
-      driveResult = driveCoverResult;
+      driveResult = {
+        success: driveSuccess,
+        destination: "google-drive" as const,
+        message: driveMessage,
+      };
     } else {
       const coverShowStart = showStart || (await getNextUpcomingShowStartByProducerEmail(userEmail));
 

@@ -543,6 +543,11 @@ a {
   border: 1px solid #FFFFFF;
 }
 
+.upload-zone-square {
+  min-height: 0;
+  aspect-ratio: 1 / 1;
+}
+
 .upload-zone:focus-visible {
   outline: none;
   border-color: var(--blue);
@@ -565,16 +570,111 @@ a {
   color: #cfd8dc;
 }
 
-.upload-clear {
-  justify-self: start;
+.btn-tertiary {
+  justify-self: end;
   min-height: auto;
-  border: 1px solid #FFFFFF;
-  color: #cfd8dc;
+  border: 0;
+  background: transparent;
+  color: var(--orange);
   font-size: 0.82rem;
   text-decoration: underline;
   cursor: pointer;
   padding: 0;
-  margin-top: -0.4rem;
+}
+
+.audio-preview-card {
+  border: 1px solid #FFFFFF;
+  border-radius: 8px;
+  background: #101417;
+  padding: 0.75rem;
+  display: grid;
+  gap: 0.6rem;
+}
+
+.audio-preview-main {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.audio-preview-icon {
+  width: 42px;
+  height: 42px;
+  border-radius: 999px;
+  border: 0;
+  background: var(--blue);
+  color: var(--black);
+  font-size: 1rem;
+  font-weight: 700;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+}
+
+.audio-preview-time {
+  color: #cfd8dc;
+  font-size: 0.82rem;
+  letter-spacing: 0.03em;
+  justify-self: end;
+}
+
+.audio-preview-track {
+  flex: 1;
+  display: grid;
+  gap: 0.45rem;
+}
+
+.audio-waveform {
+  width: 100%;
+  height: 74px;
+  border-radius: 8px;
+  background: #13191d;
+  display: grid;
+  grid-template-columns: repeat(72, minmax(0, 1fr));
+  align-items: end;
+  gap: 2px;
+  padding: 0.4rem;
+  cursor: pointer;
+}
+
+.audio-waveform-bar {
+  width: 100%;
+  border-radius: 99px;
+  background: #cfd8dc;
+  opacity: 0.6;
+}
+
+.audio-waveform-bar-played {
+  background: var(--blue);
+  opacity: 1;
+}
+
+.audio-seek {
+  width: 100%;
+  accent-color: var(--blue);
+}
+
+.cover-preview-card {
+  border: 1px solid #FFFFFF;
+  border-radius: 8px;
+  background: #101417;
+  padding: 0;
+  display: grid;
+  gap: 0;
+  overflow: hidden;
+}
+
+.cover-preview-image {
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  object-fit: cover;
+  border-radius: 0;
+  display: block;
+}
+
+.cover-preview-card .btn-tertiary {
+  padding: 0.5rem;
 }
 
 .upload-progress-panel {

@@ -104,6 +104,26 @@ export function validateSubmission(
   description: string,
   uploadType: "audio" | "cover" | "description" | "all",
 ): string | null {
+  if (uploadType === "all") {
+    if (audio) {
+      const isMp3 =
+        audio.type === "audio/mpeg" || audio.name.toLowerCase().endsWith(".mp3");
+      if (!isMp3) {
+        return "Audio must be an MP3 file.";
+      }
+
+      if (audio.size > MAX_AUDIO_BYTES) {
+        return "Audio exceeds 200 MB maximum size.";
+      }
+    }
+
+    if (image && !image.type.startsWith("image/")) {
+      return "Cover must be a standard image file type.";
+    }
+
+    return null;
+  }
+
   if (uploadType === "audio" || uploadType === "all") {
     if (!audio) {
       return "Audio file is required.";
