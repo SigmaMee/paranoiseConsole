@@ -102,8 +102,11 @@ export function validateSubmission(
   audio: File | null,
   image: File | null,
   description: string,
+  tags: string[],
   uploadType: "audio" | "cover" | "description" | "all",
 ): string | null {
+  const hasTextPayload = Boolean(description.trim()) || tags.length > 0;
+
   if (uploadType === "all") {
     if (audio) {
       const isMp3 =
@@ -139,13 +142,13 @@ export function validateSubmission(
       return "Audio exceeds 200 MB maximum size.";
     }
 
-    if (!description.trim()) {
-      return "Show description is required.";
+    if (!hasTextPayload) {
+      return "Show description or tags are required.";
     }
   }
 
-  if (uploadType === "description" && !description.trim()) {
-    return "Show description is required.";
+  if (uploadType === "description" && !hasTextPayload) {
+    return "Show description or tags are required.";
   }
 
   if ((uploadType === "cover" || uploadType === "all") && !image) {

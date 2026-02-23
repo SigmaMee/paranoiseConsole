@@ -84,23 +84,18 @@ export default async function DashboardPage() {
 
         <section className="dashboard-panel">
           <div className="dashboard-banner">
-            <span>UPCOMING SHOW:</span>
+            <span>RADIO SHOW SUBMISSION</span>
             <span>{upcomingShowText}</span>
           </div>
         </section>
 
         <section className="dashboard-panel">
-          <div className="section-head">
-            <h2 className="dashboard-section-title">Submit your radio show</h2>
-          </div>
           <SubmissionForm />
         </section>
 
         {isAdmin ? (
           <section className="dashboard-panel">
-            <div className="section-head">
-              <h2 className="dashboard-section-title">Google Drive Connection</h2>
-            </div>
+            <h2 className="dashboard-section-title">Google Drive Connection</h2>
             <p className="muted">
               Connect the Paranoise Google account once so cover uploads can run in background
               without asking producers to sign into Google.

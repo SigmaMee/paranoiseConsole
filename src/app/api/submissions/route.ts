@@ -14,6 +14,43 @@ import {
   getNextUpcomingShowStartByProducerEmail,
 } from "@/lib/google-calendar";
 
+function parseSubmittedTags(value: FormDataEntryValue | null) {
+  if (!value || typeof value !== "string") {
+    return [] as string[];
+  }
+
+  try {
+    const parsed = JSON.parse(value);
+    if (Array.isArray(parsed)) {
+      return parsed
+        .filter((item): item is string => typeof item === "string")
+        .map((item) => item.trim().toLowerCase())
+        .filter((item) => Boolean(item));
+    }
+  } catch {}
+
+  return value
+    .split(",")
+    .map((item) => item.trim().toLowerCase())
+    .filter((item) => Boolean(item));
+}
+
+function buildDescriptionFileContent(description: string, tags: string[]) {
+  const parts: string[] = [];
+  const trimmedDescription = description.trim();
+
+  if (trimmedDescription) {
+    parts.push(trimmedDescription);
+  }
+
+  if (tags.length > 0) {
+    const tagsBlock = `Tags: ${tags.join(", ")}`;
+    parts.push(tagsBlock);
+  }
+
+  return parts.join("\n\n").trim();
+}
+
 function formatShowDateDdMmYy(showStart: string) {
   const directMatch = showStart.match(/^(\d{4})-(\d{2})-(\d{2})/);
   if (directMatch) {
@@ -87,6 +124,8 @@ export async function POST(request: Request) {
         ? uploadTypeRaw
         : "audio";
     const description = String(formData.get("description") || "");
+    const tags = parseSubmittedTags(formData.get("tags"));
+    const descriptionFileContent = buildDescriptionFileContent(description, tags);
     const audio = formData.get("audio");
     const image = formData.get("image");
 
@@ -98,7 +137,8 @@ export async function POST(request: Request) {
 
     const optionalImage = image instanceof File && image.size > 0 ? image : null;
 
-    const hasAnyPayload = Boolean(optionalAudio) || Boolean(optionalImage) || Boolean(description.trim());
+    const hasAnyPayload =
+      Boolean(optionalAudio) || Boolean(optionalImage) || Boolean(descriptionFileContent);
     if (!hasAnyPayload) {
       return NextResponse.json({ error: "At least one upload input is required." }, { status: 400 });
     }
@@ -107,6 +147,7 @@ export async function POST(request: Request) {
       optionalAudio,
       optionalImage,
       description,
+      tags,
       uploadType,
     );
     if (validationError) {
@@ -152,7 +193,7 @@ export async function POST(request: Request) {
       };
     } else if (uploadType === "description") {
       const descriptionResult = await routeDescriptionToFtp(
-        description,
+        descriptionFileContent,
         producerFolderName,
         descriptionFilenameHint,
       );
@@ -173,9 +214,9 @@ export async function POST(request: Request) {
         ftpMessages.push(audioResult.message);
       }
 
-      if (description.trim()) {
+      if (descriptionFileContent) {
         const descriptionResult = await routeDescriptionToFtp(
-          description,
+          descriptionFileContent,
           producerFolderName,
           descriptionFilenameHint,
         );

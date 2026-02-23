@@ -14,6 +14,70 @@ import {
 
 const MAX_AUDIO_BYTES = 200 * 1024 * 1024;
 
+const MUSICBRAINZ_GENRE_TAGS = [
+  "acid house",
+  "acid jazz",
+  "afrobeat",
+  "ambient",
+  "bassline",
+  "beat",
+  "big beat",
+  "boogie",
+  "breakbeat",
+  "broken beat",
+  "chillout",
+  "club",
+  "dark ambient",
+  "deep house",
+  "detroit techno",
+  "disco",
+  "dnb",
+  "drone",
+  "drum and bass",
+  "dub",
+  "dubstep",
+  "downtempo",
+  "ebm",
+  "electro",
+  "electro house",
+  "electronic",
+  "experimental",
+  "funk",
+  "future garage",
+  "garage",
+  "glitch",
+  "goa trance",
+  "grime",
+  "hard house",
+  "hard techno",
+  "hardcore",
+  "hardstyle",
+  "house",
+  "idm",
+  "industrial",
+  "jazz",
+  "jungle",
+  "leftfield",
+  "lo-fi",
+  "minimal",
+  "minimal techno",
+  "neo soul",
+  "nu disco",
+  "progressive house",
+  "psychedelic",
+  "psytrance",
+  "rave",
+  "soul",
+  "tech house",
+  "techno",
+  "trance",
+  "tribal",
+  "trip hop",
+  "uk bass",
+  "uk garage",
+  "vaporwave",
+].sort((first, second) => first.localeCompare(second));
+
 type SubmissionApiResult = {
   status: number;
   data: unknown;
@@ -88,6 +152,10 @@ export function SubmissionForm() {
   const [audioCurrentTime, setAudioCurrentTime] = useState(0);
   const [isAudioPreviewPlaying, setIsAudioPreviewPlaying] = useState(false);
   const [description, setDescription] = useState("");
+  const [selectedTags, setSelectedTags] = useState<string[]>([]);
+  const [tagInputValue, setTagInputValue] = useState("");
+  const [isTagMenuOpen, setIsTagMenuOpen] = useState(false);
+  const [highlightedTagIndex, setHighlightedTagIndex] = useState(0);
   const [isAudioDragging, setIsAudioDragging] = useState(false);
   const [isImageDragging, setIsImageDragging] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
@@ -97,6 +165,7 @@ export function SubmissionForm() {
   const audioInputRef = useRef<HTMLInputElement | null>(null);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
   const audioPreviewRef = useRef<HTMLAudioElement | null>(null);
+  const tagInputRef = useRef<HTMLInputElement | null>(null);
   const submitAllSuccessTimeoutRef = useRef<number | null>(null);
 
   useEffect(() => {
@@ -137,6 +206,86 @@ export function SubmissionForm() {
       URL.revokeObjectURL(url);
     };
   }, [audioFile]);
+
+  useEffect(() => {
+    setHighlightedTagIndex(0);
+  }, [tagInputValue]);
+
+  const normalizedTagInput = tagInputValue.trim().toLowerCase();
+  const filteredTagSuggestions = MUSICBRAINZ_GENRE_TAGS.filter(
+    (tag) =>
+      !selectedTags.includes(tag) &&
+      (normalizedTagInput.length === 0 || tag.includes(normalizedTagInput)),
+  ).slice(0, 8);
+
+  function addTag(rawValue: string) {
+    const normalized = rawValue.trim().toLowerCase().replace(/\s+/g, " ");
+    if (!normalized) {
+      return;
+    }
+
+    if (selectedTags.includes(normalized)) {
+      setTagInputValue("");
+      return;
+    }
+
+    if (selectedTags.length >= 5) {
+      setErrorMessage("You can add up to 5 tags.");
+      return;
+    }
+
+    setSelectedTags((previous) => [...previous, normalized]);
+    setTagInputValue("");
+    setIsTagMenuOpen(false);
+  }
+
+  function removeTag(tagToRemove: string) {
+    setSelectedTags((previous) => previous.filter((tag) => tag !== tagToRemove));
+  }
+
+  function onTagInputKeyDown(event: KeyboardEvent<HTMLInputElement>) {
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      if (filteredTagSuggestions.length === 0) {
+        return;
+      }
+      setIsTagMenuOpen(true);
+      setHighlightedTagIndex((previous) =>
+        Math.min(filteredTagSuggestions.length - 1, previous + 1),
+      );
+      return;
+    }
+
+    if (event.key === "ArrowUp") {
+      event.preventDefault();
+      if (filteredTagSuggestions.length === 0) {
+        return;
+      }
+      setHighlightedTagIndex((previous) => Math.max(0, previous - 1));
+      return;
+    }
+
+    if (event.key === "Enter" || event.key === ",") {
+      event.preventDefault();
+      const suggestion = filteredTagSuggestions[highlightedTagIndex];
+      if (isTagMenuOpen && suggestion) {
+        addTag(suggestion);
+      } else {
+        addTag(tagInputValue);
+      }
+      return;
+    }
+
+    if (event.key === "Backspace" && !tagInputValue && selectedTags.length > 0) {
+      event.preventDefault();
+      removeTag(selectedTags[selectedTags.length - 1]);
+      return;
+    }
+
+    if (event.key === "Escape") {
+      setIsTagMenuOpen(false);
+    }
+  }
 
   useEffect(() => {
     if (!imageFile) {
@@ -318,9 +467,10 @@ export function SubmissionForm() {
     const hasAudio = Boolean(audioFile);
     const hasImage = Boolean(imageFile);
     const hasDescription = Boolean(description.trim());
+    const hasTags = selectedTags.length > 0;
 
-    if (!hasAudio && !hasImage && !hasDescription) {
-      return "Add at least one of audio, cover image, or show description.";
+    if (!hasAudio && !hasImage && !hasDescription && !hasTags) {
+      return "Add at least one of audio, cover image, show description, or tags.";
     }
 
     if (audioFile) {
@@ -366,6 +516,9 @@ export function SubmissionForm() {
       }
       if (description.trim()) {
         payload.append("description", description.trim());
+      }
+      if (selectedTags.length > 0) {
+        payload.append("tags", JSON.stringify(selectedTags));
       }
 
       const { status, data } = await submitWithProgress(payload, setUploadProgress);
@@ -420,6 +573,10 @@ export function SubmissionForm() {
       setAudioFile(null);
       setImageFile(null);
       setDescription("");
+      setSelectedTags([]);
+      setTagInputValue("");
+      setIsTagMenuOpen(false);
+      setHighlightedTagIndex(0);
       if (audioInputRef.current) {
         audioInputRef.current.value = "";
       }
@@ -449,7 +606,7 @@ export function SubmissionForm() {
       : 0;
 
   return (
-    <form className="form" onSubmit={(event) => event.preventDefault()}>
+    <form className="form submission-form" onSubmit={(event) => event.preventDefault()}>
       {isLoading ? (
         <div className="upload-progress-panel" aria-live="polite">
           <div className="upload-progress-monogram" style={monogramProgressStyle}>
@@ -462,162 +619,259 @@ export function SubmissionForm() {
         </div>
       ) : (
         <>
-          <div className="field-label-row">
-            <label className="field-label" htmlFor="show-cover">
-              Cover image
-            </label>
-            <span className="field-label-helper">JPEG 800X800 MIN</span>
-          </div>
-          {!imageFile ? (
-            <div
-              className={`upload-zone upload-zone-square ${isImageDragging ? "upload-zone-dragging" : ""}`}
-              role="button"
-              tabIndex={0}
-              onClick={openImagePicker}
-              onKeyDown={(event) => onDropzoneKeyDown(event, openImagePicker)}
-              onDragOver={onImageDragOver}
-              onDragLeave={onImageDragLeave}
-              onDrop={onImageDrop}
-              aria-label="Upload cover image"
-            >
-              <p className="upload-zone-primary">Drag and drop your cover image here</p>
-              <p className="upload-zone-secondary">or click to upload</p>
-            </div>
-          ) : null}
-          <input
-            ref={imageInputRef}
-            id="show-cover"
-            className="upload-input-hidden"
-            type="file"
-            accept="image/*"
-            onChange={onImageInputChange}
-          />
-          {imagePreviewUrl ? (
-            <div className="cover-preview-card">
-              <Image
-                className="cover-preview-image"
-                src={imagePreviewUrl}
-                alt="Selected cover preview"
-                width={800}
-                height={800}
-                unoptimized
-              />
-              <button className="btn-tertiary" type="button" onClick={clearImageFile}>
-                Remove cover image
-              </button>
-            </div>
-          ) : null}
-          <div className="field-label-row">
-            <label className="field-label" htmlFor="show-audio">
-              Audio
-            </label>
-            <span className="field-label-helper">MP3 320KBPS 120’ MAX</span>
-          </div>
-          {!audioFile ? (
-            <div
-              className={`upload-zone ${isAudioDragging ? "upload-zone-dragging" : ""}`}
-              role="button"
-              tabIndex={0}
-              onClick={openAudioPicker}
-              onKeyDown={(event) => onDropzoneKeyDown(event, openAudioPicker)}
-              onDragOver={onAudioDragOver}
-              onDragLeave={onAudioDragLeave}
-              onDrop={onAudioDrop}
-              aria-label="Upload audio file"
-            >
-              <p className="upload-zone-primary">Drag and drop your MP3 here</p>
-              <p className="upload-zone-secondary">or click to upload</p>
-            </div>
-          ) : null}
-          <input
-            ref={audioInputRef}
-            id="show-audio"
-            className="upload-input-hidden"
-            type="file"
-            accept=".mp3,audio/mpeg"
-            onChange={onAudioInputChange}
-          />
-          {audioPreviewUrl ? (
-            <div className="audio-preview-card">
-              <audio
-                ref={audioPreviewRef}
-                src={audioPreviewUrl}
-                preload="metadata"
-                onLoadedMetadata={onAudioPreviewMetadataLoaded}
-                onTimeUpdate={onAudioPreviewTimeUpdate}
-                onPlay={() => setIsAudioPreviewPlaying(true)}
-                onPause={() => setIsAudioPreviewPlaying(false)}
-                onEnded={() => setIsAudioPreviewPlaying(false)}
-              />
-              <div className="audio-preview-main">
-                <button
-                  type="button"
-                  className="audio-preview-icon"
-                  onClick={toggleAudioPreviewPlayback}
-                  aria-label={isAudioPreviewPlaying ? "Pause preview" : "Play preview"}
+          <div className="submission-grid">
+            <div className="submission-column submission-column-cover">
+              <div className="field-label-row">
+                <label className="field-label" htmlFor="show-cover">
+                  Cover image
+                </label>
+                <span className="field-label-helper">JPEG 800X800 MIN</span>
+              </div>
+              {!imageFile ? (
+                <div
+                  className={`upload-zone upload-zone-square ${isImageDragging ? "upload-zone-dragging" : ""}`}
+                  role="button"
+                  tabIndex={0}
+                  onClick={openImagePicker}
+                  onKeyDown={(event) => onDropzoneKeyDown(event, openImagePicker)}
+                  onDragOver={onImageDragOver}
+                  onDragLeave={onImageDragLeave}
+                  onDrop={onImageDrop}
+                  aria-label="Upload cover image"
                 >
-                  {isAudioPreviewPlaying ? "❚❚" : "▶"}
-                </button>
-                <div className="audio-preview-track">
-                  <div className="audio-waveform" onClick={onWaveformClick} role="presentation">
-                    {(waveformBars.length > 0 ? waveformBars : Array.from({ length: 72 }, () => 12)).map(
-                      (barHeight, index) => (
-                        <span
-                          key={`${barHeight}-${index}`}
-                          className={`audio-waveform-bar ${index < playedWaveformBars ? "audio-waveform-bar-played" : ""}`}
-                          style={{ height: `${barHeight}%` }}
-                        />
-                      ),
-                    )}
-                  </div>
-                  <input
-                    type="range"
-                    className="audio-seek"
-                    min={0}
-                    max={audioDuration > 0 ? audioDuration : 0}
-                    step={0.1}
-                    value={audioCurrentTime}
-                    onChange={onAudioSeekChange}
-                    disabled={audioDuration <= 0}
-                    aria-label="Seek audio preview"
+                  <Image
+                    src="/branding/monogram-white.png"
+                    alt=""
+                    width={790}
+                    height={722}
+                    className="cover-dropzone-monogram"
+                    aria-hidden
                   />
-                  <span className="audio-preview-time">
-                    {formatSeconds(audioCurrentTime)} / {formatSeconds(audioDuration)}
+                  <p className="upload-zone-primary">Drag and drop your cover image here</p>
+                  <p className="upload-zone-secondary">or click to upload</p>
+                </div>
+              ) : null}
+              <input
+                ref={imageInputRef}
+                id="show-cover"
+                className="upload-input-hidden"
+                type="file"
+                accept="image/*"
+                onChange={onImageInputChange}
+              />
+              {imagePreviewUrl ? (
+                <div className="cover-preview-card">
+                  <Image
+                    className="cover-preview-image"
+                    src={imagePreviewUrl}
+                    alt="Selected cover preview"
+                    width={800}
+                    height={800}
+                    unoptimized
+                  />
+                  <button className="btn-tertiary" type="button" onClick={clearImageFile}>
+                    Remove cover image
+                  </button>
+                </div>
+              ) : null}
+            </div>
+
+            <div className="submission-column submission-column-meta">
+              <div className="submission-block submission-audio-block">
+                <div className="field-label-row">
+                  <label className="field-label" htmlFor="show-audio">
+                    Audio
+                  </label>
+                  <span className="field-label-helper">MP3 320KBPS 120’ MAX</span>
+                </div>
+                {!audioFile ? (
+                  <div
+                    className={`upload-zone ${isAudioDragging ? "upload-zone-dragging" : ""}`}
+                    role="button"
+                    tabIndex={0}
+                    onClick={openAudioPicker}
+                    onKeyDown={(event) => onDropzoneKeyDown(event, openAudioPicker)}
+                    onDragOver={onAudioDragOver}
+                    onDragLeave={onAudioDragLeave}
+                    onDrop={onAudioDrop}
+                    aria-label="Upload audio file"
+                  >
+                    <p className="upload-zone-primary">Drag and drop your MP3 here</p>
+                    <p className="upload-zone-secondary">or click to upload</p>
+                  </div>
+                ) : null}
+                <input
+                  ref={audioInputRef}
+                  id="show-audio"
+                  className="upload-input-hidden"
+                  type="file"
+                  accept=".mp3,audio/mpeg"
+                  onChange={onAudioInputChange}
+                />
+                {audioPreviewUrl ? (
+                  <div className="audio-preview-card">
+                    <audio
+                      ref={audioPreviewRef}
+                      src={audioPreviewUrl}
+                      preload="metadata"
+                      onLoadedMetadata={onAudioPreviewMetadataLoaded}
+                      onTimeUpdate={onAudioPreviewTimeUpdate}
+                      onPlay={() => setIsAudioPreviewPlaying(true)}
+                      onPause={() => setIsAudioPreviewPlaying(false)}
+                      onEnded={() => setIsAudioPreviewPlaying(false)}
+                    />
+                    <div className="audio-preview-main">
+                      <button
+                        type="button"
+                        className="audio-preview-icon"
+                        onClick={toggleAudioPreviewPlayback}
+                        aria-label={isAudioPreviewPlaying ? "Pause preview" : "Play preview"}
+                      >
+                        {isAudioPreviewPlaying ? "❚❚" : "▶"}
+                      </button>
+                      <div className="audio-preview-track">
+                        <div className="audio-waveform" onClick={onWaveformClick} role="presentation">
+                          {(waveformBars.length > 0 ? waveformBars : Array.from({ length: 72 }, () => 12)).map(
+                            (barHeight, index) => (
+                              <span
+                                key={`${barHeight}-${index}`}
+                                className={`audio-waveform-bar ${index < playedWaveformBars ? "audio-waveform-bar-played" : ""}`}
+                                style={{ height: `${barHeight}%` }}
+                              />
+                            ),
+                          )}
+                        </div>
+                        <input
+                          type="range"
+                          className="audio-seek"
+                          min={0}
+                          max={audioDuration > 0 ? audioDuration : 0}
+                          step={0.1}
+                          value={audioCurrentTime}
+                          onChange={onAudioSeekChange}
+                          disabled={audioDuration <= 0}
+                          aria-label="Seek audio preview"
+                        />
+                        <span className="audio-preview-time">
+                          {formatSeconds(audioCurrentTime)} / {formatSeconds(audioDuration)}
+                        </span>
+                      </div>
+                    </div>
+                    <button className="btn-tertiary" type="button" onClick={clearAudioFile}>
+                      Remove audio file
+                    </button>
+                  </div>
+                ) : null}
+              </div>
+
+              <div className="submission-block submission-description-block">
+                <div className="field-label-row">
+                  <label className="field-label" htmlFor="show-description">
+                    Description
+                  </label>
+                  <span className="field-label-helper">
+                    briefly describe your show
                   </span>
                 </div>
+                <textarea
+                  id="show-description"
+                  className="textarea"
+                  value={description}
+                  placeholder="Briefly describe your radio show"
+                  onChange={(event) => setDescription(event.target.value)}
+                  rows={4}
+                />
               </div>
-              <button className="btn-tertiary" type="button" onClick={clearAudioFile}>
-                Remove audio file
-              </button>
             </div>
-          ) : null}
-          <div className="field-label-row">
-            <label className="field-label" htmlFor="show-description">
-              Show description
-            </label>
-            <span className="field-label-helper">
-              briefly describe your show and provide genre tags
-            </span>
           </div>
-          <textarea
-            id="show-description"
-            className="textarea"
-            value={description}
-            onChange={(event) => setDescription(event.target.value)}
-            rows={4}
-          />
-          <button
-            className={submitAllSuccess ? "button-success-static" : "button button-primary"}
-            type="button"
-            onClick={() => onSubmit()}
-            disabled={isLoading}
-          >
-            {isLoading
-              ? "Submitting show..."
-              : submitAllSuccess
-                ? "Show submitted successfully."
-                : "Submit show"}
-          </button>
+
+          <div className="submission-tags-row">
+            <div className="field-label-row submission-tags-label-row">
+              <label className="field-label" htmlFor="show-tags">
+                Tags
+              </label>
+              <span className="field-label-helper">MAX 5 TAGS</span>
+            </div>
+            <div className="tags-input-shell submission-tags-shell">
+              <div className="tags-chip-row">
+                {selectedTags.map((tag) => (
+                  <span className="tag-chip" key={tag}>
+                    {tag}
+                    <button
+                      type="button"
+                      className="tag-chip-remove"
+                      onClick={() => removeTag(tag)}
+                      aria-label={`Remove ${tag}`}
+                    >
+                      ×
+                    </button>
+                  </span>
+                ))}
+                <input
+                  id="show-tags"
+                  ref={tagInputRef}
+                  className="input tag-input"
+                  type="text"
+                  value={tagInputValue}
+                  placeholder="Type a genre tag"
+                  onFocus={() => setIsTagMenuOpen(true)}
+                  onBlur={() => {
+                    window.setTimeout(() => {
+                      setIsTagMenuOpen(false);
+                    }, 100);
+                  }}
+                  onChange={(event) => {
+                    setTagInputValue(event.target.value);
+                    setIsTagMenuOpen(true);
+                  }}
+                  onKeyDown={onTagInputKeyDown}
+                />
+              </div>
+              {isTagMenuOpen && (filteredTagSuggestions.length > 0 || normalizedTagInput) ? (
+                <div className="tags-suggestions" role="listbox" aria-label="Genre suggestions">
+                  {filteredTagSuggestions.map((tag, index) => (
+                    <button
+                      key={tag}
+                      type="button"
+                      className={`tag-suggestion-item ${index === highlightedTagIndex ? "tag-suggestion-item-active" : ""}`}
+                      onMouseDown={(event) => {
+                        event.preventDefault();
+                        addTag(tag);
+                      }}
+                    >
+                      {tag}
+                    </button>
+                  ))}
+                  {normalizedTagInput && !MUSICBRAINZ_GENRE_TAGS.includes(normalizedTagInput) ? (
+                    <button
+                      type="button"
+                      className="tag-suggestion-item tag-suggestion-create"
+                      onMouseDown={(event) => {
+                        event.preventDefault();
+                        addTag(normalizedTagInput);
+                      }}
+                    >
+                      Create “{normalizedTagInput}”
+                    </button>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
+          </div>
+          <div className="submission-submit-wrap">
+            <button
+              className={submitAllSuccess ? "button-success-static submission-submit" : "button button-primary submission-submit"}
+              type="button"
+              onClick={() => onSubmit()}
+              disabled={isLoading}
+            >
+              {isLoading
+                ? "Submitting show..."
+                : submitAllSuccess
+                  ? "Show submitted successfully."
+                  : "Submit show"}
+            </button>
+          </div>
         </>
       )}
 
