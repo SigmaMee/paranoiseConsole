@@ -142,7 +142,12 @@ function submitWithProgress(
   });
 }
 
-export function SubmissionForm() {
+type SubmissionFormProps = {
+  selectedShowStart: string | null;
+  selectedShowTitle: string | null;
+};
+
+export function SubmissionForm({ selectedShowStart, selectedShowTitle }: SubmissionFormProps) {
   const [audioFile, setAudioFile] = useState<File | null>(null);
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [audioPreviewUrl, setAudioPreviewUrl] = useState<string | null>(null);
@@ -167,6 +172,32 @@ export function SubmissionForm() {
   const audioPreviewRef = useRef<HTMLAudioElement | null>(null);
   const tagInputRef = useRef<HTMLInputElement | null>(null);
   const submitAllSuccessTimeoutRef = useRef<number | null>(null);
+
+  function resetDraftState() {
+    setAudioFile(null);
+    setImageFile(null);
+    setDescription("");
+    setSelectedTags([]);
+    setTagInputValue("");
+    setIsTagMenuOpen(false);
+    setHighlightedTagIndex(0);
+    if (audioInputRef.current) {
+      audioInputRef.current.value = "";
+    }
+    if (imageInputRef.current) {
+      imageInputRef.current.value = "";
+    }
+    if (audioPreviewRef.current) {
+      audioPreviewRef.current.pause();
+      audioPreviewRef.current.currentTime = 0;
+    }
+    setAudioCurrentTime(0);
+    setAudioDuration(0);
+    setIsAudioPreviewPlaying(false);
+    setIsAudioDragging(false);
+    setIsImageDragging(false);
+    setUploadProgress(0);
+  }
 
   useEffect(() => {
     return () => {
@@ -210,6 +241,12 @@ export function SubmissionForm() {
   useEffect(() => {
     setHighlightedTagIndex(0);
   }, [tagInputValue]);
+
+  useEffect(() => {
+    resetDraftState();
+    setErrorMessage("");
+    setSubmitAllSuccess(false);
+  }, [selectedShowStart]);
 
   const normalizedTagInput = tagInputValue.trim().toLowerCase();
   const filteredTagSuggestions = MUSICBRAINZ_GENRE_TAGS.filter(
@@ -520,6 +557,12 @@ export function SubmissionForm() {
       if (selectedTags.length > 0) {
         payload.append("tags", JSON.stringify(selectedTags));
       }
+      if (selectedShowStart) {
+        payload.append("selectedShowStart", selectedShowStart);
+      }
+      if (selectedShowTitle) {
+        payload.append("selectedShowTitle", selectedShowTitle);
+      }
 
       const { status, data } = await submitWithProgress(payload, setUploadProgress);
 
@@ -570,29 +613,7 @@ export function SubmissionForm() {
       }
     } finally {
       setIsLoading(false);
-      setAudioFile(null);
-      setImageFile(null);
-      setDescription("");
-      setSelectedTags([]);
-      setTagInputValue("");
-      setIsTagMenuOpen(false);
-      setHighlightedTagIndex(0);
-      if (audioInputRef.current) {
-        audioInputRef.current.value = "";
-      }
-      if (imageInputRef.current) {
-        imageInputRef.current.value = "";
-      }
-      if (audioPreviewRef.current) {
-        audioPreviewRef.current.pause();
-        audioPreviewRef.current.currentTime = 0;
-      }
-      setAudioCurrentTime(0);
-      setAudioDuration(0);
-      setIsAudioPreviewPlaying(false);
-      setIsAudioDragging(false);
-      setIsImageDragging(false);
-      setUploadProgress(0);
+      resetDraftState();
     }
   }
 

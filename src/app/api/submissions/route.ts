@@ -72,6 +72,25 @@ function formatShowDateDdMmYy(showStart: string) {
   return `${day}${month}${year}`;
 }
 
+function applyShowDateSuffixToFilename(filename: string, showStart: string, fallbackBase: string) {
+  const suffix = formatShowDateDdMmYy(showStart);
+  const trimmed = filename.trim();
+  const lastDot = trimmed.lastIndexOf(".");
+
+  if (lastDot > 0) {
+    const base = trimmed.slice(0, lastDot);
+    const extension = trimmed.slice(lastDot);
+    return `${base}-${suffix}${extension}`;
+  }
+
+  const base = trimmed || fallbackBase;
+  return `${base}-${suffix}`;
+}
+
+function isValidShowStart(value: string) {
+  return !Number.isNaN(new Date(value).getTime());
+}
+
 function buildCoverFilenamePrefix(producerName: string, showStart: string) {
   const safeProducer = producerName
     .trim()
@@ -145,6 +164,8 @@ export async function POST(request: Request) {
         ? uploadTypeRaw
         : "audio";
     const description = String(formData.get("description") || "");
+    const selectedShowStartRaw = String(formData.get("selectedShowStart") || "").trim();
+    const selectedShowTitleRaw = String(formData.get("selectedShowTitle") || "").trim();
     const tags = parseSubmittedTags(formData.get("tags"));
     const descriptionFileContent = buildDescriptionFileContent(description, tags);
     const audio = formData.get("audio");
@@ -189,17 +210,30 @@ export async function POST(request: Request) {
     let ftpResult;
     let driveResult;
     let uploadedImageFilename = optionalImage?.name || "";
+    let uploadedAudioFilename = optionalAudio?.name || "";
 
     const upcomingShows = await getUpcomingShowsByProducerEmail(userEmail);
     const nextShow = upcomingShows[0];
     const showStart = nextShow?.startsAt || null;
-    let persistedShowStart = showStart;
-    const descriptionFilenameHint = nextShow
-      ? `${nextShow.title}-${formatShowDateDdMmYy(nextShow.startsAt)}`
+    const selectedShowStart =
+      selectedShowStartRaw && isValidShowStart(selectedShowStartRaw) ? selectedShowStartRaw : null;
+    const selectedShowTitle = selectedShowTitleRaw || nextShow?.title || "show-description";
+    let persistedShowStart = selectedShowStart || showStart;
+    const dateForSuffix = selectedShowStart || showStart;
+    const descriptionFilenameHint = dateForSuffix
+      ? `${selectedShowTitle}-${formatShowDateDdMmYy(dateForSuffix)}`
       : optionalAudio?.name || "show-description";
 
     if (uploadType === "audio") {
-      const audioResult = await routeAudioToFtp(optionalAudio as File, producerFolderName);
+      const audioUploadName = dateForSuffix
+        ? applyShowDateSuffixToFilename((optionalAudio as File).name, dateForSuffix, "show-audio")
+        : (optionalAudio as File).name;
+      const audioResult = await routeAudioToFtp(
+        optionalAudio as File,
+        producerFolderName,
+        audioUploadName,
+      );
+      uploadedAudioFilename = audioUploadName;
       
 
       ftpResult = {
@@ -231,7 +265,11 @@ export async function POST(request: Request) {
       let ftpSuccess = true;
 
       if (optionalAudio) {
-        const audioResult = await routeAudioToFtp(optionalAudio, producerFolderName);
+        const audioUploadName = dateForSuffix
+          ? applyShowDateSuffixToFilename(optionalAudio.name, dateForSuffix, "show-audio")
+          : optionalAudio.name;
+        const audioResult = await routeAudioToFtp(optionalAudio, producerFolderName, audioUploadName);
+        uploadedAudioFilename = audioUploadName;
         ftpSuccess = ftpSuccess && audioResult.success;
         ftpMessages.push(audioResult.message);
       }
@@ -250,7 +288,8 @@ export async function POST(request: Request) {
       let driveMessage = "Cover upload skipped.";
 
       if (optionalImage) {
-        const coverShowStart = showStart || (await getNextUpcomingShowStartByProducerEmail(userEmail));
+        const coverShowStart =
+          selectedShowStart || showStart || (await getNextUpcomingShowStartByProducerEmail(userEmail));
         persistedShowStart = coverShowStart;
 
         if (!coverShowStart) {
@@ -258,13 +297,17 @@ export async function POST(request: Request) {
         }
 
         const coverFilenamePrefix = buildCoverFilenamePrefix(producerFolderName, coverShowStart);
-        uploadedImageFilename = `${coverFilenamePrefix}-${optionalImage.name}`;
+        uploadedImageFilename = applyShowDateSuffixToFilename(
+          optionalImage.name,
+          coverShowStart,
+          "show-cover",
+        );
 
         const [ftpCoverResult, driveCoverResult] = await Promise.all([
           routeCoverToFtp(optionalImage, producerFolderName, uploadedImageFilename),
           (async () => {
             const weekdayFolderId = await getDriveWeekdayFolderIdForShowStart(coverShowStart);
-            return routeImageToDrive(optionalImage, weekdayFolderId, coverFilenamePrefix);
+            return routeImageToDrive(optionalImage, weekdayFolderId, coverFilenamePrefix, uploadedImageFilename);
           })(),
         ]);
 
@@ -286,7 +329,8 @@ export async function POST(request: Request) {
         message: driveMessage,
       };
     } else {
-      const coverShowStart = showStart || (await getNextUpcomingShowStartByProducerEmail(userEmail));
+      const coverShowStart =
+        selectedShowStart || showStart || (await getNextUpcomingShowStartByProducerEmail(userEmail));
       persistedShowStart = coverShowStart;
 
       if (!coverShowStart) {
@@ -294,13 +338,22 @@ export async function POST(request: Request) {
       }
 
       const coverFilenamePrefix = buildCoverFilenamePrefix(producerFolderName, coverShowStart);
-      uploadedImageFilename = `${coverFilenamePrefix}-${(optionalImage as File).name}`;
+      uploadedImageFilename = applyShowDateSuffixToFilename(
+        (optionalImage as File).name,
+        coverShowStart,
+        "show-cover",
+      );
 
       const [ftpCoverResult, driveCoverResult] = await Promise.all([
         routeCoverToFtp(optionalImage as File, producerFolderName, uploadedImageFilename),
         (async () => {
           const weekdayFolderId = await getDriveWeekdayFolderIdForShowStart(coverShowStart);
-          return routeImageToDrive(optionalImage as File, weekdayFolderId, coverFilenamePrefix);
+          return routeImageToDrive(
+            optionalImage as File,
+            weekdayFolderId,
+            coverFilenamePrefix,
+            uploadedImageFilename,
+          );
         })(),
       ]);
 
@@ -312,7 +365,7 @@ export async function POST(request: Request) {
       const airingDate = toAiringDateIso(persistedShowStart);
       await persistSubmissionStatus({
         producerEmail: userEmail,
-        audioFilename: optionalAudio?.name || "",
+        audioFilename: uploadedAudioFilename,
         imageFilename: uploadedImageFilename,
         showStartAt: persistedShowStart,
         airingDate,

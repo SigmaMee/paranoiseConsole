@@ -3,32 +3,11 @@ import Image from "next/image";
 import { createClient as createAdminClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
 import { signOut } from "@/app/actions";
-import { SubmissionForm } from "@/components/submission-form";
+import { ShowSubmissionToggle } from "@/components/show-submission-toggle";
 import {
+  getMostRecentPastAndFutureShowsByProducerEmail,
   getScheduledShowCountsForMonth,
-  getUpcomingShowsByProducerEmail,
 } from "@/lib/google-calendar";
-
-function formatUpcomingShow(startsAt: string) {
-  const date = new Date(startsAt);
-  if (Number.isNaN(date.getTime())) {
-    return startsAt;
-  }
-
-  const formattedDate = new Intl.DateTimeFormat("en-GB", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-  }).format(date);
-
-  const formattedTime = new Intl.DateTimeFormat("en-GB", {
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  }).format(date);
-
-  return `${formattedDate} - ${formattedTime}`;
-}
 
 function formatAiringDate(airingDateIso: string | null) {
   if (!airingDateIso) {
@@ -126,17 +105,20 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
       ? user.user_metadata.full_name.trim()
       : user.email?.split("@")[0] || "Producer";
 
-  let upcomingShows: Awaited<ReturnType<typeof getUpcomingShowsByProducerEmail>> = [];
+  let mostRecentPastShow: { title: string; startsAt: string } | null = null;
+  let mostRecentFutureShow: { title: string; startsAt: string } | null = null;
 
   if (user.email && !isAdmin) {
     try {
-      upcomingShows = await getUpcomingShowsByProducerEmail(user.email);
+      const selection = await getMostRecentPastAndFutureShowsByProducerEmail(user.email);
+      mostRecentPastShow = selection.mostRecentPastShow
+        ? { title: selection.mostRecentPastShow.title, startsAt: selection.mostRecentPastShow.startsAt }
+        : null;
+      mostRecentFutureShow = selection.mostRecentFutureShow
+        ? { title: selection.mostRecentFutureShow.title, startsAt: selection.mostRecentFutureShow.startsAt }
+        : null;
     } catch {}
   }
-
-  const upcomingShowText = upcomingShows[0]?.startsAt
-    ? formatUpcomingShow(upcomingShows[0].startsAt)
-    : "TBD";
 
   let driveConnected = false;
   let driveConnectedAt: string | null = null;
@@ -414,18 +396,10 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
         </section>
 
         {!isAdmin ? (
-          <>
-            <section className="dashboard-panel">
-              <div className="dashboard-banner">
-                <span>RADIO SHOW SUBMISSION</span>
-                <span>{upcomingShowText}</span>
-              </div>
-            </section>
-
-            <section className="dashboard-panel">
-              <SubmissionForm />
-            </section>
-          </>
+          <ShowSubmissionToggle
+            mostRecentPastShow={mostRecentPastShow}
+            mostRecentFutureShow={mostRecentFutureShow}
+          />
         ) : null}
 
         {isAdmin ? (

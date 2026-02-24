@@ -485,6 +485,91 @@ a {
   margin-bottom: var(--spacing-m);
 }
 
+.dashboard-show-selector {
+  width: 100%;
+  display: grid;
+  gap: 0.8rem;
+  margin: var(--spacing-m) 0;
+}
+
+.dashboard-show-selector-title {
+  color: var(--white);
+  font-size: 1rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.dashboard-show-selector-options,
+.dashboard-show-toggle {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0;
+}
+
+.dashboard-show-selector-option {
+  appearance: none;
+  display: grid;
+  gap: 0.2rem;
+  border: 1px solid var(--orange);
+  border-radius: 8px;
+  background: var(--black);
+  color: var(--orange);
+  padding: 0.6rem 0.75rem;
+  font-size: 0.86rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background-color 180ms ease,
+    color 180ms ease,
+    border-color 180ms ease,
+    transform 160ms ease,
+    box-shadow 180ms ease;
+}
+
+.dashboard-show-selector-option:active {
+  transform: translateY(0) scale(0.99);
+}
+
+.dashboard-show-toggle .dashboard-show-selector-option:first-child {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+.dashboard-show-toggle .dashboard-show-selector-option:last-child {
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+  border-left: 0;
+}
+
+.dashboard-show-selector-option span {
+  font-size: 0.76rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: none;
+}
+
+.dashboard-show-selector-option-active {
+  background: var(--orange);
+  color: var(--black);
+  border-color: var(--orange);
+}
+
+.dashboard-show-selector-current {
+  color: var(--muted);
+  font-size: 0.82rem;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.dashboard-show-selector-link {
+  color: var(--orange);
+  text-decoration: underline;
+}
+
 .dashboard-month-label {
   margin: 0;
   text-transform: uppercase;
@@ -1188,6 +1273,29 @@ a {
 .login-form {
   display: grid;
   gap: var(--spacing-m);
+}
+
+.login-form .input {
+  background: var(--panel-soft);
+  color: var(--white);
+  font-family: var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.login-form .input::placeholder {
+  color: #cfd8dc;
+}
+
+.login-form .input:-webkit-autofill,
+.login-form .input:-webkit-autofill:hover,
+.login-form .input:-webkit-autofill:focus,
+.login-form .input:autofill,
+.login-form .input:autofill:hover,
+.login-form .input:autofill:focus {
+  -webkit-text-fill-color: var(--white);
+  caret-color: var(--white);
+  -webkit-box-shadow: 0 0 0 1000px var(--panel-soft) inset;
+  box-shadow: 0 0 0 1000px var(--panel-soft) inset;
+  font-family: var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
 .login-residents-banner {

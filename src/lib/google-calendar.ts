@@ -7,6 +7,11 @@ export type UpcomingShow = {
   endsAt?: string;
 };
 
+type ProducerShowSelection = {
+  mostRecentPastShow: UpcomingShow | null;
+  mostRecentFutureShow: UpcomingShow | null;
+};
+
 function toIsoDate(value: string) {
   const directMatch = value.match(/^(\d{4}-\d{2}-\d{2})/);
   if (directMatch) {
@@ -41,6 +46,20 @@ function normalizeTitle(value: string) {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, " ")
     .trim();
+}
+
+function parseShowStartToTime(show: UpcomingShow) {
+  const parsed = new Date(show.startsAt);
+  return Number.isNaN(parsed.getTime()) ? null : parsed.getTime();
+}
+
+function mapCalendarEventToShow(event: any): UpcomingShow {
+  return {
+    id: event.id ?? `${event.summary ?? "event"}-${event.start?.dateTime ?? event.start?.date}`,
+    title: event.summary || "Untitled show",
+    startsAt: event.start?.dateTime || event.start?.date || "",
+    endsAt: event.end?.dateTime || event.end?.date || undefined,
+  };
 }
 
 export async function getUpcomingShowsByProducerEmail(
@@ -230,4 +249,62 @@ export async function getScheduledShowCountsForMonth(
     acc[dateIso] = (acc[dateIso] || 0) + 1;
     return acc;
   }, {});
+}
+
+export async function getMostRecentPastAndFutureShowsByProducerEmail(
+  producerEmail: string,
+): Promise<ProducerShowSelection> {
+  const serviceAccountEmail = getRequiredEnv("GOOGLE_SERVICE_ACCOUNT_EMAIL");
+  const privateKey = getRequiredEnv("GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY").replace(
+    /\\n/g,
+    "\n",
+  );
+  const calendarId = getRequiredEnv("GOOGLE_CALENDAR_ID");
+
+  const auth = new google.auth.JWT({
+    email: serviceAccountEmail,
+    key: privateKey,
+    scopes: ["https://www.googleapis.com/auth/calendar.readonly"],
+  });
+
+  const calendar = google.calendar({ version: "v3", auth });
+  const now = new Date();
+  const nowTime = now.getTime();
+  const windowStart = new Date(now.getFullYear(), now.getMonth() - 3, 1, 0, 0, 0, 0).toISOString();
+  const windowEnd = getEndOfNextMonthIso(now);
+
+  const response = await calendar.events.list({
+    calendarId,
+    timeMin: windowStart,
+    timeMax: windowEnd,
+    singleEvents: true,
+    orderBy: "startTime",
+    maxResults: 500,
+  });
+
+  const items = response.data.items ?? [];
+  const shows = items
+    .filter((event) => {
+      const attendees = event.attendees ?? [];
+      return attendees.some(
+        (attendee) => attendee.email?.toLowerCase() === producerEmail.toLowerCase(),
+      );
+    })
+    .map(mapCalendarEventToShow)
+    .filter((show) => Boolean(show.startsAt));
+
+  const pastShows = shows.filter((show) => {
+    const startTime = parseShowStartToTime(show);
+    return startTime !== null && startTime < nowTime;
+  });
+
+  const futureShows = shows.filter((show) => {
+    const startTime = parseShowStartToTime(show);
+    return startTime !== null && startTime >= nowTime;
+  });
+
+  return {
+    mostRecentPastShow: pastShows.length > 0 ? pastShows[pastShows.length - 1] : null,
+    mostRecentFutureShow: futureShows.length > 0 ? futureShows[0] : null,
+  };
 }

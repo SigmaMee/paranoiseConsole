@@ -168,8 +168,9 @@ export function validateSubmission(
 export async function routeAudioToFtp(
   audio: File,
   producerFolderName: string,
+  uploadNameOverride?: string,
 ): Promise<RouteResult> {
-  const uploadName = sanitizeFilename(audio.name);
+  const uploadName = sanitizeFilename(uploadNameOverride || audio.name);
   const bytes = Buffer.from(await audio.arrayBuffer());
   const result = await uploadBytesToFtpProducerFolder(bytes, uploadName, producerFolderName);
 
@@ -303,6 +304,7 @@ export async function routeImageToDrive(
   image: File,
   destinationFolderId?: string,
   filenamePrefix?: string,
+  uploadNameOverride?: string,
 ): Promise<RouteResult> {
   const folderId = destinationFolderId || getRequiredEnv("GOOGLE_DRIVE_FOLDER_ID");
 
@@ -310,7 +312,11 @@ export async function routeImageToDrive(
     const auth = await getDriveAuth();
     const drive = google.drive({ version: "v3", auth });
     const originalName = image.name || `cover-${randomUUID()}`;
-    const uploadName = filenamePrefix ? `${filenamePrefix}-${originalName}` : originalName;
+    const uploadName = uploadNameOverride
+      ? uploadNameOverride
+      : filenamePrefix
+        ? `${filenamePrefix}-${originalName}`
+        : originalName;
     const bytes = Buffer.from(await image.arrayBuffer());
 
     await drive.files.create({
