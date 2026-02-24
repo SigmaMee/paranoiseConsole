@@ -87,7 +87,7 @@ Open `http://localhost:3000`.
 
 ### Production Notes
 - `/api/submissions` is configured for Node runtime with `maxDuration = 300`.
-- Large multipart uploads can still hit platform limits depending on Vercel plan/runtime constraints. If 200MB audio uploads fail in production, move upload handling to a dedicated backend/worker or shift to direct-to-storage upload flow.
+- Large multipart uploads can still hit platform limits depending on Vercel plan/runtime constraints. If 500MB audio uploads fail in production, move upload handling to a dedicated backend/worker or shift to direct-to-storage upload flow.
 
 ## Routes
 - `/login`: producer sign-in

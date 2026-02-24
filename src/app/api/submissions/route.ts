@@ -85,6 +85,24 @@ function buildCoverFilenamePrefix(producerName: string, showStart: string) {
   return `${producerPart}-${datePart}`;
 }
 
+function toAiringDateIso(showStart: string | null) {
+  if (!showStart) {
+    return null;
+  }
+
+  const directMatch = showStart.match(/^(\d{4}-\d{2}-\d{2})/);
+  if (directMatch) {
+    return directMatch[1];
+  }
+
+  const parsed = new Date(showStart);
+  if (Number.isNaN(parsed.getTime())) {
+    return null;
+  }
+
+  return parsed.toISOString().slice(0, 10);
+}
+
 async function getProducerFolderNameFromProfilesTable(userEmail: string) {
   const supabase = await createClient();
   const { data, error } = await supabase
@@ -175,6 +193,7 @@ export async function POST(request: Request) {
     const upcomingShows = await getUpcomingShowsByProducerEmail(userEmail);
     const nextShow = upcomingShows[0];
     const showStart = nextShow?.startsAt || null;
+    let persistedShowStart = showStart;
     const descriptionFilenameHint = nextShow
       ? `${nextShow.title}-${formatShowDateDdMmYy(nextShow.startsAt)}`
       : optionalAudio?.name || "show-description";
@@ -232,6 +251,7 @@ export async function POST(request: Request) {
 
       if (optionalImage) {
         const coverShowStart = showStart || (await getNextUpcomingShowStartByProducerEmail(userEmail));
+        persistedShowStart = coverShowStart;
 
         if (!coverShowStart) {
           throw new Error("No upcoming calendar shows found for this producer.");
@@ -267,6 +287,7 @@ export async function POST(request: Request) {
       };
     } else {
       const coverShowStart = showStart || (await getNextUpcomingShowStartByProducerEmail(userEmail));
+      persistedShowStart = coverShowStart;
 
       if (!coverShowStart) {
         throw new Error("No upcoming calendar shows found for this producer.");
@@ -288,10 +309,14 @@ export async function POST(request: Request) {
     }
 
     try {
+      const airingDate = toAiringDateIso(persistedShowStart);
       await persistSubmissionStatus({
         producerEmail: userEmail,
         audioFilename: optionalAudio?.name || "",
         imageFilename: uploadedImageFilename,
+        showStartAt: persistedShowStart,
+        airingDate,
+        submittedTags: tags,
         ftpStatus: ftpResult.success ? "success" : "failed",
         driveStatus: driveResult.success ? "success" : "failed",
         ftpMessage: ftpResult.message,

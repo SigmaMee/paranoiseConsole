@@ -5,7 +5,7 @@ import { Readable } from "stream";
 import { createClient } from "@supabase/supabase-js";
 import { getGoogleDriveOAuthClientFromStoredToken } from "@/lib/google-drive-oauth";
 
-const MAX_AUDIO_BYTES = 200 * 1024 * 1024;
+const MAX_AUDIO_BYTES = 500 * 1024 * 1024;
 
 export type RouteResult = {
   success: boolean;
@@ -17,6 +17,9 @@ export type PersistPayload = {
   producerEmail: string;
   audioFilename: string;
   imageFilename: string;
+  showStartAt?: string | null;
+  airingDate?: string | null;
+  submittedTags?: string[];
   ftpStatus: "success" | "failed";
   driveStatus: "success" | "failed";
   ftpMessage: string;
@@ -116,7 +119,7 @@ export function validateSubmission(
       }
 
       if (audio.size > MAX_AUDIO_BYTES) {
-        return "Audio exceeds 200 MB maximum size.";
+        return "Audio exceeds 500 MB maximum size.";
       }
     }
 
@@ -139,7 +142,7 @@ export function validateSubmission(
     }
 
     if (audio.size > MAX_AUDIO_BYTES) {
-      return "Audio exceeds 200 MB maximum size.";
+      return "Audio exceeds 500 MB maximum size.";
     }
 
     if (!hasTextPayload) {
@@ -350,6 +353,12 @@ export async function persistSubmissionStatus(payload: PersistPayload) {
     producer_email: payload.producerEmail,
     audio_filename: payload.audioFilename,
     image_filename: payload.imageFilename,
+    show_start_at: payload.showStartAt || null,
+    airing_date: payload.airingDate || null,
+    submitted_tags:
+      Array.isArray(payload.submittedTags) && payload.submittedTags.length > 0
+        ? payload.submittedTags
+        : null,
     ftp_status: payload.ftpStatus,
     drive_status: payload.driveStatus,
     ftp_message: payload.ftpMessage,
@@ -357,6 +366,22 @@ export async function persistSubmissionStatus(payload: PersistPayload) {
   };
 
   const { error } = await supabase.from("submissions").insert(baseInsert);
+
+  const missingAiringColumns =
+    error?.message?.toLowerCase().includes('column "show_start_at"') ||
+    error?.message?.toLowerCase().includes('column "airing_date"') ||
+    error?.message?.toLowerCase().includes('column "submitted_tags"');
+
+  if (missingAiringColumns) {
+    const { show_start_at: _showStartAt, airing_date: _airingDate, ...legacyInsert } = baseInsert;
+    const { error: legacyColumnsError } = await supabase.from("submissions").insert(legacyInsert);
+
+    if (!legacyColumnsError) {
+      return;
+    }
+
+    throw new Error(legacyColumnsError.message);
+  }
 
   const requiresLegacyTitle =
     error?.message?.toLowerCase().includes('null value in column "title"') ?? false;

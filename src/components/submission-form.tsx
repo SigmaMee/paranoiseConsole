@@ -12,7 +12,7 @@ import {
   useState,
 } from "react";
 
-const MAX_AUDIO_BYTES = 200 * 1024 * 1024;
+const MAX_AUDIO_BYTES = 500 * 1024 * 1024;
 
 const MUSICBRAINZ_GENRE_TAGS = [
   "acid house",
@@ -482,7 +482,7 @@ export function SubmissionForm() {
       }
 
       if (audioFile.size > MAX_AUDIO_BYTES) {
-        return "Audio exceeds 200 MB maximum size.";
+        return "Audio exceeds 500 MB maximum size.";
       }
     }
 
