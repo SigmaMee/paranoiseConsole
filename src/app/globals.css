@@ -66,6 +66,7 @@
   --orange: #ff6700;
   --black: #0c0c0c;
   --blue: #44c8f5;
+  --white:var(--accent);
   --spacing-xl: 3rem;
   --spacing-l: 2rem;
   --spacing-m: 1rem;
@@ -373,10 +374,10 @@ a {
 }
 
 .dashboard-panel {
-  border: 1px solid var(--white);
-  border-radius: 8px;
+  border: 1px solid var(--muted);
+  border-radius: 0.5rem;
   background: var(--black);
-  padding: 0 var(--spacing-l);
+  padding: var(--spacing-l);
 }
 
 .dashboard-header-row {
