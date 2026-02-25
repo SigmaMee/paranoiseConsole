@@ -2,8 +2,7 @@
   "functions": {
     "api/submissions/route": {
       "maxDuration": 300,
-      "memory": 1024,
-      "maxSize": 524288000
+      "memory": 1024
     }
   }
 }
