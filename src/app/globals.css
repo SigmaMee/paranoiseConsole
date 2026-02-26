@@ -1,3 +1,10 @@
+.cover-preview-card {
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
 @font-face {
   font-family: "Favoritpro";
   src: url("/fonts/favoritpro/616c09970666a509c5a892c0_FavoritPro-Light.otf") format("opentype");
