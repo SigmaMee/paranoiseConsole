@@ -2,7 +2,7 @@
   "functions": {
     "src/app/api/submissions/route.ts": {
       "maxDuration": 300,
-      "memory": 1024
+      "memory": 3008
     }
   }
 }
