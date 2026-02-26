@@ -1,6 +1,6 @@
 {
   "functions": {
-    "api/submissions/route": {
+    "src/app/api/submissions/route": {
       "maxDuration": 300,
       "memory": 1024
     }
