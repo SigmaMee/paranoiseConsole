@@ -193,19 +193,29 @@ async function uploadFileToR2(
   }
 
   const { uploadId, partUrls, partSize, objectKey } = result;
-  const completedParts: Array<{ PartNumber: number; ETag: string }> = [];
-  let bytesUploaded = 0;
+  const completedParts: Array<{ PartNumber: number; ETag: string }> = new Array(partUrls.length);
+  const bytesUploadedPerPart: number[] = new Array(partUrls.length).fill(0);
 
-  for (let i = 0; i < partUrls.length; i++) {
-    const start = i * partSize;
-    const end = Math.min(start + partSize, file.size);
-    const chunk = file.slice(start, end);
+  const CONCURRENCY = 4;
 
-    const etag = await uploadPartToR2(chunk, partUrls[i]);
-    completedParts.push({ PartNumber: i + 1, ETag: etag });
+  for (let batchStart = 0; batchStart < partUrls.length; batchStart += CONCURRENCY) {
+    const batchEnd = Math.min(batchStart + CONCURRENCY, partUrls.length);
+    const batchIndices = Array.from({ length: batchEnd - batchStart }, (_, k) => batchStart + k);
 
-    bytesUploaded += chunk.size;
-    onProgress(Math.min(99, Math.round((bytesUploaded / file.size) * 100)));
+    await Promise.all(
+      batchIndices.map(async (i) => {
+        const start = i * partSize;
+        const end = Math.min(start + partSize, file.size);
+        const chunk = file.slice(start, end);
+
+        const etag = await uploadPartToR2(chunk, partUrls[i]);
+        completedParts[i] = { PartNumber: i + 1, ETag: etag };
+
+        bytesUploadedPerPart[i] = chunk.size;
+        const totalUploaded = bytesUploadedPerPart.reduce((sum, b) => sum + b, 0);
+        onProgress(Math.min(99, Math.round((totalUploaded / file.size) * 100)));
+      }),
+    );
   }
 
   // Tell R2 to assemble the parts

@@ -29,7 +29,7 @@ const URL_TTL_SECONDS = 900;
 // Files larger than this threshold use multipart upload (10 MB)
 const MULTIPART_THRESHOLD_BYTES = 10 * 1024 * 1024;
 // Each part is 10 MB (R2 minimum part size is 5 MB, except the last part)
-const PART_SIZE_BYTES = 10 * 1024 * 1024;
+const PART_SIZE_BYTES = 20 * 1024 * 1024;
 
 const UNSIGNABLE_HEADERS = new Set([
   "x-amz-content-sha256",
