@@ -18,6 +18,7 @@
     "@aws-sdk/s3-request-presigner": "^3.998.0",
     "@supabase/ssr": "^0.8.0",
     "@supabase/supabase-js": "^2.97.0",
+    "@vercel/analytics": "^1.6.1",
     "basic-ftp": "^5.1.0",
     "csv-parse": "^6.1.0",
     "dotenv": "^17.3.1",
