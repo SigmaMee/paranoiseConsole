@@ -13,13 +13,14 @@ import {
   getUpcomingShowsByProducerEmail,
   getNextUpcomingShowStartByProducerEmail,
 } from "@/lib/google-calendar";
-import { S3Client, GetObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3";
+import { S3Client, GetObjectCommand } from "@aws-sdk/client-s3";
+import type { Readable } from "stream";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
 
 // ---------------------------------------------------------------------------
-// R2 client
+// R2 client (server-side download of staged files)
 // ---------------------------------------------------------------------------
 
 const r2 = new S3Client({
@@ -29,35 +30,37 @@ const r2 = new S3Client({
     accessKeyId: process.env.R2_ACCESS_KEY_ID!,
     secretAccessKey: process.env.R2_SECRET_ACCESS_KEY!,
   },
+  requestChecksumCalculation: "WHEN_REQUIRED",
+  responseChecksumValidation: "WHEN_REQUIRED",
 });
 
-const BUCKET = process.env.R2_BUCKET_NAME!;
-
-async function fetchFileFromR2(objectKey: string, filename: string, mimeType: string): Promise<File> {
-  const command = new GetObjectCommand({ Bucket: BUCKET, Key: objectKey });
+async function downloadFromR2(
+  objectKey: string,
+  contentType: string,
+  filename: string,
+): Promise<File> {
+  const command = new GetObjectCommand({
+    Bucket: process.env.R2_BUCKET_NAME!,
+    Key: objectKey,
+  });
   const response = await r2.send(command);
-
   if (!response.Body) {
     throw new Error(`R2 object not found: ${objectKey}`);
   }
-
-  const buffer = Buffer.from(await response.Body.transformToByteArray());
-  return new File([buffer], filename, { type: mimeType });
-}
-
-async function deleteFromR2(objectKey: string) {
-  try {
-    await r2.send(new DeleteObjectCommand({ Bucket: BUCKET, Key: objectKey }));
-  } catch {
-    // Best-effort cleanup — don't fail the response if this errors
+  const stream = response.Body as Readable;
+  const chunks: Buffer[] = [];
+  for await (const chunk of stream) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as Uint8Array));
   }
+  const buffer = Buffer.concat(chunks);
+  return new File([buffer], filename, { type: contentType });
 }
 
 // ---------------------------------------------------------------------------
-// Helpers (unchanged from original)
+// Helpers (unchanged)
 // ---------------------------------------------------------------------------
 
-function parseSubmittedTags(value: FormDataEntryValue | null) {
+function parseSubmittedTags(value: unknown) {
   if (!value || typeof value !== "string") {
     return [] as string[];
   }
@@ -187,9 +190,6 @@ async function getProducerFolderNameFromProfilesTable(userEmail: string) {
 // ---------------------------------------------------------------------------
 
 export async function POST(request: Request) {
-  // Object keys that must be cleaned up from R2 regardless of outcome
-  const r2KeysToDelete: string[] = [];
-
   try {
     const supabase = await createClient();
     const {
@@ -202,61 +202,53 @@ export async function POST(request: Request) {
 
     const userEmail = user.email;
 
-    // -----------------------------------------------------------------------
-    // Parse JSON body (metadata + R2 object keys — no binary data)
-    // -----------------------------------------------------------------------
-    const body = (await request.json()) as {
-      uploadType?: string;
-      description?: string;
-      selectedShowStart?: string;
-      selectedShowTitle?: string;
-      tags?: string[];
-      audioObjectKey?: string;
-      audioFilename?: string;
-      audioContentType?: string;
-      imageObjectKey?: string;
-      imageFilename?: string;
-      imageContentType?: string;
-    };
+    // Parse JSON body (files are already in R2; we receive object keys)
+    const body = (await request.json()) as Record<string, unknown>;
 
-    const uploadTypeRaw = String(body.uploadType || "").toLowerCase();
+    const uploadTypeRaw = typeof body.uploadType === "string" ? body.uploadType.toLowerCase() : "";
     const uploadType =
       uploadTypeRaw === "cover" ||
       uploadTypeRaw === "description" ||
       uploadTypeRaw === "all"
         ? uploadTypeRaw
         : "audio";
-    const description = String(body.description || "");
-    const selectedShowStartRaw = String(body.selectedShowStart || "").trim();
-    const selectedShowTitleRaw = String(body.selectedShowTitle || "").trim();
-    const tags = Array.isArray(body.tags)
-      ? body.tags.filter((t): t is string => typeof t === "string").map((t) => t.trim().toLowerCase()).filter(Boolean)
-      : [];
+
+    const description = typeof body.description === "string" ? body.description : "";
+    const selectedShowStartRaw =
+      typeof body.selectedShowStart === "string" ? body.selectedShowStart.trim() : "";
+    const selectedShowTitleRaw =
+      typeof body.selectedShowTitle === "string" ? body.selectedShowTitle.trim() : "";
+
+    // Tags can arrive as an array (JSON body) or comma-separated string
+    const tagsRaw = Array.isArray(body.tags)
+      ? (body.tags as string[])
+          .filter((t): t is string => typeof t === "string")
+          .map((t) => t.trim().toLowerCase())
+          .filter(Boolean)
+      : parseSubmittedTags(typeof body.tags === "string" ? body.tags : "");
+    const tags = tagsRaw;
+
     const descriptionFileContent = buildDescriptionFileContent(description, tags);
 
-    // -----------------------------------------------------------------------
-    // Retrieve files from R2 using the object keys supplied by the client
-    // -----------------------------------------------------------------------
-    let optionalAudio: File | null = null;
-    let optionalImage: File | null = null;
+    // Download staged files from R2 if object keys were provided
+    const audioObjectKey =
+      typeof body.audioObjectKey === "string" ? body.audioObjectKey : null;
+    const audioFilename =
+      typeof body.audioFilename === "string" ? body.audioFilename : "audio.mp3";
+    const audioContentType =
+      typeof body.audioContentType === "string" ? body.audioContentType : "audio/mpeg";
 
-    if (body.audioObjectKey) {
-      r2KeysToDelete.push(body.audioObjectKey);
-      optionalAudio = await fetchFileFromR2(
-        body.audioObjectKey,
-        body.audioFilename || "audio.mp3",
-        body.audioContentType || "audio/mpeg",
-      );
-    }
+    const imageObjectKey =
+      typeof body.imageObjectKey === "string" ? body.imageObjectKey : null;
+    const imageFilename =
+      typeof body.imageFilename === "string" ? body.imageFilename : "cover.jpg";
+    const imageContentType =
+      typeof body.imageContentType === "string" ? body.imageContentType : "image/jpeg";
 
-    if (body.imageObjectKey) {
-      r2KeysToDelete.push(body.imageObjectKey);
-      optionalImage = await fetchFileFromR2(
-        body.imageObjectKey,
-        body.imageFilename || "image.jpg",
-        body.imageContentType || "image/jpeg",
-      );
-    }
+    const [optionalAudio, optionalImage] = await Promise.all([
+      audioObjectKey ? downloadFromR2(audioObjectKey, audioContentType, audioFilename) : null,
+      imageObjectKey ? downloadFromR2(imageObjectKey, imageContentType, imageFilename) : null,
+    ]);
 
     const hasAnyPayload =
       Boolean(optionalAudio) || Boolean(optionalImage) || Boolean(descriptionFileContent);
@@ -367,13 +359,11 @@ export async function POST(request: Request) {
 
       if (optionalImage) {
         const coverShowStart =
-          selectedShowStart ||
-          showStart ||
-          (selectedShowStart === null ? await getNextUpcomingShowStartByProducerEmail(userEmail) : null);
+          selectedShowStart || showStart || (await getNextUpcomingShowStartByProducerEmail(userEmail));
         persistedShowStart = coverShowStart;
 
         if (!coverShowStart) {
-          throw new Error("No show date available. Please select a show before uploading a cover.");
+          throw new Error("No upcoming calendar shows found for this producer.");
         }
 
         const coverFilenamePrefix = buildCoverFilenamePrefix(producerFolderName, coverShowStart);
@@ -387,7 +377,7 @@ export async function POST(request: Request) {
           routeCoverToFtp(optionalImage, producerFolderName, uploadedImageFilename),
           (async () => {
             const weekdayFolderId = await getDriveWeekdayFolderIdForShowStart(coverShowStart);
-            return routeImageToDrive(optionalImage!, weekdayFolderId, coverFilenamePrefix, uploadedImageFilename);
+            return routeImageToDrive(optionalImage, weekdayFolderId, coverFilenamePrefix, uploadedImageFilename);
           })(),
         ]);
 
@@ -409,15 +399,12 @@ export async function POST(request: Request) {
         message: driveMessage,
       };
     } else {
-      // uploadType === "cover"
       const coverShowStart =
-        selectedShowStart ||
-        showStart ||
-        (selectedShowStart === null ? await getNextUpcomingShowStartByProducerEmail(userEmail) : null);
+        selectedShowStart || showStart || (await getNextUpcomingShowStartByProducerEmail(userEmail));
       persistedShowStart = coverShowStart;
 
       if (!coverShowStart) {
-        throw new Error("No show date available. Please select a show before uploading a cover.");
+        throw new Error("No upcoming calendar shows found for this producer.");
       }
 
       const coverFilenamePrefix = buildCoverFilenamePrefix(producerFolderName, coverShowStart);
@@ -483,6 +470,17 @@ export async function POST(request: Request) {
       { status: allSucceeded ? 200 : 207 },
     );
   } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : "";
+    if (errorMessage.toLowerCase().includes("multipart")) {
+      return NextResponse.json(
+        {
+          error:
+            "Upload stream was interrupted while receiving files. Please retry and keep the tab open until submission finishes.",
+        },
+        { status: 400 },
+      );
+    }
+
     return NextResponse.json(
       {
         error:
@@ -492,8 +490,5 @@ export async function POST(request: Request) {
       },
       { status: 500 },
     );
-  } finally {
-    // Always attempt to clean up staging objects from R2, even on error
-    await Promise.all(r2KeysToDelete.map(deleteFromR2));
   }
 }
