@@ -98,7 +98,14 @@ export async function POST(request: Request) {
             UploadId,
             PartNumber: partNumber,
           });
-          const partUrl = await getSignedUrl(r2, partCmd, { expiresIn: URL_TTL_SECONDS });
+          const partUrl = await getSignedUrl(r2, partCmd, {
+            expiresIn: URL_TTL_SECONDS,
+            unhoistableHeaders: new Set([
+              "x-amz-checksum-crc32",
+              "x-amz-sdk-checksum-algorithm",
+              "x-amz-content-sha256",
+            ]),
+          });
           partUrls.push(partUrl);
         }
 
@@ -116,7 +123,14 @@ export async function POST(request: Request) {
           Key: objectKey,
           ContentType: file.contentType,
         });
-        const presignedUrl = await getSignedUrl(r2, command, { expiresIn: URL_TTL_SECONDS });
+        const presignedUrl = await getSignedUrl(r2, command, {
+          expiresIn: URL_TTL_SECONDS,
+          unhoistableHeaders: new Set([
+            "x-amz-checksum-crc32",
+            "x-amz-sdk-checksum-algorithm",
+            "x-amz-content-sha256",
+          ]),
+        });
         results.push({ field: file.field, objectKey, presignedUrl });
       }
     }
