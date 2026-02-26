@@ -150,7 +150,7 @@ function uploadFileToR2(
       }
     };
 
-    xhr.send(file);
+    xhr.send(file.slice());
   });
 }
 
