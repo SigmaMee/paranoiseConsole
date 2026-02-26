@@ -300,7 +300,7 @@ export function SubmissionForm({ selectedShowStart, selectedShowTitle }: Submiss
 
   useEffect(() => {
     if (!errorMessage) return;
-    const id = window.setTimeout(() => setErrorMessage(""), 5000);
+    const id = window.setTimeout(() => setErrorMessage(""), 60000);
     return () => window.clearTimeout(id);
   }, [errorMessage]);
 
@@ -675,7 +675,7 @@ export function SubmissionForm({ selectedShowStart, selectedShowTitle }: Submiss
       submitAllSuccessTimeoutRef.current = window.setTimeout(() => {
         setSubmitAllSuccess(false);
         submitAllSuccessTimeoutRef.current = null;
-      }, 5000);
+      }, 60000);
     } catch (error) {
       setErrorMessage(
         error instanceof Error ? error.message || "Submission failed unexpectedly." : "Submission failed unexpectedly.",
