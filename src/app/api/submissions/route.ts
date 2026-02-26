@@ -13,9 +13,49 @@ import {
   getUpcomingShowsByProducerEmail,
   getNextUpcomingShowStartByProducerEmail,
 } from "@/lib/google-calendar";
+import { S3Client, GetObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
+
+// ---------------------------------------------------------------------------
+// R2 client
+// ---------------------------------------------------------------------------
+
+const r2 = new S3Client({
+  region: "auto",
+  endpoint: `https://${process.env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,
+  credentials: {
+    accessKeyId: process.env.R2_ACCESS_KEY_ID!,
+    secretAccessKey: process.env.R2_SECRET_ACCESS_KEY!,
+  },
+});
+
+const BUCKET = process.env.R2_BUCKET_NAME!;
+
+async function fetchFileFromR2(objectKey: string, filename: string, mimeType: string): Promise<File> {
+  const command = new GetObjectCommand({ Bucket: BUCKET, Key: objectKey });
+  const response = await r2.send(command);
+
+  if (!response.Body) {
+    throw new Error(`R2 object not found: ${objectKey}`);
+  }
+
+  const buffer = Buffer.from(await response.Body.transformToByteArray());
+  return new File([buffer], filename, { type: mimeType });
+}
+
+async function deleteFromR2(objectKey: string) {
+  try {
+    await r2.send(new DeleteObjectCommand({ Bucket: BUCKET, Key: objectKey }));
+  } catch {
+    // Best-effort cleanup — don't fail the response if this errors
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Helpers (unchanged from original)
+// ---------------------------------------------------------------------------
 
 function parseSubmittedTags(value: FormDataEntryValue | null) {
   if (!value || typeof value !== "string") {
@@ -142,7 +182,14 @@ async function getProducerFolderNameFromProfilesTable(userEmail: string) {
   return fullName.trim();
 }
 
+// ---------------------------------------------------------------------------
+// POST handler
+// ---------------------------------------------------------------------------
+
 export async function POST(request: Request) {
+  // Object keys that must be cleaned up from R2 regardless of outcome
+  const r2KeysToDelete: string[] = [];
+
   try {
     const supabase = await createClient();
     const {
@@ -155,29 +202,61 @@ export async function POST(request: Request) {
 
     const userEmail = user.email;
 
-    const formData = await request.formData();
-    const uploadTypeRaw = String(formData.get("uploadType") || "").toLowerCase();
+    // -----------------------------------------------------------------------
+    // Parse JSON body (metadata + R2 object keys — no binary data)
+    // -----------------------------------------------------------------------
+    const body = (await request.json()) as {
+      uploadType?: string;
+      description?: string;
+      selectedShowStart?: string;
+      selectedShowTitle?: string;
+      tags?: string[];
+      audioObjectKey?: string;
+      audioFilename?: string;
+      audioContentType?: string;
+      imageObjectKey?: string;
+      imageFilename?: string;
+      imageContentType?: string;
+    };
+
+    const uploadTypeRaw = String(body.uploadType || "").toLowerCase();
     const uploadType =
       uploadTypeRaw === "cover" ||
       uploadTypeRaw === "description" ||
       uploadTypeRaw === "all"
         ? uploadTypeRaw
         : "audio";
-    const description = String(formData.get("description") || "");
-    const selectedShowStartRaw = String(formData.get("selectedShowStart") || "").trim();
-    const selectedShowTitleRaw = String(formData.get("selectedShowTitle") || "").trim();
-    const tags = parseSubmittedTags(formData.get("tags"));
+    const description = String(body.description || "");
+    const selectedShowStartRaw = String(body.selectedShowStart || "").trim();
+    const selectedShowTitleRaw = String(body.selectedShowTitle || "").trim();
+    const tags = Array.isArray(body.tags)
+      ? body.tags.filter((t): t is string => typeof t === "string").map((t) => t.trim().toLowerCase()).filter(Boolean)
+      : [];
     const descriptionFileContent = buildDescriptionFileContent(description, tags);
-    const audio = formData.get("audio");
-    const image = formData.get("image");
 
-    const optionalAudio = audio instanceof File && audio.size > 0 ? audio : null;
+    // -----------------------------------------------------------------------
+    // Retrieve files from R2 using the object keys supplied by the client
+    // -----------------------------------------------------------------------
+    let optionalAudio: File | null = null;
+    let optionalImage: File | null = null;
 
-    if (image !== null && !(image instanceof File)) {
-      return NextResponse.json({ error: "Invalid cover image payload." }, { status: 400 });
+    if (body.audioObjectKey) {
+      r2KeysToDelete.push(body.audioObjectKey);
+      optionalAudio = await fetchFileFromR2(
+        body.audioObjectKey,
+        body.audioFilename || "audio.mp3",
+        body.audioContentType || "audio/mpeg",
+      );
     }
 
-    const optionalImage = image instanceof File && image.size > 0 ? image : null;
+    if (body.imageObjectKey) {
+      r2KeysToDelete.push(body.imageObjectKey);
+      optionalImage = await fetchFileFromR2(
+        body.imageObjectKey,
+        body.imageFilename || "image.jpg",
+        body.imageContentType || "image/jpeg",
+      );
+    }
 
     const hasAnyPayload =
       Boolean(optionalAudio) || Boolean(optionalImage) || Boolean(descriptionFileContent);
@@ -234,7 +313,6 @@ export async function POST(request: Request) {
         audioUploadName,
       );
       uploadedAudioFilename = audioUploadName;
-      
 
       ftpResult = {
         success: audioResult.success,
@@ -289,11 +367,13 @@ export async function POST(request: Request) {
 
       if (optionalImage) {
         const coverShowStart =
-          selectedShowStart || showStart || (await getNextUpcomingShowStartByProducerEmail(userEmail));
+          selectedShowStart ||
+          showStart ||
+          (selectedShowStart === null ? await getNextUpcomingShowStartByProducerEmail(userEmail) : null);
         persistedShowStart = coverShowStart;
 
         if (!coverShowStart) {
-          throw new Error("No upcoming calendar shows found for this producer.");
+          throw new Error("No show date available. Please select a show before uploading a cover.");
         }
 
         const coverFilenamePrefix = buildCoverFilenamePrefix(producerFolderName, coverShowStart);
@@ -307,7 +387,7 @@ export async function POST(request: Request) {
           routeCoverToFtp(optionalImage, producerFolderName, uploadedImageFilename),
           (async () => {
             const weekdayFolderId = await getDriveWeekdayFolderIdForShowStart(coverShowStart);
-            return routeImageToDrive(optionalImage, weekdayFolderId, coverFilenamePrefix, uploadedImageFilename);
+            return routeImageToDrive(optionalImage!, weekdayFolderId, coverFilenamePrefix, uploadedImageFilename);
           })(),
         ]);
 
@@ -329,12 +409,15 @@ export async function POST(request: Request) {
         message: driveMessage,
       };
     } else {
+      // uploadType === "cover"
       const coverShowStart =
-        selectedShowStart || showStart || (await getNextUpcomingShowStartByProducerEmail(userEmail));
+        selectedShowStart ||
+        showStart ||
+        (selectedShowStart === null ? await getNextUpcomingShowStartByProducerEmail(userEmail) : null);
       persistedShowStart = coverShowStart;
 
       if (!coverShowStart) {
-        throw new Error("No upcoming calendar shows found for this producer.");
+        throw new Error("No show date available. Please select a show before uploading a cover.");
       }
 
       const coverFilenamePrefix = buildCoverFilenamePrefix(producerFolderName, coverShowStart);
@@ -400,17 +483,6 @@ export async function POST(request: Request) {
       { status: allSucceeded ? 200 : 207 },
     );
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : "";
-    if (errorMessage.toLowerCase().includes("multipart")) {
-      return NextResponse.json(
-        {
-          error:
-            "Upload stream was interrupted while receiving files. Please retry and keep the tab open until submission finishes.",
-        },
-        { status: 400 },
-      );
-    }
-
     return NextResponse.json(
       {
         error:
@@ -420,5 +492,8 @@ export async function POST(request: Request) {
       },
       { status: 500 },
     );
+  } finally {
+    // Always attempt to clean up staging objects from R2, even on error
+    await Promise.all(r2KeysToDelete.map(deleteFromR2));
   }
 }

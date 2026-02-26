@@ -78,10 +78,30 @@ const MUSICBRAINZ_GENRE_TAGS = [
   "vaporwave",
 ].sort((first, second) => first.localeCompare(second));
 
-type SubmissionApiResult = {
-  status: number;
-  data: unknown;
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+type PresignedFileDescriptor = {
+  field: "audio" | "image";
+  filename: string;
+  contentType: string;
 };
+
+type PresignedFileResult = {
+  field: "audio" | "image";
+  objectKey: string;
+  presignedUrl: string;
+};
+
+type SubmissionFormProps = {
+  selectedShowStart: string | null;
+  selectedShowTitle: string | null;
+};
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
 
 function createFakeWaveformBars(seedSource: string, totalBars = 72) {
   let seed = 0;
@@ -101,51 +121,42 @@ function createFakeWaveformBars(seedSource: string, totalBars = 72) {
   return bars;
 }
 
-function submitWithProgress(
-  payload: FormData,
+/**
+ * Upload a single file directly to R2 via a presigned PUT URL.
+ * Reports progress as a value 0–100 via onProgress.
+ */
+function uploadFileToR2(
+  file: File,
+  presignedUrl: string,
   onProgress: (percentage: number) => void,
-): Promise<SubmissionApiResult> {
+): Promise<void> {
   return new Promise((resolve, reject) => {
-    const request = new XMLHttpRequest();
-    request.open("POST", "/api/submissions", true);
+    const xhr = new XMLHttpRequest();
+    xhr.open("PUT", presignedUrl, true);
+    xhr.setRequestHeader("Content-Type", file.type);
 
-    request.upload.onprogress = (event) => {
-      if (!event.lengthComputable || event.total <= 0) {
-        return;
+    xhr.upload.onprogress = (event) => {
+      if (!event.lengthComputable || event.total <= 0) return;
+      onProgress(Math.min(100, Math.max(0, Math.round((event.loaded / event.total) * 100))));
+    };
+
+    xhr.onerror = () => reject(new Error("File upload to storage failed."));
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        onProgress(100);
+        resolve();
+      } else {
+        reject(new Error(`Storage upload failed with status ${xhr.status}.`));
       }
-
-      const percentage = Math.min(
-        100,
-        Math.max(0, Math.round((event.loaded / event.total) * 100)),
-      );
-      onProgress(percentage);
     };
 
-    request.onerror = () => {
-      reject(new Error("Submission failed unexpectedly."));
-    };
-
-    request.onload = () => {
-      onProgress(100);
-
-      let data: unknown = null;
-      try {
-        data = request.responseText ? JSON.parse(request.responseText) : null;
-      } catch {
-        data = null;
-      }
-
-      resolve({ status: request.status, data });
-    };
-
-    request.send(payload);
+    xhr.send(file);
   });
 }
 
-type SubmissionFormProps = {
-  selectedShowStart: string | null;
-  selectedShowTitle: string | null;
-};
+// ---------------------------------------------------------------------------
+// Component
+// ---------------------------------------------------------------------------
 
 export function SubmissionForm({ selectedShowStart, selectedShowTitle }: SubmissionFormProps) {
   const [audioFile, setAudioFile] = useState<File | null>(null);
@@ -166,7 +177,9 @@ export function SubmissionForm({ selectedShowStart, selectedShowTitle }: Submiss
   const [errorMessage, setErrorMessage] = useState("");
   const [submitAllSuccess, setSubmitAllSuccess] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  // Two-phase progress: [0–70] uploading files to R2, [70–100] server processing
   const [uploadProgress, setUploadProgress] = useState(0);
+  const [progressPhase, setProgressPhase] = useState<"uploading" | "processing" | null>(null);
   const audioInputRef = useRef<HTMLInputElement | null>(null);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
   const audioPreviewRef = useRef<HTMLAudioElement | null>(null);
@@ -181,12 +194,8 @@ export function SubmissionForm({ selectedShowStart, selectedShowTitle }: Submiss
     setTagInputValue("");
     setIsTagMenuOpen(false);
     setHighlightedTagIndex(0);
-    if (audioInputRef.current) {
-      audioInputRef.current.value = "";
-    }
-    if (imageInputRef.current) {
-      imageInputRef.current.value = "";
-    }
+    if (audioInputRef.current) audioInputRef.current.value = "";
+    if (imageInputRef.current) imageInputRef.current.value = "";
     if (audioPreviewRef.current) {
       audioPreviewRef.current.pause();
       audioPreviewRef.current.currentTime = 0;
@@ -197,6 +206,7 @@ export function SubmissionForm({ selectedShowStart, selectedShowTitle }: Submiss
     setIsAudioDragging(false);
     setIsImageDragging(false);
     setUploadProgress(0);
+    setProgressPhase(null);
   }
 
   useEffect(() => {
@@ -208,17 +218,9 @@ export function SubmissionForm({ selectedShowStart, selectedShowTitle }: Submiss
   }, []);
 
   useEffect(() => {
-    if (!errorMessage) {
-      return;
-    }
-
-    const timeoutId = window.setTimeout(() => {
-      setErrorMessage("");
-    }, 5000);
-
-    return () => {
-      window.clearTimeout(timeoutId);
-    };
+    if (!errorMessage) return;
+    const id = window.setTimeout(() => setErrorMessage(""), 5000);
+    return () => window.clearTimeout(id);
   }, [errorMessage]);
 
   useEffect(() => {
@@ -229,23 +231,18 @@ export function SubmissionForm({ selectedShowStart, selectedShowTitle }: Submiss
       setIsAudioPreviewPlaying(false);
       return;
     }
-
     const url = URL.createObjectURL(audioFile);
     setAudioPreviewUrl(url);
-
-    return () => {
-      URL.revokeObjectURL(url);
-    };
+    return () => URL.revokeObjectURL(url);
   }, [audioFile]);
 
-  useEffect(() => {
-    setHighlightedTagIndex(0);
-  }, [tagInputValue]);
+  useEffect(() => { setHighlightedTagIndex(0); }, [tagInputValue]);
 
   useEffect(() => {
     resetDraftState();
     setErrorMessage("");
     setSubmitAllSuccess(false);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedShowStart]);
 
   const normalizedTagInput = tagInputValue.trim().toLowerCase();
@@ -257,93 +254,56 @@ export function SubmissionForm({ selectedShowStart, selectedShowTitle }: Submiss
 
   function addTag(rawValue: string) {
     const normalized = rawValue.trim().toLowerCase().replace(/\s+/g, " ");
-    if (!normalized) {
-      return;
-    }
-
-    if (selectedTags.includes(normalized)) {
-      setTagInputValue("");
-      return;
-    }
-
-    if (selectedTags.length >= 5) {
-      setErrorMessage("You can add up to 5 tags.");
-      return;
-    }
-
-    setSelectedTags((previous) => [...previous, normalized]);
+    if (!normalized) return;
+    if (selectedTags.includes(normalized)) { setTagInputValue(""); return; }
+    if (selectedTags.length >= 5) { setErrorMessage("You can add up to 5 tags."); return; }
+    setSelectedTags((prev) => [...prev, normalized]);
     setTagInputValue("");
     setIsTagMenuOpen(false);
   }
 
   function removeTag(tagToRemove: string) {
-    setSelectedTags((previous) => previous.filter((tag) => tag !== tagToRemove));
+    setSelectedTags((prev) => prev.filter((t) => t !== tagToRemove));
   }
 
   function onTagInputKeyDown(event: KeyboardEvent<HTMLInputElement>) {
     if (event.key === "ArrowDown") {
       event.preventDefault();
-      if (filteredTagSuggestions.length === 0) {
-        return;
-      }
+      if (!filteredTagSuggestions.length) return;
       setIsTagMenuOpen(true);
-      setHighlightedTagIndex((previous) =>
-        Math.min(filteredTagSuggestions.length - 1, previous + 1),
-      );
+      setHighlightedTagIndex((prev) => Math.min(filteredTagSuggestions.length - 1, prev + 1));
       return;
     }
-
     if (event.key === "ArrowUp") {
       event.preventDefault();
-      if (filteredTagSuggestions.length === 0) {
-        return;
-      }
-      setHighlightedTagIndex((previous) => Math.max(0, previous - 1));
+      if (!filteredTagSuggestions.length) return;
+      setHighlightedTagIndex((prev) => Math.max(0, prev - 1));
       return;
     }
-
     if (event.key === "Enter" || event.key === ",") {
       event.preventDefault();
       const suggestion = filteredTagSuggestions[highlightedTagIndex];
-      if (isTagMenuOpen && suggestion) {
-        addTag(suggestion);
-      } else {
-        addTag(tagInputValue);
-      }
+      if (isTagMenuOpen && suggestion) addTag(suggestion);
+      else addTag(tagInputValue);
       return;
     }
-
     if (event.key === "Backspace" && !tagInputValue && selectedTags.length > 0) {
       event.preventDefault();
       removeTag(selectedTags[selectedTags.length - 1]);
       return;
     }
-
-    if (event.key === "Escape") {
-      setIsTagMenuOpen(false);
-    }
+    if (event.key === "Escape") setIsTagMenuOpen(false);
   }
 
   useEffect(() => {
-    if (!imageFile) {
-      setImagePreviewUrl(null);
-      return;
-    }
-
+    if (!imageFile) { setImagePreviewUrl(null); return; }
     const url = URL.createObjectURL(imageFile);
     setImagePreviewUrl(url);
-
-    return () => {
-      URL.revokeObjectURL(url);
-    };
+    return () => URL.revokeObjectURL(url);
   }, [imageFile]);
 
   useEffect(() => {
-    if (!audioFile) {
-      setWaveformBars([]);
-      return;
-    }
-
+    if (!audioFile) { setWaveformBars([]); return; }
     const seed = `${audioFile.name}-${audioFile.size}-${audioFile.lastModified}`;
     setWaveformBars(createFakeWaveformBars(seed));
   }, [audioFile]);
@@ -356,148 +316,80 @@ export function SubmissionForm({ selectedShowStart, selectedShowTitle }: Submiss
     setImageFile(event.target.files?.[0] ?? null);
   }
 
-  function onAudioDragOver(event: DragEvent<HTMLDivElement>) {
-    event.preventDefault();
-    setIsAudioDragging(true);
-  }
-
-  function onAudioDragLeave(event: DragEvent<HTMLDivElement>) {
-    event.preventDefault();
-    setIsAudioDragging(false);
-  }
-
-  function onImageDragOver(event: DragEvent<HTMLDivElement>) {
-    event.preventDefault();
-    setIsImageDragging(true);
-  }
-
-  function onImageDragLeave(event: DragEvent<HTMLDivElement>) {
-    event.preventDefault();
-    setIsImageDragging(false);
-  }
+  function onAudioDragOver(event: DragEvent<HTMLDivElement>) { event.preventDefault(); setIsAudioDragging(true); }
+  function onAudioDragLeave(event: DragEvent<HTMLDivElement>) { event.preventDefault(); setIsAudioDragging(false); }
+  function onImageDragOver(event: DragEvent<HTMLDivElement>) { event.preventDefault(); setIsImageDragging(true); }
+  function onImageDragLeave(event: DragEvent<HTMLDivElement>) { event.preventDefault(); setIsImageDragging(false); }
 
   function onAudioDrop(event: DragEvent<HTMLDivElement>) {
-    event.preventDefault();
-    setIsAudioDragging(false);
-    const droppedFile = event.dataTransfer.files?.[0] ?? null;
-    setAudioFile(droppedFile);
+    event.preventDefault(); setIsAudioDragging(false);
+    setAudioFile(event.dataTransfer.files?.[0] ?? null);
   }
 
   function onImageDrop(event: DragEvent<HTMLDivElement>) {
-    event.preventDefault();
-    setIsImageDragging(false);
-    const droppedFile = event.dataTransfer.files?.[0] ?? null;
-    setImageFile(droppedFile);
+    event.preventDefault(); setIsImageDragging(false);
+    setImageFile(event.dataTransfer.files?.[0] ?? null);
   }
 
-  function openAudioPicker() {
-    audioInputRef.current?.click();
-  }
+  function openAudioPicker() { audioInputRef.current?.click(); }
+  function openImagePicker() { imageInputRef.current?.click(); }
 
-  function openImagePicker() {
-    imageInputRef.current?.click();
-  }
-
-  function onDropzoneKeyDown(
-    event: KeyboardEvent<HTMLDivElement>,
-    openPicker: () => void,
-  ) {
-    if (event.key === "Enter" || event.key === " ") {
-      event.preventDefault();
-      openPicker();
-    }
+  function onDropzoneKeyDown(event: KeyboardEvent<HTMLDivElement>, openPicker: () => void) {
+    if (event.key === "Enter" || event.key === " ") { event.preventDefault(); openPicker(); }
   }
 
   function clearAudioFile(event: MouseEvent<HTMLButtonElement>) {
-    event.preventDefault();
-    event.stopPropagation();
-    if (audioPreviewRef.current) {
-      audioPreviewRef.current.pause();
-      audioPreviewRef.current.currentTime = 0;
-    }
-    setAudioFile(null);
-    setAudioCurrentTime(0);
-    setAudioDuration(0);
-    setIsAudioPreviewPlaying(false);
-    if (audioInputRef.current) {
-      audioInputRef.current.value = "";
-    }
+    event.preventDefault(); event.stopPropagation();
+    if (audioPreviewRef.current) { audioPreviewRef.current.pause(); audioPreviewRef.current.currentTime = 0; }
+    setAudioFile(null); setAudioCurrentTime(0); setAudioDuration(0); setIsAudioPreviewPlaying(false);
+    if (audioInputRef.current) audioInputRef.current.value = "";
   }
 
   function clearImageFile(event: MouseEvent<HTMLButtonElement>) {
-    event.preventDefault();
-    event.stopPropagation();
+    event.preventDefault(); event.stopPropagation();
     setImageFile(null);
-    if (imageInputRef.current) {
-      imageInputRef.current.value = "";
-    }
+    if (imageInputRef.current) imageInputRef.current.value = "";
   }
 
   function toggleAudioPreviewPlayback() {
-    if (!audioPreviewRef.current) {
-      return;
-    }
-
-    if (audioPreviewRef.current.paused) {
-      void audioPreviewRef.current.play();
-      setIsAudioPreviewPlaying(true);
-      return;
-    }
-
-    audioPreviewRef.current.pause();
-    setIsAudioPreviewPlaying(false);
+    if (!audioPreviewRef.current) return;
+    if (audioPreviewRef.current.paused) { void audioPreviewRef.current.play(); setIsAudioPreviewPlaying(true); }
+    else { audioPreviewRef.current.pause(); setIsAudioPreviewPlaying(false); }
   }
 
   function onAudioPreviewMetadataLoaded() {
-    if (!audioPreviewRef.current) {
-      return;
-    }
+    if (!audioPreviewRef.current) return;
     setAudioDuration(Number.isFinite(audioPreviewRef.current.duration) ? audioPreviewRef.current.duration : 0);
   }
 
   function onAudioPreviewTimeUpdate() {
-    if (!audioPreviewRef.current) {
-      return;
-    }
+    if (!audioPreviewRef.current) return;
     setAudioCurrentTime(audioPreviewRef.current.currentTime);
   }
 
   function onAudioSeekChange(event: ChangeEvent<HTMLInputElement>) {
-    if (!audioPreviewRef.current) {
-      return;
-    }
-
+    if (!audioPreviewRef.current) return;
     const nextTime = Number(event.target.value);
     audioPreviewRef.current.currentTime = nextTime;
     setAudioCurrentTime(nextTime);
   }
 
   function onWaveformClick(event: MouseEvent<HTMLDivElement>) {
-    if (!audioPreviewRef.current || audioDuration <= 0) {
-      return;
-    }
-
+    if (!audioPreviewRef.current || audioDuration <= 0) return;
     const rect = event.currentTarget.getBoundingClientRect();
-    if (rect.width <= 0) {
-      return;
-    }
-
-    const clickPosition = event.clientX - rect.left;
-    const ratio = Math.max(0, Math.min(1, clickPosition / rect.width));
+    if (rect.width <= 0) return;
+    const ratio = Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width));
     const nextTime = ratio * audioDuration;
     audioPreviewRef.current.currentTime = nextTime;
     setAudioCurrentTime(nextTime);
   }
 
   function formatSeconds(seconds: number) {
-    if (!Number.isFinite(seconds) || seconds <= 0) {
-      return "0:00";
-    }
-
+    if (!Number.isFinite(seconds) || seconds <= 0) return "0:00";
     const totalSeconds = Math.floor(seconds);
     const minutes = Math.floor(totalSeconds / 60);
-    const remainingSeconds = totalSeconds % 60;
-    return `${minutes}:${String(remainingSeconds).padStart(2, "0")}`;
+    const remaining = totalSeconds % 60;
+    return `${minutes}:${String(remaining).padStart(2, "0")}`;
   }
 
   function validate() {
@@ -511,16 +403,9 @@ export function SubmissionForm({ selectedShowStart, selectedShowTitle }: Submiss
     }
 
     if (audioFile) {
-      const isMp3 =
-        audioFile.type === "audio/mpeg" || audioFile.name.toLowerCase().endsWith(".mp3");
-
-      if (!isMp3) {
-        return "Audio must be an MP3 file.";
-      }
-
-      if (audioFile.size > MAX_AUDIO_BYTES) {
-        return "Audio exceeds 500 MB maximum size.";
-      }
+      const isMp3 = audioFile.type === "audio/mpeg" || audioFile.name.toLowerCase().endsWith(".mp3");
+      if (!isMp3) return "Audio must be an MP3 file.";
+      if (audioFile.size > MAX_AUDIO_BYTES) return "Audio exceeds 500 MB maximum size.";
     }
 
     if (imageFile && !imageFile.type.startsWith("image/")) {
@@ -534,39 +419,144 @@ export function SubmissionForm({ selectedShowStart, selectedShowTitle }: Submiss
     setErrorMessage("");
 
     const validationError = validate();
-    if (validationError) {
-      setErrorMessage(validationError);
-      return;
-    }
+    if (validationError) { setErrorMessage(validationError); return; }
 
     setIsLoading(true);
     setUploadProgress(0);
+    setProgressPhase("uploading");
 
     try {
-      const payload = new FormData();
-      payload.append("uploadType", "all");
+      // -----------------------------------------------------------------------
+      // Step 1 — Request presigned URLs for any files that need uploading
+      // -----------------------------------------------------------------------
+      const filesToPresign: PresignedFileDescriptor[] = [];
       if (audioFile) {
-        payload.append("audio", audioFile);
+        filesToPresign.push({
+          field: "audio",
+          filename: audioFile.name,
+          contentType: audioFile.type || "audio/mpeg",
+        });
       }
       if (imageFile) {
-        payload.append("image", imageFile);
-      }
-      if (description.trim()) {
-        payload.append("description", description.trim());
-      }
-      if (selectedTags.length > 0) {
-        payload.append("tags", JSON.stringify(selectedTags));
-      }
-      if (selectedShowStart) {
-        payload.append("selectedShowStart", selectedShowStart);
-      }
-      if (selectedShowTitle) {
-        payload.append("selectedShowTitle", selectedShowTitle);
+        filesToPresign.push({
+          field: "image",
+          filename: imageFile.name,
+          contentType: imageFile.type || "image/jpeg",
+        });
       }
 
-      const { status, data } = await submitWithProgress(payload, setUploadProgress);
+      let presignedFiles: PresignedFileResult[] = [];
 
-      const typed = typeof data === "object" && data !== null ? (data as Record<string, unknown>) : {};
+      if (filesToPresign.length > 0) {
+        const presignResponse = await fetch("/api/submissions/presign", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ files: filesToPresign }),
+        });
+
+        if (!presignResponse.ok) {
+          const errorData = (await presignResponse.json().catch(() => ({}))) as Record<string, unknown>;
+          throw new Error(
+            typeof errorData.error === "string" ? errorData.error : "Failed to prepare upload.",
+          );
+        }
+
+        const presignData = (await presignResponse.json()) as { files: PresignedFileResult[] };
+        presignedFiles = presignData.files;
+      }
+
+      // -----------------------------------------------------------------------
+      // Step 2 — Upload files directly to R2 via presigned PUT URLs
+      //           Progress covers 0–70% of the visible progress bar.
+      // -----------------------------------------------------------------------
+      const audioResult = presignedFiles.find((f) => f.field === "audio");
+      const imageResult = presignedFiles.find((f) => f.field === "image");
+
+      // Track per-file progress and blend into a single [0–70] range
+      let audioProgress = audioFile ? 0 : 100;
+      let imageProgress = imageFile ? 0 : 100;
+
+      function blendedProgress() {
+        const fileCount = (audioFile ? 1 : 0) + (imageFile ? 1 : 0);
+        if (fileCount === 0) return 70;
+        const avg = (audioProgress + imageProgress) / (fileCount === 2 ? 2 : 1);
+        // If only one file, the other slot is already 100 so the average is just that file
+        const combined = fileCount === 2
+          ? (audioProgress + imageProgress) / 2
+          : audioFile ? audioProgress : imageProgress;
+        void avg; // unused when using combined
+        return Math.round(combined * 0.7);
+      }
+
+      const uploads: Promise<void>[] = [];
+
+      if (audioFile && audioResult) {
+        uploads.push(
+          uploadFileToR2(audioFile, audioResult.presignedUrl, (pct) => {
+            audioProgress = pct;
+            setUploadProgress(blendedProgress());
+          }),
+        );
+      }
+
+      if (imageFile && imageResult) {
+        uploads.push(
+          uploadFileToR2(imageFile, imageResult.presignedUrl, (pct) => {
+            imageProgress = pct;
+            setUploadProgress(blendedProgress());
+          }),
+        );
+      }
+
+      await Promise.all(uploads);
+
+      // -----------------------------------------------------------------------
+      // Step 3 — POST metadata + R2 object keys to the submissions API
+      //           (small JSON payload, no files — never hits Vercel's limit)
+      // -----------------------------------------------------------------------
+      setProgressPhase("processing");
+      setUploadProgress(70);
+
+      const submissionBody: Record<string, unknown> = {
+        uploadType: "all",
+        description: description.trim(),
+        tags: selectedTags,
+        selectedShowStart: selectedShowStart ?? undefined,
+        selectedShowTitle: selectedShowTitle ?? undefined,
+        audioObjectKey: audioResult?.objectKey,
+        audioFilename: audioFile?.name,
+        audioContentType: audioFile?.type,
+        imageObjectKey: imageResult?.objectKey,
+        imageFilename: imageFile?.name,
+        imageContentType: imageFile?.type,
+      };
+
+      // Animate progress from 70 → 95 while the server processes
+      const processingInterval = window.setInterval(() => {
+        setUploadProgress((prev) => Math.min(95, prev + 1));
+      }, 400);
+
+      let submissionStatus: number;
+      let submissionData: unknown;
+
+      try {
+        const submissionResponse = await fetch("/api/submissions", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(submissionBody),
+        });
+        submissionStatus = submissionResponse.status;
+        submissionData = await submissionResponse.json().catch(() => null);
+      } finally {
+        window.clearInterval(processingInterval);
+      }
+
+      setUploadProgress(100);
+
+      const typed =
+        typeof submissionData === "object" && submissionData !== null
+          ? (submissionData as Record<string, unknown>)
+          : {};
       const ftpObj =
         typeof typed.ftp === "object" && typed.ftp !== null
           ? (typed.ftp as Record<string, unknown>)
@@ -577,21 +567,19 @@ export function SubmissionForm({ selectedShowStart, selectedShowTitle }: Submiss
           : null;
 
       const ftpMessage = typeof ftpObj?.message === "string" ? `FTP: ${ftpObj.message}` : null;
-      const driveMessage =
-        typeof driveObj?.message === "string" ? `Drive: ${driveObj.message}` : null;
+      const driveMessage = typeof driveObj?.message === "string" ? `Drive: ${driveObj.message}` : null;
 
-      const isSuccessStatus = status >= 200 && status < 300;
-      if (!isSuccessStatus && status !== 207) {
-        const errorMessage =
-          typeof typed.error === "string" ? typed.error : "Submission failed.";
-        setErrorMessage(errorMessage);
+      const isSuccessStatus = submissionStatus >= 200 && submissionStatus < 300;
+      if (!isSuccessStatus && submissionStatus !== 207) {
+        const msg = typeof typed.error === "string" ? typed.error : "Submission failed.";
+        setErrorMessage(msg);
         return;
       }
 
-      if (status === 207 || typed.success === false) {
+      if (submissionStatus === 207 || typed.success === false) {
         setErrorMessage(
           ["Submission completed with partial failure.", ftpMessage, driveMessage]
-            .filter((value): value is string => Boolean(value))
+            .filter((v): v is string => Boolean(v))
             .join(" "),
         );
         return;
@@ -606,11 +594,9 @@ export function SubmissionForm({ selectedShowStart, selectedShowTitle }: Submiss
         submitAllSuccessTimeoutRef.current = null;
       }, 5000);
     } catch (error) {
-      if (error instanceof Error) {
-        setErrorMessage(error.message || "Submission failed unexpectedly.");
-      } else {
-        setErrorMessage("Submission failed unexpectedly.");
-      }
+      setErrorMessage(
+        error instanceof Error ? error.message || "Submission failed unexpectedly." : "Submission failed unexpectedly.",
+      );
     } finally {
       setIsLoading(false);
       resetDraftState();
@@ -634,7 +620,7 @@ export function SubmissionForm({ selectedShowStart, selectedShowTitle }: Submiss
             <div className="upload-progress-fill" />
           </div>
           <p className="upload-progress-value">{uploadProgress}%</p>
-          {uploadProgress >= 100 ? (
+          {progressPhase === "processing" || uploadProgress >= 100 ? (
             <p className="upload-progress-phase">almost done...</p>
           ) : null}
         </div>
@@ -703,7 +689,7 @@ export function SubmissionForm({ selectedShowStart, selectedShowTitle }: Submiss
                   <label className="field-label" htmlFor="show-audio">
                     Audio
                   </label>
-                  <span className="field-label-helper">MP3 320KBPS 120’ MAX</span>
+                  <span className="field-label-helper">MP3 320KBPS 120' MAX</span>
                 </div>
                 {!audioFile ? (
                   <div
@@ -790,9 +776,7 @@ export function SubmissionForm({ selectedShowStart, selectedShowTitle }: Submiss
                   <label className="field-label" htmlFor="show-description">
                     Description
                   </label>
-                  <span className="field-label-helper">
-                    briefly describe your show
-                  </span>
+                  <span className="field-label-helper">briefly describe your show</span>
                 </div>
                 <textarea
                   id="show-description"
@@ -836,15 +820,8 @@ export function SubmissionForm({ selectedShowStart, selectedShowTitle }: Submiss
                   value={tagInputValue}
                   placeholder="Type a genre tag"
                   onFocus={() => setIsTagMenuOpen(true)}
-                  onBlur={() => {
-                    window.setTimeout(() => {
-                      setIsTagMenuOpen(false);
-                    }, 100);
-                  }}
-                  onChange={(event) => {
-                    setTagInputValue(event.target.value);
-                    setIsTagMenuOpen(true);
-                  }}
+                  onBlur={() => { window.setTimeout(() => setIsTagMenuOpen(false), 100); }}
+                  onChange={(event) => { setTagInputValue(event.target.value); setIsTagMenuOpen(true); }}
                   onKeyDown={onTagInputKeyDown}
                 />
               </div>
@@ -855,10 +832,7 @@ export function SubmissionForm({ selectedShowStart, selectedShowTitle }: Submiss
                       key={tag}
                       type="button"
                       className={`tag-suggestion-item ${index === highlightedTagIndex ? "tag-suggestion-item-active" : ""}`}
-                      onMouseDown={(event) => {
-                        event.preventDefault();
-                        addTag(tag);
-                      }}
+                      onMouseDown={(event) => { event.preventDefault(); addTag(tag); }}
                     >
                       {tag}
                     </button>
@@ -867,18 +841,16 @@ export function SubmissionForm({ selectedShowStart, selectedShowTitle }: Submiss
                     <button
                       type="button"
                       className="tag-suggestion-item tag-suggestion-create"
-                      onMouseDown={(event) => {
-                        event.preventDefault();
-                        addTag(normalizedTagInput);
-                      }}
+                      onMouseDown={(event) => { event.preventDefault(); addTag(normalizedTagInput); }}
                     >
-                      Create “{normalizedTagInput}”
+                      Create "{normalizedTagInput}"
                     </button>
                   ) : null}
                 </div>
               ) : null}
             </div>
           </div>
+
           <div className="submission-submit-wrap">
             <button
               className={submitAllSuccess ? "button-success-static submission-submit" : "button button-primary submission-submit"}
@@ -897,9 +869,7 @@ export function SubmissionForm({ selectedShowStart, selectedShowTitle }: Submiss
       )}
 
       {errorMessage ? (
-        <p className="message message-error">
-          {errorMessage}
-        </p>
+        <p className="message message-error">{errorMessage}</p>
       ) : null}
     </form>
   );
