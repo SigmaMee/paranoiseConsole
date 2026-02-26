@@ -86,12 +86,18 @@ type PresignedFileDescriptor = {
   field: "audio" | "image";
   filename: string;
   contentType: string;
+  size: number;
 };
 
 type PresignedFileResult = {
   field: "audio" | "image";
   objectKey: string;
-  presignedUrl: string;
+  // Single-part
+  presignedUrl?: string;
+  // Multipart
+  uploadId?: string;
+  partUrls?: string[];
+  partSize?: number;
 };
 
 type SubmissionFormProps = {
@@ -122,36 +128,101 @@ function createFakeWaveformBars(seedSource: string, totalBars = 72) {
 }
 
 /**
- * Upload a single file directly to R2 via a presigned PUT URL.
- * Reports progress as a value 0–100 via onProgress.
+ * Upload one chunk via a presigned PUT URL, returns the ETag from the response.
  */
-function uploadFileToR2(
-  file: File,
+function uploadPartToR2(
+  chunk: Blob,
   presignedUrl: string,
-  onProgress: (percentage: number) => void,
-): Promise<void> {
+): Promise<string> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open("PUT", presignedUrl, true);
-    xhr.setRequestHeader("Content-Type", file.type);
 
-    xhr.upload.onprogress = (event) => {
-      if (!event.lengthComputable || event.total <= 0) return;
-      onProgress(Math.min(100, Math.max(0, Math.round((event.loaded / event.total) * 100))));
-    };
-
-    xhr.onerror = () => reject(new Error("File upload to storage failed."));
+    xhr.onerror = () => reject(new Error("Part upload failed."));
     xhr.onload = () => {
       if (xhr.status >= 200 && xhr.status < 300) {
-        onProgress(100);
-        resolve();
+        const etag = xhr.getResponseHeader("ETag") || xhr.getResponseHeader("etag") || "";
+        resolve(etag);
       } else {
-        reject(new Error(`Storage upload failed with status ${xhr.status}.`));
+        reject(new Error(`Part upload failed with status ${xhr.status}.`));
       }
     };
 
-    xhr.send(file.slice());
+    xhr.send(chunk);
   });
+}
+
+/**
+ * Upload a file to R2 — single-part for small files, multipart for large ones.
+ * Reports progress as a value 0–100 via onProgress.
+ */
+async function uploadFileToR2(
+  file: File,
+  result: PresignedFileResult,
+  onProgress: (percentage: number) => void,
+): Promise<void> {
+  // --- Single-part ---
+  if (result.presignedUrl) {
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open("PUT", result.presignedUrl!, true);
+      xhr.setRequestHeader("Content-Type", file.type);
+
+      xhr.upload.onprogress = (event) => {
+        if (!event.lengthComputable || event.total <= 0) return;
+        onProgress(Math.min(100, Math.max(0, Math.round((event.loaded / event.total) * 100))));
+      };
+
+      xhr.onerror = () => reject(new Error("File upload to storage failed."));
+      xhr.onload = () => {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          onProgress(100);
+          resolve();
+        } else {
+          reject(new Error(`Storage upload failed with status ${xhr.status}.`));
+        }
+      };
+
+      xhr.send(file.slice());
+    });
+  }
+
+  // --- Multipart ---
+  if (!result.uploadId || !result.partUrls || !result.partSize) {
+    throw new Error("Invalid presign result: missing multipart fields.");
+  }
+
+  const { uploadId, partUrls, partSize, objectKey } = result;
+  const completedParts: Array<{ PartNumber: number; ETag: string }> = [];
+  let bytesUploaded = 0;
+
+  for (let i = 0; i < partUrls.length; i++) {
+    const start = i * partSize;
+    const end = Math.min(start + partSize, file.size);
+    const chunk = file.slice(start, end);
+
+    const etag = await uploadPartToR2(chunk, partUrls[i]);
+    completedParts.push({ PartNumber: i + 1, ETag: etag });
+
+    bytesUploaded += chunk.size;
+    onProgress(Math.min(99, Math.round((bytesUploaded / file.size) * 100)));
+  }
+
+  // Tell R2 to assemble the parts
+  const completeResponse = await fetch("/api/submissions/presign/complete", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ objectKey, uploadId, parts: completedParts }),
+  });
+
+  if (!completeResponse.ok) {
+    const err = (await completeResponse.json().catch(() => ({}))) as Record<string, unknown>;
+    throw new Error(
+      typeof err.error === "string" ? err.error : "Failed to complete multipart upload.",
+    );
+  }
+
+  onProgress(100);
 }
 
 // ---------------------------------------------------------------------------
@@ -435,6 +506,7 @@ export function SubmissionForm({ selectedShowStart, selectedShowTitle }: Submiss
           field: "audio",
           filename: audioFile.name,
           contentType: audioFile.type || "audio/mpeg",
+          size: audioFile.size,
         });
       }
       if (imageFile) {
@@ -442,6 +514,7 @@ export function SubmissionForm({ selectedShowStart, selectedShowTitle }: Submiss
           field: "image",
           filename: imageFile.name,
           contentType: imageFile.type || "image/jpeg",
+          size: imageFile.size,
         });
       }
 
@@ -492,7 +565,7 @@ export function SubmissionForm({ selectedShowStart, selectedShowTitle }: Submiss
 
       if (audioFile && audioResult) {
         uploads.push(
-          uploadFileToR2(audioFile, audioResult.presignedUrl, (pct) => {
+          uploadFileToR2(audioFile, audioResult, (pct) => {
             audioProgress = pct;
             setUploadProgress(blendedProgress());
           }),
@@ -501,7 +574,7 @@ export function SubmissionForm({ selectedShowStart, selectedShowTitle }: Submiss
 
       if (imageFile && imageResult) {
         uploads.push(
-          uploadFileToR2(imageFile, imageResult.presignedUrl, (pct) => {
+          uploadFileToR2(imageFile, imageResult, (pct) => {
             imageProgress = pct;
             setUploadProgress(blendedProgress());
           }),

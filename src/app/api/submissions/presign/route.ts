@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
+import {
+  S3Client,
+  PutObjectCommand,
+  CreateMultipartUploadCommand,
+  UploadPartCommand,
+} from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { randomUUID } from "crypto";
 
@@ -18,16 +23,18 @@ const r2 = new S3Client({
 });
 
 const BUCKET = process.env.R2_BUCKET_NAME!;
-
-// Each presigned URL is valid for 15 minutes — enough for the client to start
-// the upload; the object itself is cleaned up by the submissions route after
-// it has been forwarded to FTP / Google Drive.
 const URL_TTL_SECONDS = 900;
+
+// Files larger than this threshold use multipart upload (10 MB)
+const MULTIPART_THRESHOLD_BYTES = 10 * 1024 * 1024;
+// Each part is 10 MB (R2 minimum part size is 5 MB, except the last part)
+const PART_SIZE_BYTES = 10 * 1024 * 1024;
 
 type FileDescriptor = {
   field: "audio" | "image";
   filename: string;
   contentType: string;
+  size: number;
 };
 
 export async function POST(request: Request) {
@@ -55,31 +62,63 @@ export async function POST(request: Request) {
     const results: Array<{
       field: string;
       objectKey: string;
-      presignedUrl: string;
+      presignedUrl?: string;
+      uploadId?: string;
+      partUrls?: string[];
+      partSize?: number;
     }> = [];
 
     for (const file of files) {
       if (file.field !== "audio" && file.field !== "image") {
-        return NextResponse.json(
-          { error: `Invalid field: ${file.field}` },
-          { status: 400 },
-        );
+        return NextResponse.json({ error: `Invalid field: ${file.field}` }, { status: 400 });
       }
 
-      // Namespace by user so keys are predictable and easy to clean up
       const objectKey = `staging/${user.id}/${file.field}/${randomUUID()}-${file.filename}`;
 
-      const command = new PutObjectCommand({
-        Bucket: BUCKET,
-        Key: objectKey,
-        ContentType: file.contentType,
-      });
+      if (file.size > MULTIPART_THRESHOLD_BYTES) {
+        // --- Multipart path ---
+        const createCmd = new CreateMultipartUploadCommand({
+          Bucket: BUCKET,
+          Key: objectKey,
+          ContentType: file.contentType,
+        });
+        const { UploadId } = await r2.send(createCmd);
 
-      const presignedUrl = await getSignedUrl(r2, command, {
-        expiresIn: URL_TTL_SECONDS,
-      });
+        if (!UploadId) {
+          throw new Error("Failed to initiate multipart upload.");
+        }
 
-      results.push({ field: file.field, objectKey, presignedUrl });
+        const partCount = Math.ceil(file.size / PART_SIZE_BYTES);
+        const partUrls: string[] = [];
+
+        for (let partNumber = 1; partNumber <= partCount; partNumber++) {
+          const partCmd = new UploadPartCommand({
+            Bucket: BUCKET,
+            Key: objectKey,
+            UploadId,
+            PartNumber: partNumber,
+          });
+          const partUrl = await getSignedUrl(r2, partCmd, { expiresIn: URL_TTL_SECONDS });
+          partUrls.push(partUrl);
+        }
+
+        results.push({
+          field: file.field,
+          objectKey,
+          uploadId: UploadId,
+          partUrls,
+          partSize: PART_SIZE_BYTES,
+        });
+      } else {
+        // --- Single-part path ---
+        const command = new PutObjectCommand({
+          Bucket: BUCKET,
+          Key: objectKey,
+          ContentType: file.contentType,
+        });
+        const presignedUrl = await getSignedUrl(r2, command, { expiresIn: URL_TTL_SECONDS });
+        results.push({ field: file.field, objectKey, presignedUrl });
+      }
     }
 
     return NextResponse.json({ files: results });
