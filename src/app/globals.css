@@ -5,6 +5,15 @@
   align-items: center;
   justify-content: center;
 }
+
+.cover-preview-image {
+  width: 100%;
+  height: 100%;
+  aspect-ratio: 1 / 1;
+  object-fit: cover;
+  border-radius: 0;
+  display: block;
+}
 @font-face {
   font-family: "Favoritpro";
   src: url("/fonts/favoritpro/616c09970666a509c5a892c0_FavoritPro-Light.otf") format("opentype");
