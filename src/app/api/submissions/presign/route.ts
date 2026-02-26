@@ -20,6 +20,7 @@ const r2 = new S3Client({
   },
   requestChecksumCalculation: "WHEN_REQUIRED",
   responseChecksumValidation: "WHEN_REQUIRED",
+  signingEscapePath: false,
 });
 
 const BUCKET = process.env.R2_BUCKET_NAME!;
@@ -29,6 +30,12 @@ const URL_TTL_SECONDS = 900;
 const MULTIPART_THRESHOLD_BYTES = 10 * 1024 * 1024;
 // Each part is 10 MB (R2 minimum part size is 5 MB, except the last part)
 const PART_SIZE_BYTES = 10 * 1024 * 1024;
+
+const UNSIGNABLE_HEADERS = new Set([
+  "x-amz-content-sha256",
+  "x-amz-checksum-crc32",
+  "x-amz-sdk-checksum-algorithm",
+]);
 
 type FileDescriptor = {
   field: "audio" | "image";
@@ -100,11 +107,8 @@ export async function POST(request: Request) {
           });
           const partUrl = await getSignedUrl(r2, partCmd, {
             expiresIn: URL_TTL_SECONDS,
-            unhoistableHeaders: new Set([
-              "x-amz-checksum-crc32",
-              "x-amz-sdk-checksum-algorithm",
-              "x-amz-content-sha256",
-            ]),
+            unsignableHeaders: UNSIGNABLE_HEADERS,
+            unhoistableHeaders: UNSIGNABLE_HEADERS,
           });
           partUrls.push(partUrl);
         }
@@ -125,11 +129,8 @@ export async function POST(request: Request) {
         });
         const presignedUrl = await getSignedUrl(r2, command, {
           expiresIn: URL_TTL_SECONDS,
-          unhoistableHeaders: new Set([
-            "x-amz-checksum-crc32",
-            "x-amz-sdk-checksum-algorithm",
-            "x-amz-content-sha256",
-          ]),
+          unsignableHeaders: UNSIGNABLE_HEADERS,
+          unhoistableHeaders: UNSIGNABLE_HEADERS,
         });
         results.push({ field: file.field, objectKey, presignedUrl });
       }
