@@ -4,7 +4,9 @@ import { createClient as createAdminClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
 import { signOut } from "@/app/actions";
 import { ShowSubmissionToggle } from "@/components/show-submission-toggle";
-import CalendarUserSync from "./_client/CalendarUserSync";
+import styles from "./status-chips.module.css";
+import ActivityLogWrapper from "./ActivityLogWrapper";
+import bulkStyles from "./bulk-action.module.css";
 import {
   getMostRecentPastAndFutureShowsByProducerEmail,
   getScheduledShowCountsForMonth,
@@ -134,6 +136,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
     hasCoverImage: boolean;
     hasDescription: boolean;
     hasTags: boolean;
+    mixcloud: string;
   }> = [];
   let activityTotalCount = 0;
 
@@ -227,13 +230,13 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
       const activityTo = activityFrom + ACTIVITY_PAGE_SIZE - 1;
 
       const { data: submissions } = await adminSupabase
-        .from("submissions")
-        .select(
-          "producer_email,airing_date,audio_filename,image_filename,submitted_tags,ftp_message,created_at",
-          { count: "exact" },
-        )
-        .order("created_at", { ascending: false })
-        .range(activityFrom, activityTo);
+          .from("submissions")
+          .select(
+            "producer_email,airing_date,audio_filename,image_filename,submitted_tags,ftp_message,created_at,mixcloud",
+            { count: "exact" },
+          )
+          .order("created_at", { ascending: false })
+          .range(activityFrom, activityTo);
 
       activityTotalCount = submissions ? submissions.length : 0;
 
@@ -290,6 +293,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
             ftpMessage.includes("description uploaded") ||
             ftpMessage.includes("description upload failed"),
           hasTags: submittedTags.length > 0,
+          mixcloud: typeof row.mixcloud === "string" ? row.mixcloud : "not ready",
         };
       });
     } catch {}
@@ -489,69 +493,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
 
             <h2 className="dashboard-section-title">Activity Log</h2>
             {activityLogRows.length > 0 ? (
-              <>
-                <div className="dashboard-activity-table-wrap">
-                  <table className="dashboard-activity-table">
-                    <thead>
-                      <tr>
-                        <th>Producer</th>
-                        <th>Airing date</th>
-                        <th>Audio</th>
-                        <th>Cover image</th>
-                        <th>Description</th>
-                        <th>Tags</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {activityLogRows.map((row, index) => (
-                        <tr key={`${row.producer}-${row.airingDate || "none"}-${index}`}>
-                          <td>{row.producer}</td>
-                          <td>{formatAiringDate(row.airingDate)}</td>
-                          <td>
-                            <span className={row.hasAudio ? "status-check" : "status-missing"}>
-                              {row.hasAudio ? "✓" : "-"}
-                            </span>
-                          </td>
-                          <td>
-                            <span className={row.hasCoverImage ? "status-check" : "status-missing"}>
-                              {row.hasCoverImage ? "✓" : "-"}
-                            </span>
-                          </td>
-                          <td>
-                            <span className={row.hasDescription ? "status-check" : "status-missing"}>
-                              {row.hasDescription ? "✓" : "-"}
-                            </span>
-                          </td>
-                          <td>
-                            <span className={row.hasTags ? "status-check" : "status-missing"}>
-                              {row.hasTags ? "✓" : "-"}
-                            </span>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-                <div className="dashboard-pagination">
-                  <a
-                    className="btn-neutral"
-                    href={hasPreviousActivityPage ? buildActivityPageQuery(safeActivityPage - 1) : undefined}
-                    aria-disabled={!hasPreviousActivityPage}
-                  >
-                    Prev
-                  </a>
-                  <span className="muted dashboard-pagination-label">
-                    Page {safeActivityPage} / {activityTotalPages}
-                  </span>
-                  <a
-                    className="btn-neutral"
-                    href={hasNextActivityPage ? buildActivityPageQuery(safeActivityPage + 1) : undefined}
-                    aria-disabled={!hasNextActivityPage}
-                  >
-                    Next
-                  </a>
-                </div>
-              </>
+              <ActivityLogWrapper rows={activityLogRows} />
             ) : (
               <p className="muted">No activity rows yet.</p>
             )}

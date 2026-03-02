@@ -1,0 +1,13 @@
+.activity-log-row {
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.activity-log-row:hover,
+.activity-log-row.selected {
+  background: #232323;
+}
+
+.activity-log-checkbox {
+  accent-color: var(--blue);
+}

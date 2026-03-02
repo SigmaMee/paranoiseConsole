@@ -1,3 +1,7 @@
+.btn-neutral:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
 .cover-preview-card {
   width: 100%;
   aspect-ratio: 1 / 1;
