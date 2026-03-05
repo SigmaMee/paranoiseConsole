@@ -71,7 +71,7 @@ async function main() {
   }
 
   console.log(`\n📊 Results: ${successful} deleted, ${failed} failed`);
-  console.log("\n✨ Now run 'Scan Calendar' in the admin dashboard to recreate them with confirmed emails.\n`);
+  console.log("\n✨ Now run 'Scan Calendar' in the admin dashboard to recreate them with confirmed emails.\n");
 }
 
 main().catch(console.error);

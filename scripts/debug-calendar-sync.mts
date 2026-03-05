@@ -103,7 +103,7 @@ async function main() {
     const users = data?.users || [];
 
     for (const user of users) {
-      const email = normalizeEmail(user.email);
+      const email = normalizeEmail(user.email ?? "");
       if (email) {
         allSupabaseUsers.set(email, user);
       }

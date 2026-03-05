@@ -40,7 +40,7 @@ async function main() {
 
     // Get user by old email
     const { data: listData, error: listError } = await supabase.auth.admin.listUsers();
-    const user = listData?.users?.find((u) => normalizeEmail(u.email) === normalizedOld);
+    const user = listData?.users?.find((u) => normalizeEmail(u.email ?? "") === normalizedOld);
 
     if (!user) {
       console.log(`❌ User not found: ${oldEmail}`);
