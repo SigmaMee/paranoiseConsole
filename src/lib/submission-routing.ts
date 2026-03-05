@@ -19,6 +19,7 @@ export type PersistPayload = {
   imageFilename: string;
   showStartAt?: string | null;
   airingDate?: string | null;
+  submittedDescription?: string | null;
   submittedTags?: string[];
   ftpStatus: "success" | "failed";
   driveStatus: "success" | "failed";
@@ -220,22 +221,34 @@ export async function routeCoverToFtp(
 }
 
 async function getDriveAuth() {
-  const oauthClient = await getGoogleDriveOAuthClientFromStoredToken();
-  if (oauthClient) {
-    return oauthClient;
-  }
-
   const serviceAccountEmail = getRequiredEnv("GOOGLE_SERVICE_ACCOUNT_EMAIL");
   const privateKey = getRequiredEnv("GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY").replace(
     /\\n/g,
     "\n",
   );
 
-  return new google.auth.JWT({
+  const serviceAccountAuth = new google.auth.JWT({
     email: serviceAccountEmail,
     key: privateKey,
     scopes: ["https://www.googleapis.com/auth/drive"],
   });
+
+  const oauthClient = await getGoogleDriveOAuthClientFromStoredToken();
+  if (oauthClient) {
+    try {
+      await oauthClient.getAccessToken();
+      return oauthClient;
+    } catch (error) {
+      const message = error instanceof Error ? error.message.toLowerCase() : "";
+      if (!message.includes("invalid_grant")) {
+        throw error;
+      }
+
+      return serviceAccountAuth;
+    }
+  }
+
+  return serviceAccountAuth;
 }
 
 function getWeekdayFolderName(showStart: string) {
@@ -361,6 +374,10 @@ export async function persistSubmissionStatus(payload: PersistPayload) {
     image_filename: payload.imageFilename,
     show_start_at: payload.showStartAt || null,
     airing_date: payload.airingDate || null,
+    submitted_description:
+      typeof payload.submittedDescription === "string" && payload.submittedDescription.trim()
+        ? payload.submittedDescription.trim()
+        : null,
     submitted_tags:
       Array.isArray(payload.submittedTags) && payload.submittedTags.length > 0
         ? payload.submittedTags
@@ -376,10 +393,16 @@ export async function persistSubmissionStatus(payload: PersistPayload) {
   const missingAiringColumns =
     error?.message?.toLowerCase().includes('column "show_start_at"') ||
     error?.message?.toLowerCase().includes('column "airing_date"') ||
-    error?.message?.toLowerCase().includes('column "submitted_tags"');
+    error?.message?.toLowerCase().includes('column "submitted_tags"') ||
+    error?.message?.toLowerCase().includes('column "submitted_description"');
 
   if (missingAiringColumns) {
-    const { show_start_at: _showStartAt, airing_date: _airingDate, ...legacyInsert } = baseInsert;
+    const {
+      show_start_at: _showStartAt,
+      airing_date: _airingDate,
+      submitted_description: _submittedDescription,
+      ...legacyInsert
+    } = baseInsert;
     const { error: legacyColumnsError } = await supabase.from("submissions").insert(legacyInsert);
 
     if (!legacyColumnsError) {

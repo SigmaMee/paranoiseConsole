@@ -244,6 +244,7 @@ export function SubmissionForm({ selectedShowStart, selectedShowTitle }: Submiss
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [audioPreviewUrl, setAudioPreviewUrl] = useState<string | null>(null);
   const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null);
+  const [persistedImagePreviewUrl, setPersistedImagePreviewUrl] = useState<string | null>(null);
   const [waveformBars, setWaveformBars] = useState<number[]>([]);
   const [audioDuration, setAudioDuration] = useState(0);
   const [audioCurrentTime, setAudioCurrentTime] = useState(0);
@@ -290,6 +291,15 @@ export function SubmissionForm({ selectedShowStart, selectedShowTitle }: Submiss
     setProgressPhase(null);
   }
 
+  function clearPersistedImagePreviewUrl() {
+    setPersistedImagePreviewUrl((prev) => {
+      if (prev) {
+        URL.revokeObjectURL(prev);
+      }
+      return null;
+    });
+  }
+
   useEffect(() => {
     return () => {
       if (submitAllSuccessTimeoutRef.current !== null) {
@@ -323,8 +333,99 @@ export function SubmissionForm({ selectedShowStart, selectedShowTitle }: Submiss
     resetDraftState();
     setErrorMessage("");
     setSubmitAllSuccess(false);
+
+    clearPersistedImagePreviewUrl();
+
+    if (!selectedShowStart) {
+      return;
+    }
+
+    const controller = new AbortController();
+
+    const loadPersistedShowState = async () => {
+      try {
+        const response = await fetch(
+          `/api/submissions/show-state?showStart=${encodeURIComponent(selectedShowStart)}`,
+          {
+            method: "GET",
+            cache: "no-store",
+            signal: controller.signal,
+          },
+        );
+
+        if (!response.ok) {
+          return;
+        }
+
+        const payload = (await response.json().catch(() => null)) as {
+          description?: string | null;
+          tags?: string[];
+        } | null;
+
+        if (payload && typeof payload.description === "string") {
+          setDescription(payload.description);
+        }
+
+        if (payload && Array.isArray(payload.tags)) {
+          const normalized = payload.tags
+            .filter((tag): tag is string => typeof tag === "string")
+            .map((tag) => tag.trim().toLowerCase())
+            .filter(Boolean)
+            .slice(0, 5);
+          setSelectedTags(normalized);
+        }
+      } catch {
+        // silent: persisted state is optional
+      }
+    };
+
+    const loadPersistedCoverPreview = async () => {
+      try {
+        const response = await fetch(
+          `/api/submissions/cover-preview?showStart=${encodeURIComponent(selectedShowStart)}`,
+          {
+            method: "GET",
+            cache: "no-store",
+            signal: controller.signal,
+          },
+        );
+
+        if (!response.ok || response.status === 204) {
+          return;
+        }
+
+        const blob = await response.blob();
+        if (!blob || blob.size === 0) {
+          return;
+        }
+
+        const objectUrl = URL.createObjectURL(blob);
+        setPersistedImagePreviewUrl((prev) => {
+          if (prev) {
+            URL.revokeObjectURL(prev);
+          }
+          return objectUrl;
+        });
+      } catch {
+        // silent: preview is optional
+      }
+    };
+
+    void loadPersistedShowState();
+    void loadPersistedCoverPreview();
+
+    return () => {
+      controller.abort();
+    };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedShowStart]);
+
+  useEffect(() => {
+    return () => {
+      clearPersistedImagePreviewUrl();
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const normalizedTagInput = tagInputValue.trim().toLowerCase();
   const filteredTagSuggestions = MUSICBRAINZ_GENRE_TAGS.filter(
@@ -429,6 +530,7 @@ export function SubmissionForm({ selectedShowStart, selectedShowTitle }: Submiss
   function clearImageFile(event: MouseEvent<HTMLButtonElement>) {
     event.preventDefault(); event.stopPropagation();
     setImageFile(null);
+    clearPersistedImagePreviewUrl();
     if (imageInputRef.current) imageInputRef.current.value = "";
   }
 
@@ -694,6 +796,7 @@ export function SubmissionForm({ selectedShowStart, selectedShowTitle }: Submiss
     waveformBars.length > 0 && audioDuration > 0
       ? Math.min(waveformBars.length, Math.max(0, Math.round((audioCurrentTime / audioDuration) * waveformBars.length)))
       : 0;
+  const activeCoverPreviewUrl = imagePreviewUrl || persistedImagePreviewUrl;
 
   return (
     <form className="form submission-form" onSubmit={(event) => event.preventDefault()}>
@@ -717,7 +820,7 @@ export function SubmissionForm({ selectedShowStart, selectedShowTitle }: Submiss
                 </label>
                 <span className="field-label-helper">JPEG 800X800 MIN</span>
               </div>
-              {!imageFile ? (
+              {!activeCoverPreviewUrl ? (
                 <div
                   className={`upload-zone upload-zone-square ${isImageDragging ? "upload-zone-dragging" : ""}`}
                   role="button"
@@ -749,11 +852,18 @@ export function SubmissionForm({ selectedShowStart, selectedShowTitle }: Submiss
                 accept="image/*"
                 onChange={onImageInputChange}
               />
-              {imagePreviewUrl ? (
-                <div className="cover-preview-card">
+              {activeCoverPreviewUrl ? (
+                <div
+                  className="cover-preview-card"
+                  role="button"
+                  tabIndex={0}
+                  onClick={openImagePicker}
+                  onKeyDown={(event) => onDropzoneKeyDown(event, openImagePicker)}
+                  aria-label="Replace cover image"
+                >
                   <Image
                     className="cover-preview-image"
-                    src={imagePreviewUrl}
+                    src={activeCoverPreviewUrl}
                     alt="Selected cover preview"
                     width={800}
                     height={800}

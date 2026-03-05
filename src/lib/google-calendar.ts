@@ -1,4 +1,5 @@
 import { google } from "googleapis";
+import { getReferenceNow } from "@/lib/reference-time";
 
 export type UpcomingShow = {
   id: string;
@@ -79,7 +80,7 @@ export async function getUpcomingShowsByProducerEmail(
   });
 
   const calendar = google.calendar({ version: "v3", auth });
-  const now = new Date();
+  const now = getReferenceNow();
   const nowIso = now.toISOString();
   const endOfNextMonthIso = getEndOfNextMonthIso(now);
 
@@ -268,7 +269,7 @@ export async function getMostRecentPastAndFutureShowsByProducerEmail(
   });
 
   const calendar = google.calendar({ version: "v3", auth });
-  const now = new Date();
+  const now = getReferenceNow();
   const nowTime = now.getTime();
   const windowStart = new Date(now.getFullYear(), now.getMonth() - 3, 1, 0, 0, 0, 0).toISOString();
   const windowEnd = getEndOfNextMonthIso(now);

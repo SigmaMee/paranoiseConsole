@@ -15,6 +15,7 @@ import {
 } from "@/lib/google-calendar";
 import { S3Client, GetObjectCommand } from "@aws-sdk/client-s3";
 import type { Readable } from "stream";
+import { getReferenceNow } from "@/lib/reference-time";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -132,6 +133,19 @@ function applyShowDateSuffixToFilename(filename: string, showStart: string, fall
 
 function isValidShowStart(value: string) {
   return !Number.isNaN(new Date(value).getTime());
+}
+
+function isUpcomingShowStart(value: string | null) {
+  if (!value) {
+    return false;
+  }
+
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return false;
+  }
+
+  return parsed.getTime() >= getReferenceNow().getTime();
 }
 
 function buildCoverFilenamePrefix(producerName: string, showStart: string) {
@@ -373,13 +387,28 @@ export async function POST(request: Request) {
           "show-cover",
         );
 
-        const [ftpCoverResult, driveCoverResult] = await Promise.all([
-          routeCoverToFtp(optionalImage, producerFolderName, uploadedImageFilename),
-          (async () => {
-            const weekdayFolderId = await getDriveWeekdayFolderIdForShowStart(coverShowStart);
-            return routeImageToDrive(optionalImage, weekdayFolderId, coverFilenamePrefix, uploadedImageFilename);
-          })(),
-        ]);
+        const shouldUploadToDrive = isUpcomingShowStart(coverShowStart);
+
+        const ftpCoverResult = await routeCoverToFtp(
+          optionalImage,
+          producerFolderName,
+          uploadedImageFilename,
+        );
+        const driveCoverResult = shouldUploadToDrive
+          ? await (async () => {
+              const weekdayFolderId = await getDriveWeekdayFolderIdForShowStart(coverShowStart);
+              return routeImageToDrive(
+                optionalImage,
+                weekdayFolderId,
+                coverFilenamePrefix,
+                uploadedImageFilename,
+              );
+            })()
+          : {
+              success: true,
+              destination: "google-drive" as const,
+              message: "Cover upload to Google Drive skipped for previous show selection.",
+            };
 
         ftpSuccess = ftpSuccess && ftpCoverResult.success;
         ftpMessages.push(ftpCoverResult.message);
@@ -414,18 +443,28 @@ export async function POST(request: Request) {
         "show-cover",
       );
 
-      const [ftpCoverResult, driveCoverResult] = await Promise.all([
-        routeCoverToFtp(optionalImage as File, producerFolderName, uploadedImageFilename),
-        (async () => {
-          const weekdayFolderId = await getDriveWeekdayFolderIdForShowStart(coverShowStart);
-          return routeImageToDrive(
-            optionalImage as File,
-            weekdayFolderId,
-            coverFilenamePrefix,
-            uploadedImageFilename,
-          );
-        })(),
-      ]);
+      const shouldUploadToDrive = isUpcomingShowStart(coverShowStart);
+
+      const ftpCoverResult = await routeCoverToFtp(
+        optionalImage as File,
+        producerFolderName,
+        uploadedImageFilename,
+      );
+      const driveCoverResult = shouldUploadToDrive
+        ? await (async () => {
+            const weekdayFolderId = await getDriveWeekdayFolderIdForShowStart(coverShowStart);
+            return routeImageToDrive(
+              optionalImage as File,
+              weekdayFolderId,
+              coverFilenamePrefix,
+              uploadedImageFilename,
+            );
+          })()
+        : {
+            success: true,
+            destination: "google-drive" as const,
+            message: "Cover upload to Google Drive skipped for previous show selection.",
+          };
 
       ftpResult = ftpCoverResult;
       driveResult = driveCoverResult;
@@ -439,6 +478,7 @@ export async function POST(request: Request) {
         imageFilename: uploadedImageFilename,
         showStartAt: persistedShowStart,
         airingDate,
+        submittedDescription: description,
         submittedTags: tags,
         ftpStatus: ftpResult.success ? "success" : "failed",
         driveStatus: driveResult.success ? "success" : "failed",

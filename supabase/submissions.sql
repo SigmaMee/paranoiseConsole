@@ -6,6 +6,7 @@ create table if not exists public.submissions (
   image_filename text not null,
   show_start_at timestamptz,
   airing_date date,
+  submitted_description text,
   submitted_tags text[],
   ftp_status text not null,
   drive_status text not null,
@@ -18,6 +19,9 @@ alter table if exists public.submissions
 
 alter table if exists public.submissions
   add column if not exists airing_date date;
+
+alter table if exists public.submissions
+  add column if not exists submitted_description text;
 
 alter table if exists public.submissions
   add column if not exists submitted_tags text[];

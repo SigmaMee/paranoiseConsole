@@ -1,0 +1,134 @@
+.section {
+  margin-top: var(--spacing-l);
+}
+
+.description {
+  margin-bottom: var(--spacing-m);
+}
+
+.scanButton {
+  margin-bottom: var(--spacing-m);
+}
+
+.alertBox {
+  padding: var(--spacing-m);
+  border-radius: 0.5rem;
+  margin-bottom: var(--spacing-m);
+  border: 1px solid var(--muted);
+}
+
+.alertBoxWarning {
+  composes: alertBox;
+  background-color: rgba(245, 158, 11, 0.1);
+  border-color: #f59e0b;
+}
+
+.alertBoxSuccess {
+  composes: alertBox;
+  background-color: rgba(5, 150, 105, 0.1);
+  border-color: #059669;
+}
+
+.alertBoxError {
+  composes: alertBox;
+  background-color: rgba(220, 38, 38, 0.1);
+  border-color: #dc2626;
+}
+
+.alertBoxInfo {
+  composes: alertBox;
+  background-color: rgba(14, 165, 233, 0.1);
+  border-color: #0ea5e9;
+}
+
+.alertTitle {
+  font-weight: 600;
+  margin: 0 0 0.5rem;
+}
+
+.alertTitleWarning {
+  color: #f59e0b;
+}
+
+.alertTitleSuccess {
+  color: #059669;
+}
+
+.alertTitleError {
+  color: #dc2626;
+}
+
+.alertTitleInfo {
+  color: #0ea5e9;
+}
+
+.alertText {
+  margin: 0.25rem 0;
+  font-size: 0.9rem;
+}
+
+.alertErrorList {
+  margin: 0.25rem 0;
+  padding-left: 1.5rem;
+  font-size: 0.875rem;
+}
+
+.alertErrorItem {
+  color: #dc2626;
+}
+
+.scanTable {
+  width: 100%;
+  font-size: 0.875rem;
+  border-collapse: collapse;
+  margin-bottom: var(--spacing-m);
+}
+
+.scanTableHeader {
+  background-color: rgba(245, 158, 11, 0.15);
+  text-align: left;
+  border-bottom: 1px solid #f59e0b;
+}
+
+.scanTableHeaderCell {
+  padding: 0.5rem;
+}
+
+.scanTableBody {
+  border-bottom: 1px solid rgba(245, 158, 11, 0.3);
+}
+
+.scanTableCell {
+  padding: 0.5rem;
+}
+
+.scanTablePassword {
+  font-family: monospace;
+  font-weight: 600;
+}
+
+.scanTableEvent {
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.scanTableWrapper {
+  max-height: 400px;
+  overflow-y: auto;
+  margin-bottom: var(--spacing-m);
+}
+
+.confirmButton {
+  margin-top: var(--spacing-m);
+}
+
+.confirmButtonGreen {
+  background-color: #059669;
+  border-color: #059669;
+  color: white;
+}
+
+.confirmButtonGreen:hover {
+  background-color: #047857;
+  border-color: #047857;
+}

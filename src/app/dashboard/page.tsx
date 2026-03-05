@@ -4,6 +4,7 @@ import { createClient as createAdminClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
 import { signOut } from "@/app/actions";
 import { ShowSubmissionToggle } from "@/components/show-submission-toggle";
+import CalendarUserSync from "./_client/CalendarUserSync";
 import {
   getMostRecentPastAndFutureShowsByProducerEmail,
   getScheduledShowCountsForMonth,
@@ -562,6 +563,8 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
             <a className="dashboard-connect" href="/api/google-drive/oauth/start">
               Connect Google Drive
             </a>
+
+            <CalendarUserSync />
           </section>
         ) : null}
       </div>
