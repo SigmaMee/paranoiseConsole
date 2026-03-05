@@ -4,6 +4,7 @@ import styles from "./status-chips.module.css";
 import bulkStyles from "./bulk-action.module.css";
 
 export type ActivityLogRow = {
+  id: string;
   producer: string;
   airingDate: string | null;
   hasAudio: boolean;
@@ -22,6 +23,8 @@ function formatAiringDate(airingDateIso: string | null) {
 
 export default function DashboardActivityLog({ rows }: { rows: ActivityLogRow[] }) {
   const [selected, setSelected] = useState<number[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
   const handleSelect = (idx: number) => {
     setSelected((prev) =>
@@ -29,8 +32,48 @@ export default function DashboardActivityLog({ rows }: { rows: ActivityLogRow[] 
     );
   };
 
-  const handleBulkPublish = () => {
-    alert(`Publishing ${selected.length} submissions to Mixcloud...`);
+  const handleBulkPublish = async () => {
+    if (selected.length === 0) return;
+
+    setLoading(true);
+    setMessage(null);
+
+    try {
+      const submissionIds = selected.map((idx) => rows[idx].id);
+      const response = await fetch("/api/submissions/mixcloud-publish", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ submissionIds }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        setMessage({ type: "error", text: data.error || "Failed to publish submissions." });
+        return;
+      }
+
+      // Count successes
+      const successCount = (data.results || []).filter((r: any) => r.status === "published").length;
+      const failureCount = (data.results || []).filter((r: any) => r.status === "error").length;
+
+      let feedbackText = `Published ${successCount} submission${successCount !== 1 ? "s" : ""}`;
+      if (failureCount > 0) {
+        feedbackText += ` (${failureCount} failed).`;
+      } else {
+        feedbackText += ".";
+      }
+
+      setMessage({ type: "success", text: feedbackText });
+      setSelected([]);
+
+      // Optional: Reload page after 2 seconds to show updated status
+      setTimeout(() => window.location.reload(), 2000);
+    } catch (err: any) {
+      setMessage({ type: "error", text: err.message || "Network error. Please try again." });
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -38,11 +81,25 @@ export default function DashboardActivityLog({ rows }: { rows: ActivityLogRow[] 
       <div className={bulkStyles["dashboard-bulk-action-bar"]}>
         <button
           className={bulkStyles["dashboard-bulk-action-btn"]}
-          disabled={selected.length === 0}
+          disabled={selected.length === 0 || loading}
           onClick={handleBulkPublish}
         >
-          Publish to Mixcloud
+          {loading ? "Publishing..." : "Publish to Mixcloud"}
         </button>
+        {message && (
+          <div
+            style={{
+              marginLeft: "1rem",
+              padding: "0.5rem 1rem",
+              borderRadius: "0.25rem",
+              fontSize: "0.875rem",
+              backgroundColor: message.type === "success" ? "#d1fae5" : "#fee2e2",
+              color: message.type === "success" ? "#065f46" : "#7f1d1d",
+            }}
+          >
+            {message.text}
+          </div>
+        )}
       </div>
       <div className="dashboard-activity-table-wrap">
         <table className="dashboard-activity-table">

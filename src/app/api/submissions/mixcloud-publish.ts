@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { uploadToMixcloud } from "@/lib/mixcloud-api";
+import { getSignedR2Url, deleteFromR2, fileExistsInR2 } from "@/lib/r2-utils";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -33,11 +34,16 @@ export async function POST(request: Request) {
     const results = [];
     for (const sub of readySubs) {
       try {
-        // Construct URLs for audio/image
-        const audioUrl = sub.audio_filename ? `https://your-cdn-url/${sub.audio_filename}` : undefined;
-        const pictureUrl = sub.image_filename ? `https://your-cdn-url/${sub.image_filename}` : undefined;
+        // Generate signed R2 URLs (valid for 1 hour)
+        const audioUrl = sub.audio_filename 
+          ? await getSignedR2Url(sub.audio_filename)
+          : undefined;
+        const pictureUrl = sub.image_filename
+          ? await getSignedR2Url(sub.image_filename)
+          : undefined;
+        
         const name = sub.airing_date ? `Show ${sub.airing_date}` : "Show";
-        const tags = sub.submitted_tags || [];
+        const tags = (sub.submitted_tags as string[]) || [];
         const description = "Uploaded via Paranoise Console";
 
         if (!audioUrl) throw new Error("Missing audio file");
@@ -55,6 +61,23 @@ export async function POST(request: Request) {
           .from("submissions")
           .update({ mixcloud: "published" })
           .eq("id", sub.id);
+
+        // Delete files from R2 after successful upload
+        if (sub.audio_filename) {
+          try {
+            await deleteFromR2(sub.audio_filename);
+          } catch (err) {
+            console.warn(`Failed to delete audio file ${sub.audio_filename} from R2:`, err);
+          }
+        }
+        
+        if (sub.image_filename) {
+          try {
+            await deleteFromR2(sub.image_filename);
+          } catch (err) {
+            console.warn(`Failed to delete image file ${sub.image_filename} from R2:`, err);
+          }
+        }
 
         results.push({ id: sub.id, status: "published", mixcloud: mixcloudRes });
       } catch (err: any) {

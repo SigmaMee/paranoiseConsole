@@ -130,6 +130,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
   let uploadsByDate: Record<string, number> = {};
   let allTimeTagCounts: Array<{ tag: string; count: number }> = [];
   let activityLogRows: Array<{
+    id: string;
     producer: string;
     airingDate: string | null;
     hasAudio: boolean;
@@ -232,7 +233,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
       const { data: submissions } = await adminSupabase
           .from("submissions")
           .select(
-            "producer_email,airing_date,audio_filename,image_filename,submitted_tags,ftp_message,created_at,mixcloud",
+            "id,producer_email,airing_date,audio_filename,image_filename,submitted_tags,ftp_message,created_at,mixcloud",
             { count: "exact" },
           )
           .order("created_at", { ascending: false })
@@ -285,6 +286,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
         const submittedTags = Array.isArray(row.submitted_tags) ? row.submitted_tags : [];
 
         return {
+          id: typeof row.id === "string" ? row.id : "",
           producer,
           airingDate,
           hasAudio: Boolean(audioFilename),
