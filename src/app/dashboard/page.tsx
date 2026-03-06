@@ -4,6 +4,7 @@ import { createClient as createAdminClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
 import { signOut } from "@/app/actions";
 import { ShowSubmissionToggle } from "@/components/show-submission-toggle";
+import CalendarUserSync from "./_client/CalendarUserSync";
 import styles from "./status-chips.module.css";
 import ActivityLogWrapper from "./ActivityLogWrapper";
 import bulkStyles from "./bulk-action.module.css";
