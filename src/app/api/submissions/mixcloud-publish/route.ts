@@ -188,6 +188,9 @@ export async function POST(request: Request) {
     // Mixcloud API publishing
     const results = [];
     for (const sub of readySubs) {
+      let audioBuffer: Buffer | undefined;
+      let pictureBuffer: Buffer | undefined;
+      
       try {
         // Use audio filename as the show title, removing extension and date suffix
         let name = "Show";
@@ -214,50 +217,55 @@ export async function POST(request: Request) {
         }
 
         const producerFolderName = profile.full_name.trim();
+        console.log(`Processing: ${name} from ${producerFolderName}`);
 
         // Determine storage location and get files
-        let audioBuffer: Buffer | undefined;
         let audioUrl: string | undefined;
-        let pictureBuffer: Buffer | undefined;
         let pictureUrl: string | undefined;
 
         // Check if files are in R2 (new workflow)
         const audioInR2 = sub.audio_filename ? await fileExistsInR2(sub.audio_filename) : false;
         const imageInR2 = sub.image_filename ? await fileExistsInR2(sub.image_filename) : false;
 
-        console.log(`Audio in R2: ${audioInR2}, Image in R2: ${imageInR2}`);
-        console.log(`FTP status: ${sub.ftp_status}, Drive status: ${sub.drive_status}`);
+        console.log(`[${name}] Audio in R2: ${audioInR2}, Image in R2: ${imageInR2}`);
+        console.log(`[${name}] FTP status: ${sub.ftp_status}, Drive status: ${sub.drive_status}`);
 
         // Audio: R2 (new) or FTP (legacy)
         if (audioInR2 && sub.audio_filename) {
+          console.log(`[${name}] Getting signed URL for audio from R2`);
           audioUrl = await getSignedR2Url(sub.audio_filename);
         } else if (sub.audio_filename) {
-          console.log(`Downloading audio from FTP: ${sub.audio_filename}`);
+          console.log(`[${name}] Downloading audio from FTP...`);
           audioBuffer = await downloadFromFtp(sub.audio_filename, producerFolderName) || undefined;
           if (!audioBuffer) throw new Error(`Failed to download audio file from FTP: ${sub.audio_filename}`);
+          console.log(`[${name}] Audio downloaded, size: ${audioBuffer.length} bytes`);
         } else {
           throw new Error("Missing audio file");
         }
 
         // Image: R2 (new), Drive (legacy upcoming), or FTP (legacy past)
         if (imageInR2 && sub.image_filename) {
+          console.log(`[${name}] Getting signed URL for image from R2`);
           pictureUrl = await getSignedR2Url(sub.image_filename);
         } else if (sub.image_filename) {
           // Try Google Drive first (for upcoming shows), then FTP
           if (sub.drive_status === "success" && sub.airing_date) {
-            console.log(`Downloading image from Drive: ${sub.image_filename}`);
+            console.log(`[${name}] Downloading image from Drive...`);
             pictureBuffer = await downloadFromDrive(sub.image_filename, sub.airing_date) || undefined;
           }
           
           // Fall back to FTP if not in Drive
           if (!pictureBuffer) {
-            console.log(`Downloading image from FTP: ${sub.image_filename}`);
+            console.log(`[${name}] Downloading image from FTP...`);
             pictureBuffer = await downloadFromFtp(sub.image_filename, producerFolderName) || undefined;
+          }
+          if (pictureBuffer) {
+            console.log(`[${name}] Image downloaded, size: ${pictureBuffer.length} bytes`);
           }
           // Picture is optional, so don't throw if missing
         }
 
-        console.log(`Uploading to Mixcloud: ${name}`);
+        console.log(`[${name}] Uploading to Mixcloud...`);
         const mixcloudRes = await uploadToMixcloud({
           audioUrl,
           audioBuffer,
@@ -267,39 +275,47 @@ export async function POST(request: Request) {
           pictureUrl,
           pictureBuffer,
         });
+        console.log(`[${name}] Mixcloud upload successful, ID: ${mixcloudRes.key}`);
 
         // Mark as published (use admin client)
         await adminSupabase
           .from("submissions")
           .update({ mixcloud: "published" })
           .eq("id", sub.id);
+        console.log(`[${name}] Database updated to published`);
 
         // Delete files from R2 after successful upload (only if they were in R2)
         if (audioInR2 && sub.audio_filename) {
           try {
             await deleteFromR2(sub.audio_filename);
-            console.log(`Deleted audio from R2: ${sub.audio_filename}`);
+            console.log(`[${name}] Deleted audio from R2: ${sub.audio_filename}`);
           } catch (err) {
-            console.warn(`Failed to delete audio file ${sub.audio_filename} from R2:`, err);
+            console.warn(`[${name}] Failed to delete audio from R2:`, err);
           }
         }
         
         if (imageInR2 && sub.image_filename) {
           try {
             await deleteFromR2(sub.image_filename);
-            console.log(`Deleted image from R2: ${sub.image_filename}`);
+            console.log(`[${name}] Deleted image from R2: ${sub.image_filename}`);
           } catch (err) {
-            console.warn(`Failed to delete image file ${sub.image_filename} from R2:`, err);
+            console.warn(`[${name}] Failed to delete image from R2:`, err);
           }
         }
 
         results.push({ id: sub.id, status: "published", mixcloud: mixcloudRes });
       } catch (err: any) {
+        console.error(`Error processing submission ${sub.id}:`, err);
         results.push({ id: sub.id, status: "error", error: err.message });
+      } finally {
+        // Explicitly free memory
+        audioBuffer = undefined;
+        pictureBuffer = undefined;
       }
     }
     return NextResponse.json({ success: true, results });
   } catch (err) {
+    console.error("Unexpected error in bulk publish:", err);
     return NextResponse.json({ error: "Unexpected error." }, { status: 500 });
   }
 }
