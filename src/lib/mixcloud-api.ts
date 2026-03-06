@@ -71,7 +71,13 @@ export async function uploadToMixcloud({
   formData.append("mp3", new File([new Uint8Array(audioData)], "audio.mp3", { type: "audio/mpeg" }));
   formData.append("name", name);
   if (description) formData.append("description", description);
-  if (tags && tags.length > 0) formData.append("tags", tags.join(","));
+  
+  // Append each tag separately (Mixcloud expects multiple form entries)
+  if (tags && tags.length > 0) {
+    tags.forEach((tag) => {
+      formData.append("tags", tag);
+    });
+  }
   
   // Check if we should upload as draft (0) or publish immediately (1)
   const publishAsDraft = process.env.MIXCLOUD_PUBLISH_AS_DRAFT === "true";
