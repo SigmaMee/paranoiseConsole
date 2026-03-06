@@ -16,7 +16,7 @@ export type ActivityLogRow = {
 
 function formatAiringDate(airingDateIso: string | null) {
   if (!airingDateIso) return "-";
-  const match = airingDateIso.match(/^\d{4}-\d{2}-\d{2}$/);
+  const match = airingDateIso.match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (!match) return airingDateIso;
   return `${match[3]}/${match[2]}/${match[1]}`;
 }

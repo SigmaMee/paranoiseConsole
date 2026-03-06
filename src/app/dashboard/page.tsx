@@ -79,6 +79,9 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
   const driveOauthState = typeof params.drive_oauth === "string" ? params.drive_oauth : "";
   const driveOauthMessage =
     typeof params.drive_oauth_message === "string" ? params.drive_oauth_message : "";
+  const mixcloudOauthState = typeof params.mixcloud_oauth === "string" ? params.mixcloud_oauth : "";
+  const mixcloudOauthMessage =
+    typeof params.mixcloud_oauth_message === "string" ? params.mixcloud_oauth_message : "";
   const metricMonthParam = typeof params.metric_month === "string" ? params.metric_month : "";
   const activityPageParam = getParam("activity_page");
   const parsedActivityPage = Number.parseInt(activityPageParam || "1", 10);
@@ -127,6 +130,9 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
   let driveConnected = false;
   let driveConnectedAt: string | null = null;
   let driveConnectedBy: string | null = null;
+  let mixcloudConnected = false;
+  let mixcloudConnectedAt: string | null = null;
+  let mixcloudConnectedBy: string | null = null;
   let scheduledShowsByDate: Record<string, number> = {};
   let uploadsByDate: Record<string, number> = {};
   let allTimeTagCounts: Array<{ tag: string; count: number }> = [];
@@ -159,6 +165,18 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
         driveConnected = true;
         driveConnectedAt = data.updated_at || null;
         driveConnectedBy = data.updated_by_email || null;
+      }
+
+      const { data: mixcloudData } = await adminSupabase
+        .from("google_oauth_tokens")
+        .select("provider,updated_at,updated_by_email")
+        .eq("provider", "mixcloud")
+        .maybeSingle();
+
+      if (mixcloudData?.provider === "mixcloud") {
+        mixcloudConnected = true;
+        mixcloudConnectedAt = mixcloudData.updated_at || null;
+        mixcloudConnectedBy = mixcloudData.updated_by_email || null;
       }
     } catch {}
 
@@ -508,6 +526,42 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
             <a className="dashboard-connect" href="/api/google-drive/oauth/start">
               Connect Google Drive
             </a>
+            {driveConnected ? (
+              <p className="muted" style={{ marginTop: "0.5rem" }}>
+                Connected {driveConnectedAt ? `on ${new Date(driveConnectedAt).toLocaleString("en-GB")}` : ""}
+                {driveConnectedBy ? ` by ${driveConnectedBy}` : ""}.
+              </p>
+            ) : null}
+            {driveOauthState ? (
+              <p className={driveOauthState === "ok" ? "success" : "error"}>
+                {driveOauthMessage || (driveOauthState === "ok"
+                  ? "Google Drive connected successfully."
+                  : "Google Drive connection failed.")}
+              </p>
+            ) : null}
+
+            <h2 className="dashboard-section-title">Mixcloud Connection</h2>
+            <p className="muted">
+              Connect Mixcloud once so bulk publishing can upload directly from the dashboard.
+            </p>
+            <a className="dashboard-connect" href="/api/mixcloud/oauth/start">
+              Connect Mixcloud
+            </a>
+            {mixcloudConnected ? (
+              <p className="muted" style={{ marginTop: "0.5rem" }}>
+                Connected {mixcloudConnectedAt
+                  ? `on ${new Date(mixcloudConnectedAt).toLocaleString("en-GB")}`
+                  : ""}
+                {mixcloudConnectedBy ? ` by ${mixcloudConnectedBy}` : ""}.
+              </p>
+            ) : null}
+            {mixcloudOauthState ? (
+              <p className={mixcloudOauthState === "ok" ? "success" : "error"}>
+                {mixcloudOauthMessage || (mixcloudOauthState === "ok"
+                  ? "Mixcloud connected successfully."
+                  : "Mixcloud connection failed.")}
+              </p>
+            ) : null}
 
             <CalendarUserSync />
           </section>

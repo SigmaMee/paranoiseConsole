@@ -26,6 +26,9 @@ alter table if exists public.submissions
 alter table if exists public.submissions
   add column if not exists submitted_tags text[];
 
+alter table if exists public.submissions
+  add column if not exists mixcloud text default 'not ready';
+
 create index if not exists submissions_created_at_idx
   on public.submissions (created_at desc);
 
