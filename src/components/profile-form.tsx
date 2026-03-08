@@ -4,12 +4,6 @@ import { FormEvent, useEffect, useState } from "react";
 
 type Profile = {
   full_name: string;
-  bio: string | null;
-  location: string | null;
-  avatar_url: string | null;
-  social_url: string | null;
-  sync_status: string;
-  draft_updated_at: string | null;
 };
 
 export function ProfileForm() {
@@ -66,10 +60,6 @@ export function ProfileForm() {
       },
       body: JSON.stringify({
         full_name: profile.full_name,
-        bio: profile.bio || "",
-        location: profile.location || "",
-        avatar_url: profile.avatar_url || "",
-        social_url: profile.social_url || "",
       }),
     });
 
@@ -83,7 +73,7 @@ export function ProfileForm() {
     }
 
     setProfile(data.profile);
-    setMessage("Draft saved. Sync job queued for Webflow handoff.");
+    setMessage("Profile saved.");
     setIsSaving(false);
   }
 
@@ -110,56 +100,7 @@ export function ProfileForm() {
         required
       />
 
-      <label className="field-label" htmlFor="profile-location">
-        Location
-      </label>
-      <input
-        id="profile-location"
-        className="input"
-        type="text"
-        placeholder="Location"
-        value={profile.location || ""}
-        onChange={(event) => setProfile({ ...profile, location: event.target.value })}
-      />
-
-      <label className="field-label" htmlFor="profile-avatar">
-        Avatar URL
-      </label>
-      <input
-        id="profile-avatar"
-        className="input"
-        type="url"
-        placeholder="Avatar URL"
-        value={profile.avatar_url || ""}
-        onChange={(event) => setProfile({ ...profile, avatar_url: event.target.value })}
-      />
-
-      <label className="field-label" htmlFor="profile-social">
-        Social URL
-      </label>
-      <input
-        id="profile-social"
-        className="input"
-        type="url"
-        placeholder="Social URL"
-        value={profile.social_url || ""}
-        onChange={(event) => setProfile({ ...profile, social_url: event.target.value })}
-      />
-
-      <label className="field-label" htmlFor="profile-bio">
-        Bio
-      </label>
-      <textarea
-        id="profile-bio"
-        className="textarea"
-        placeholder="Bio"
-        value={profile.bio || ""}
-        onChange={(event) => setProfile({ ...profile, bio: event.target.value })}
-        rows={5}
-      />
-
       <div className="row">
-        <span className="pill">Sync status: {profile.sync_status}</span>
         <button className="button button-primary button-inline" type="submit" disabled={isSaving}>
           {isSaving ? "Saving..." : "Save Draft"}
         </button>

@@ -202,25 +202,67 @@ async function getProducerFolderNameFromProfilesTable(user: {
 
   const fallbackFullName = getDefaultFullNameFromUser(user);
 
-  const { data, error } = await supabase
+  const { data: byUserId, error: byUserIdError } = await supabase
+    .from("profiles")
+    .select("id, producer_email, full_name")
+    .eq("user_id", user.id)
+    .maybeSingle();
+
+  if (byUserIdError) {
+    throw new Error(`Failed to read producer profile: ${byUserIdError.message}`);
+  }
+
+  if (byUserId) {
+    const fullName =
+      typeof byUserId.full_name === "string" && byUserId.full_name.trim()
+        ? byUserId.full_name.trim()
+        : fallbackFullName;
+
+    const needsEmailUpdate =
+      typeof byUserId.producer_email === "string"
+        ? byUserId.producer_email.toLowerCase() !== normalizedEmail
+        : true;
+    const needsNameUpdate =
+      typeof byUserId.full_name !== "string" || !byUserId.full_name.trim();
+
+    if (!needsEmailUpdate && !needsNameUpdate) {
+      return fullName;
+    }
+
+    const { data: patched, error: patchError } = await supabase
+      .from("profiles")
+      .update({
+        producer_email: normalizedEmail,
+        full_name: fullName,
+      })
+      .eq("id", byUserId.id)
+      .select("full_name")
+      .single();
+
+    if (patchError) {
+      throw new Error(`Failed to update producer profile: ${patchError.message}`);
+    }
+
+    return patched.full_name;
+  }
+
+  const { data: byEmail, error: byEmailError } = await supabase
     .from("profiles")
     .select("id, full_name")
     .ilike("producer_email", normalizedEmail)
     .maybeSingle();
 
-  if (error) {
-    throw new Error(`Failed to read producer profile: ${error.message}`);
+  if (byEmailError) {
+    throw new Error(`Failed to read producer profile by email: ${byEmailError.message}`);
   }
 
-  if (!data) {
+  if (!byEmail) {
     const { data: inserted, error: insertError } = await supabase
       .from("profiles")
       .insert({
         user_id: user.id,
         producer_email: normalizedEmail,
         full_name: fallbackFullName,
-        sync_status: "pending",
-        draft_updated_at: new Date().toISOString(),
       })
       .select("full_name")
       .single();
@@ -232,17 +274,16 @@ async function getProducerFolderNameFromProfilesTable(user: {
     return inserted.full_name;
   }
 
-  const fullName = data?.full_name;
+  const fullName = byEmail.full_name;
   if (typeof fullName !== "string" || !fullName.trim()) {
     const { data: updated, error: updateError } = await supabase
       .from("profiles")
       .update({
+        user_id: user.id,
+        producer_email: normalizedEmail,
         full_name: fallbackFullName,
-        sync_status: "pending",
-        sync_error: null,
-        draft_updated_at: new Date().toISOString(),
       })
-      .eq("id", data.id)
+      .eq("id", byEmail.id)
       .select("full_name")
       .single();
 
@@ -250,7 +291,19 @@ async function getProducerFolderNameFromProfilesTable(user: {
       throw new Error(`Failed to update producer profile full_name: ${updateError.message}`);
     }
 
-    return updated.full_name;
+    return updated.full_name.trim();
+  }
+
+  const { error: linkError } = await supabase
+    .from("profiles")
+    .update({
+      user_id: user.id,
+      producer_email: normalizedEmail,
+    })
+    .eq("id", byEmail.id);
+
+  if (linkError) {
+    throw new Error(`Failed to link producer profile to user: ${linkError.message}`);
   }
 
   return fullName.trim();

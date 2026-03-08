@@ -3,10 +3,6 @@ import { createClient } from "@/lib/supabase/server";
 
 type ProfileDraftPayload = {
   full_name: string;
-  bio: string;
-  location: string;
-  avatar_url: string;
-  social_url: string;
 };
 
 function getDefaultFullName(user: {
@@ -33,18 +29,79 @@ async function ensureProfileExists(user: {
     throw new Error("Authenticated user email is required.");
   }
 
-  const { data: existing, error: selectError } = await supabase
+  const fallbackName = getDefaultFullName(user);
+
+  const { data: existingByUserId, error: selectByUserIdError } = await supabase
+    .from("profiles")
+    .select("*")
+    .eq("user_id", user.id)
+    .maybeSingle();
+
+  if (selectByUserIdError) {
+    throw new Error(selectByUserIdError.message);
+  }
+
+  if (existingByUserId) {
+    const needsEmailUpdate =
+      typeof existingByUserId.producer_email === "string"
+        ? existingByUserId.producer_email.toLowerCase() !== email
+        : true;
+    const needsNameUpdate =
+      typeof existingByUserId.full_name !== "string" || !existingByUserId.full_name.trim();
+
+    if (!needsEmailUpdate && !needsNameUpdate) {
+      return existingByUserId;
+    }
+
+    const { data: patchedByUserId, error: patchByUserIdError } = await supabase
+      .from("profiles")
+      .update({
+        producer_email: email,
+        full_name: needsNameUpdate ? fallbackName : existingByUserId.full_name,
+      })
+      .eq("id", existingByUserId.id)
+      .select("*")
+      .single();
+
+    if (patchByUserIdError) {
+      throw new Error(patchByUserIdError.message);
+    }
+
+    return patchedByUserId;
+  }
+
+  const { data: existingByEmail, error: selectByEmailError } = await supabase
     .from("profiles")
     .select("*")
     .eq("producer_email", email)
     .maybeSingle();
 
-  if (selectError) {
-    throw new Error(selectError.message);
+  if (selectByEmailError) {
+    throw new Error(selectByEmailError.message);
   }
 
-  if (existing) {
-    return existing;
+  if (existingByEmail) {
+    const name =
+      typeof existingByEmail.full_name === "string" && existingByEmail.full_name.trim()
+        ? existingByEmail.full_name.trim()
+        : fallbackName;
+
+    const { data: linkedByEmail, error: linkByEmailError } = await supabase
+      .from("profiles")
+      .update({
+        user_id: user.id,
+        producer_email: email,
+        full_name: name,
+      })
+      .eq("id", existingByEmail.id)
+      .select("*")
+      .single();
+
+    if (linkByEmailError) {
+      throw new Error(linkByEmailError.message);
+    }
+
+    return linkedByEmail;
   }
 
   const { data: inserted, error: insertError } = await supabase
@@ -52,9 +109,7 @@ async function ensureProfileExists(user: {
     .insert({
       user_id: user.id,
       producer_email: email,
-      full_name: getDefaultFullName(user),
-      sync_status: "pending",
-      draft_updated_at: new Date().toISOString(),
+      full_name: fallbackName,
     })
     .select("*")
     .single();
@@ -109,13 +164,6 @@ export async function PUT(request: Request) {
 
     const updatePayload = {
       full_name: fullName,
-      bio: String(body.bio || "").trim() || null,
-      location: String(body.location || "").trim() || null,
-      avatar_url: String(body.avatar_url || "").trim() || null,
-      social_url: String(body.social_url || "").trim() || null,
-      sync_status: "pending",
-      sync_error: null,
-      draft_updated_at: new Date().toISOString(),
     };
 
     const { data: updated, error: updateError } = await supabase
@@ -127,23 +175,6 @@ export async function PUT(request: Request) {
 
     if (updateError) {
       return NextResponse.json({ error: updateError.message }, { status: 500 });
-    }
-
-    const { error: syncJobError } = await supabase.from("profile_sync_jobs").insert({
-      profile_id: profile.id,
-      producer_email: user.email.toLowerCase(),
-      status: "pending",
-      payload: updatePayload,
-    });
-
-    if (syncJobError) {
-      return NextResponse.json(
-        {
-          error: `Profile updated but sync job enqueue failed: ${syncJobError.message}`,
-          profile: updated,
-        },
-        { status: 500 },
-      );
     }
 
     return NextResponse.json({ profile: updated });
