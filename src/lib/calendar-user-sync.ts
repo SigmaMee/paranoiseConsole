@@ -215,6 +215,25 @@ export async function createUsersFromCalendar(): Promise<CreateUsersResult> {
       continue;
     }
 
+    const profileFullName = producer.fullName || producer.email.split("@")[0];
+    const { error: profileError } = await supabase.from("profiles").upsert(
+      {
+        user_id: data.user.id,
+        producer_email: producer.email,
+        full_name: profileFullName,
+      },
+      {
+        onConflict: "producer_email",
+      },
+    );
+
+    if (profileError) {
+      result.errors.push({
+        email: producer.email,
+        error: `Auth user created but profile sync failed: ${profileError.message}`,
+      });
+    }
+
     result.created++;
   }
 
