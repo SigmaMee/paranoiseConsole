@@ -10,7 +10,15 @@ type AuthUserSummary = {
   email: string;
 };
 
-async function listAllAuthUsers(adminClient: ReturnType<typeof createClient>) {
+type AdminListUsersClient = {
+  auth: {
+    admin: {
+      listUsers: (args: { page: number; perPage: number }) => Promise<any>;
+    };
+  };
+};
+
+async function listAllAuthUsers(adminClient: AdminListUsersClient) {
   const users: AuthUserSummary[] = [];
   let page = 1;
   const perPage = 200;
@@ -22,8 +30,10 @@ async function listAllAuthUsers(adminClient: ReturnType<typeof createClient>) {
     }
 
     const batch = (data.users || [])
-      .filter((user) => typeof user.email === "string" && user.email.trim())
-      .map((user) => ({
+      .filter((user: { id: string; email?: string | null }) =>
+        typeof user.email === "string" && user.email.trim(),
+      )
+      .map((user: { id: string; email?: string | null }) => ({
         id: user.id,
         email: user.email!.toLowerCase(),
       }));
