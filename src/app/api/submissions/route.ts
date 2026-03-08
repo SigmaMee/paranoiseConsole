@@ -179,21 +179,78 @@ function toAiringDateIso(showStart: string | null) {
   return parsed.toISOString().slice(0, 10);
 }
 
-async function getProducerFolderNameFromProfilesTable(userEmail: string) {
+function getDefaultFullNameFromUser(user: {
+  email: string;
+  user_metadata?: Record<string, unknown>;
+}) {
+  const fromMetadata = user.user_metadata?.full_name;
+  if (typeof fromMetadata === "string" && fromMetadata.trim()) {
+    return fromMetadata.trim();
+  }
+
+  const localPart = user.email.split("@")[0]?.trim();
+  return localPart || "Producer";
+}
+
+async function getProducerFolderNameFromProfilesTable(user: {
+  id: string;
+  email: string;
+  user_metadata?: Record<string, unknown>;
+}) {
   const supabase = await createClient();
+  const normalizedEmail = user.email.toLowerCase();
+
+  const fallbackFullName = getDefaultFullNameFromUser(user);
+
   const { data, error } = await supabase
     .from("profiles")
-    .select("full_name")
-    .ilike("producer_email", userEmail.toLowerCase())
+    .select("id, full_name")
+    .ilike("producer_email", normalizedEmail)
     .maybeSingle();
 
   if (error) {
     throw new Error(`Failed to read producer profile: ${error.message}`);
   }
 
+  if (!data) {
+    const { data: inserted, error: insertError } = await supabase
+      .from("profiles")
+      .insert({
+        user_id: user.id,
+        producer_email: normalizedEmail,
+        full_name: fallbackFullName,
+        sync_status: "pending",
+        draft_updated_at: new Date().toISOString(),
+      })
+      .select("full_name")
+      .single();
+
+    if (insertError) {
+      throw new Error(`Failed to create producer profile: ${insertError.message}`);
+    }
+
+    return inserted.full_name;
+  }
+
   const fullName = data?.full_name;
   if (typeof fullName !== "string" || !fullName.trim()) {
-    return null;
+    const { data: updated, error: updateError } = await supabase
+      .from("profiles")
+      .update({
+        full_name: fallbackFullName,
+        sync_status: "pending",
+        sync_error: null,
+        draft_updated_at: new Date().toISOString(),
+      })
+      .eq("id", data.id)
+      .select("full_name")
+      .single();
+
+    if (updateError) {
+      throw new Error(`Failed to update producer profile full_name: ${updateError.message}`);
+    }
+
+    return updated.full_name;
   }
 
   return fullName.trim();
@@ -281,16 +338,11 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: validationError }, { status: 400 });
     }
 
-    const producerFolderName = await getProducerFolderNameFromProfilesTable(userEmail);
-    if (!producerFolderName) {
-      return NextResponse.json(
-        {
-          error:
-            "Producer full name is missing in profiles table for your email. Update profiles.full_name before uploading.",
-        },
-        { status: 400 },
-      );
-    }
+    const producerFolderName = await getProducerFolderNameFromProfilesTable({
+      id: user.id,
+      email: userEmail,
+      user_metadata: user.user_metadata,
+    });
 
     let ftpResult;
     let driveResult;
