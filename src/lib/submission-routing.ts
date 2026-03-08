@@ -14,6 +14,7 @@ export type RouteResult = {
 };
 
 export type PersistPayload = {
+  producerProfileId?: string | null;
   producerEmail: string;
   audioFilename: string;
   imageFilename: string;
@@ -369,6 +370,7 @@ export async function persistSubmissionStatus(payload: PersistPayload) {
   const supabase = createAdminSupabaseClient();
 
   const baseInsert = {
+    producer_profile_id: payload.producerProfileId || null,
     producer_email: payload.producerEmail,
     audio_filename: payload.audioFilename,
     image_filename: payload.imageFilename,
@@ -391,6 +393,7 @@ export async function persistSubmissionStatus(payload: PersistPayload) {
   const { error } = await supabase.from("submissions").insert(baseInsert);
 
   const missingAiringColumns =
+    error?.message?.toLowerCase().includes('column "producer_profile_id"') ||
     error?.message?.toLowerCase().includes('column "show_start_at"') ||
     error?.message?.toLowerCase().includes('column "airing_date"') ||
     error?.message?.toLowerCase().includes('column "submitted_tags"') ||
@@ -398,6 +401,7 @@ export async function persistSubmissionStatus(payload: PersistPayload) {
 
   if (missingAiringColumns) {
     const {
+      producer_profile_id: _producerProfileId,
       show_start_at: _showStartAt,
       airing_date: _airingDate,
       submitted_description: _submittedDescription,

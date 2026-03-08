@@ -226,7 +226,10 @@ async function getProducerFolderNameFromProfilesTable(user: {
       typeof byUserId.full_name !== "string" || !byUserId.full_name.trim();
 
     if (!needsEmailUpdate && !needsNameUpdate) {
-      return fullName;
+      return {
+        profileId: byUserId.id,
+        folderName: fullName,
+      };
     }
 
     const { data: patched, error: patchError } = await supabase
@@ -236,14 +239,17 @@ async function getProducerFolderNameFromProfilesTable(user: {
         full_name: fullName,
       })
       .eq("id", byUserId.id)
-      .select("full_name")
+      .select("id, full_name")
       .single();
 
     if (patchError) {
       throw new Error(`Failed to update producer profile: ${patchError.message}`);
     }
 
-    return patched.full_name;
+    return {
+      profileId: patched.id,
+      folderName: patched.full_name,
+    };
   }
 
   const { data: byEmail, error: byEmailError } = await supabase
@@ -264,14 +270,17 @@ async function getProducerFolderNameFromProfilesTable(user: {
         producer_email: normalizedEmail,
         full_name: fallbackFullName,
       })
-      .select("full_name")
+      .select("id, full_name")
       .single();
 
     if (insertError) {
       throw new Error(`Failed to create producer profile: ${insertError.message}`);
     }
 
-    return inserted.full_name;
+    return {
+      profileId: inserted.id,
+      folderName: inserted.full_name,
+    };
   }
 
   const fullName = byEmail.full_name;
@@ -284,14 +293,17 @@ async function getProducerFolderNameFromProfilesTable(user: {
         full_name: fallbackFullName,
       })
       .eq("id", byEmail.id)
-      .select("full_name")
+      .select("id, full_name")
       .single();
 
     if (updateError) {
       throw new Error(`Failed to update producer profile full_name: ${updateError.message}`);
     }
 
-    return updated.full_name.trim();
+    return {
+      profileId: updated.id,
+      folderName: updated.full_name.trim(),
+    };
   }
 
   const { error: linkError } = await supabase
@@ -306,7 +318,10 @@ async function getProducerFolderNameFromProfilesTable(user: {
     throw new Error(`Failed to link producer profile to user: ${linkError.message}`);
   }
 
-  return fullName.trim();
+  return {
+    profileId: byEmail.id,
+    folderName: fullName.trim(),
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -391,11 +406,12 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: validationError }, { status: 400 });
     }
 
-    const producerFolderName = await getProducerFolderNameFromProfilesTable({
+    const producerProfile = await getProducerFolderNameFromProfilesTable({
       id: user.id,
       email: userEmail,
       user_metadata: user.user_metadata,
     });
+    const producerFolderName = producerProfile.folderName;
 
     let ftpResult;
     let driveResult;
@@ -578,6 +594,7 @@ export async function POST(request: Request) {
     try {
       const airingDate = toAiringDateIso(persistedShowStart);
       await persistSubmissionStatus({
+        producerProfileId: producerProfile.profileId,
         producerEmail: userEmail,
         audioFilename: uploadedAudioFilename,
         imageFilename: uploadedImageFilename,
