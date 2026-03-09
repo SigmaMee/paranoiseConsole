@@ -72,16 +72,20 @@ export async function uploadToMixcloud({
   formData.append("name", name);
   if (description) formData.append("description", description);
   
-  // Append each tag separately (Mixcloud expects multiple form entries)
+  // Mixcloud expects tags in the format tags-X-tag where X is 0-4
   if (tags && tags.length > 0) {
-    tags.forEach((tag) => {
-      formData.append("tags", tag);
-    });
+    tags
+      .map((tag) => tag.trim())
+      .filter((tag) => tag.length > 0)
+      .slice(0, 5)
+      .forEach((tag, index) => {
+        formData.append(`tags-${index}-tag`, tag);
+      });
   }
   
-  // Check if we should upload as draft (0) or publish immediately (1)
-  const publishAsDraft = process.env.MIXCLOUD_PUBLISH_AS_DRAFT === "true";
-  formData.append("publish", publishAsDraft ? "0" : "1");
+  // Upload as unlisted (private) - upload will not appear in public profile
+  // Only accessible via direct link
+  formData.append("unlisted", "1");
   
   // Get picture (either from buffer or download from URL)
   let pictureData: Buffer | null = null;

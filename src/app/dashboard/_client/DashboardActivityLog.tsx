@@ -27,27 +27,43 @@ export default function DashboardActivityLog({ rows }: { rows: ActivityLogRow[] 
   const [loading, setLoading] = React.useState(false);
   const [message, setMessage] = React.useState<{ type: "success" | "error"; text: string } | null>(null);
   const [progress, setProgress] = React.useState(0);
+  const [activeAction, setActiveAction] = React.useState<"publish" | "download" | null>(null);
+
+  const isCompleteShow = (row: ActivityLogRow) =>
+    row.hasAudio && row.hasCoverImage && row.hasDescription && row.hasTags;
 
   const handleSelect = (idx: number) => {
     setSelected((prev) =>
       prev.includes(idx) ? prev.filter((i) => i !== idx) : [...prev, idx]
     );
   };
+  
   const handleRowClick = (idx: number, row: ActivityLogRow) => {
-    if (row.mixcloud === "ready") handleSelect(idx);
+    const isSelectable = isCompleteShow(row);
+    if (isSelectable) handleSelect(idx);
   };
 
   const handleBulkPublish = async () => {
     if (selected.length === 0) return;
+    const readyToPublishIds = selected
+      .map((idx) => rows[idx])
+      .filter((row) => row.mixcloud === "ready")
+      .map((row) => row.id);
+
+    if (readyToPublishIds.length === 0) {
+      setMessage({ type: "error", text: "Selected complete shows are already published or not ready for Mixcloud." });
+      return;
+    }
 
     setLoading(true);
+    setActiveAction("publish");
     setMessage(null);
     setProgress(0);
 
     let progressInterval: NodeJS.Timeout | null = null;
 
     try {
-      const submissionIds = selected.map((idx) => rows[idx].id);
+      const submissionIds = readyToPublishIds;
       console.log("Selected indices:", selected);
       console.log("Submission IDs to publish:", submissionIds);
       console.log("Full rows:", selected.map((idx) => rows[idx]));
@@ -103,6 +119,83 @@ export default function DashboardActivityLog({ rows }: { rows: ActivityLogRow[] 
       setProgress(0);
     } finally {
       setLoading(false);
+      setActiveAction(null);
+    }
+  };
+
+  const handleBulkDownload = async () => {
+    if (selected.length === 0) return;
+
+    setLoading(true);
+    setActiveAction("download");
+    setMessage(null);
+    setProgress(0);
+
+    try {
+      const submissionIds = selected.map((idx) => rows[idx].id);
+      console.log("Selected indices for download:", selected);
+      console.log("Submission IDs to download:", submissionIds);
+      
+      setProgress(30);
+      
+      const response = await fetch("/api/submissions/download-shows", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify({ submissionIds }),
+      });
+
+      setProgress(60);
+
+      if (!response.ok) {
+        const data = await response.json();
+        setMessage({ type: "error", text: data.error || "Failed to download show package." });
+        setProgress(0);
+        return;
+      }
+
+      const contentType = response.headers.get("content-type") || "";
+      if (contentType.includes("application/json")) {
+        const data = await response.json();
+        setMessage({ type: "error", text: data.error || "Download endpoint returned JSON instead of ZIP." });
+        setProgress(0);
+        return;
+      }
+
+      // Download the ZIP file
+      const blob = await response.blob();
+      if (blob.size === 0) {
+        setMessage({ type: "error", text: "Downloaded file is empty. Please try again." });
+        setProgress(0);
+        return;
+      }
+
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `paranoise-shows-${Date.now()}.zip`;
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(() => {
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
+      }, 1000);
+
+      setProgress(100);
+      setMessage({ type: "success", text: `Downloaded ${selected.length} show package${selected.length !== 1 ? "s" : ""}.` });
+      setSelected([]);
+
+      // Clear message after 3 seconds
+      setTimeout(() => {
+        setMessage(null);
+        setProgress(0);
+      }, 3000);
+    } catch (err: any) {
+      setMessage({ type: "error", text: err.message || "Network error. Please try again." });
+      setProgress(0);
+    } finally {
+      setLoading(false);
+      setActiveAction(null);
     }
   };
 
@@ -110,23 +203,35 @@ export default function DashboardActivityLog({ rows }: { rows: ActivityLogRow[] 
     <>
       <div className={bulkStyles["dashboard-bulk-action-bar"]}>
         <button
+          type="button"
+          className="btn-neutral"
+          disabled={selected.length === 0 || loading}
+          onClick={handleBulkDownload}
+        >
+          {loading && activeAction === "download" ? "Downloading..." : "Download"}
+        </button>
+        <button
+          type="button"
           className="btn-neutral"
           disabled={selected.length === 0 || loading}
           onClick={handleBulkPublish}
         >
-          {loading ? "Publishing..." : "Publish to Mixcloud"}
+          {loading && activeAction === "publish" ? "Publishing..." : "Publish to Mixcloud"}
         </button>
         {message && (
-          <p className={message.type === "success" ? "success" : "error"} style={{ marginLeft: "1rem" }}>
+          <p
+            className={`${message.type === "success" ? "success" : "error"} ${bulkStyles["dashboard-bulk-feedback"]}`}
+          >
             {message.text}
           </p>
         )}
       </div>
       {loading && (
         <div className={bulkStyles["progress-bar-container"]}>
-          <div 
-            className={bulkStyles["progress-bar"]} 
-            style={{ width: `${progress}%` }}
+          <progress
+            className={bulkStyles["progress-bar"]}
+            max={100}
+            value={progress}
           />
         </div>
       )}
@@ -159,7 +264,7 @@ export default function DashboardActivityLog({ rows }: { rows: ActivityLogRow[] 
                     type="checkbox"
                     className={logStyles["activity-log-checkbox"]}
                     checked={selected.includes(idx)}
-                    disabled={row.mixcloud !== "ready"}
+                    disabled={!isCompleteShow(row)}
                     onChange={(e) => {
                       e.stopPropagation();
                       handleSelect(idx);

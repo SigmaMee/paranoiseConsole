@@ -35,7 +35,7 @@ function getRequiredEnv(name: string) {
   return value;
 }
 
-function sanitizeFilename(name: string) {
+export function sanitizeFilename(name: string) {
   return name.replace(/[^a-zA-Z0-9._-]/g, "_");
 }
 
@@ -171,7 +171,7 @@ export async function routeAudioToFtp(
   producerFolderName: string,
   uploadNameOverride?: string,
 ): Promise<RouteResult> {
-  const uploadName = sanitizeFilename(uploadNameOverride || audio.name);
+  const uploadName = uploadNameOverride || audio.name;
   const bytes = Buffer.from(await audio.arrayBuffer());
   const result = await uploadBytesToFtpProducerFolder(bytes, uploadName, producerFolderName);
 

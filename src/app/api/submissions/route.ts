@@ -8,6 +8,7 @@ import {
   routeDescriptionToFtp,
   routeImageToDrive,
   validateSubmission,
+  sanitizeFilename,
 } from "@/lib/submission-routing";
 import {
   getUpcomingShowsByProducerEmail,
@@ -310,9 +311,7 @@ export async function POST(request: Request) {
       : optionalAudio?.name || "show-description";
 
     if (uploadType === "audio") {
-      const audioUploadName = dateForSuffix
-        ? applyShowDateSuffixToFilename((optionalAudio as File).name, dateForSuffix, "show-audio")
-        : (optionalAudio as File).name;
+      const audioUploadName = (optionalAudio as File).name;
       const audioResult = await routeAudioToFtp(
         optionalAudio as File,
         producerFolderName,
@@ -349,9 +348,7 @@ export async function POST(request: Request) {
       let ftpSuccess = true;
 
       if (optionalAudio) {
-        const audioUploadName = dateForSuffix
-          ? applyShowDateSuffixToFilename(optionalAudio.name, dateForSuffix, "show-audio")
-          : optionalAudio.name;
+        const audioUploadName = optionalAudio.name;
         const audioResult = await routeAudioToFtp(optionalAudio, producerFolderName, audioUploadName);
         uploadedAudioFilename = audioUploadName;
         ftpSuccess = ftpSuccess && audioResult.success;
@@ -381,11 +378,11 @@ export async function POST(request: Request) {
         }
 
         const coverFilenamePrefix = buildCoverFilenamePrefix(producerFolderName, coverShowStart);
-        uploadedImageFilename = applyShowDateSuffixToFilename(
+        uploadedImageFilename = sanitizeFilename(applyShowDateSuffixToFilename(
           optionalImage.name,
           coverShowStart,
           "show-cover",
-        );
+        ));
 
         const shouldUploadToDrive = isUpcomingShowStart(coverShowStart);
 
@@ -437,11 +434,11 @@ export async function POST(request: Request) {
       }
 
       const coverFilenamePrefix = buildCoverFilenamePrefix(producerFolderName, coverShowStart);
-      uploadedImageFilename = applyShowDateSuffixToFilename(
+      uploadedImageFilename = sanitizeFilename(applyShowDateSuffixToFilename(
         (optionalImage as File).name,
         coverShowStart,
         "show-cover",
-      );
+      ));
 
       const shouldUploadToDrive = isUpcomingShowStart(coverShowStart);
 

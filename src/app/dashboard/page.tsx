@@ -192,19 +192,27 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
 
       const { data } = await adminSupabase
         .from("submissions")
-        .select("airing_date")
+        .select("airing_date, producer_email")
         .gte("airing_date", monthStart)
         .lte("airing_date", monthEnd);
 
-      uploadsByDate = (data || []).reduce<Record<string, number>>((acc, row) => {
+      // Group by producer_email + airing_date to count unique shows, not individual submissions
+      const showKeys = new Set<string>();
+      for (const row of data || []) {
         const airingDate = typeof row.airing_date === "string" ? row.airing_date : "";
-        if (!airingDate) {
-          return acc;
+        const producerEmail = typeof row.producer_email === "string" ? row.producer_email : "";
+        if (!airingDate || !producerEmail) {
+          continue;
         }
+        showKeys.add(`${airingDate}|${producerEmail}`);
+      }
 
-        acc[airingDate] = (acc[airingDate] || 0) + 1;
-        return acc;
-      }, {});
+      // Count shows per date
+      uploadsByDate = {};
+      for (const key of showKeys) {
+        const [airingDate] = key.split("|");
+        uploadsByDate[airingDate] = (uploadsByDate[airingDate] || 0) + 1;
+      }
     } catch {}
 
     try {
@@ -294,7 +302,20 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
         }, {});
       }
 
-      activityLogRows = (submissions || []).map((row) => {
+      // Group submissions by producer_email + airing_date
+      const groupedSubmissions = new Map<string, {
+        ids: string[];
+        producer: string;
+        airingDate: string | null;
+        hasAudio: boolean;
+        hasCoverImage: boolean;
+        hasDescription: boolean;
+        hasTags: boolean;
+        mixcloudStatuses: string[];
+        latestCreatedAt: string;
+      }>();
+
+      for (const row of submissions || []) {
         const producerEmail = String(row.producer_email || "").toLowerCase();
         const producer =
           producerNameByEmail[producerEmail] || producerEmail || "Unknown producer";
@@ -303,20 +324,74 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
         const imageFilename = typeof row.image_filename === "string" ? row.image_filename.trim() : "";
         const ftpMessage = typeof row.ftp_message === "string" ? row.ftp_message.toLowerCase() : "";
         const submittedTags = Array.isArray(row.submitted_tags) ? row.submitted_tags : [];
+        const submissionId = typeof row.id === "string" ? row.id : "";
+        const createdAt = typeof row.created_at === "string" ? row.created_at : "";
+        const mixcloudStatus = typeof row.mixcloud === "string" ? row.mixcloud : "not ready";
 
-        return {
-          id: typeof row.id === "string" ? row.id : "",
-          producer,
-          airingDate,
-          hasAudio: Boolean(audioFilename),
-          hasCoverImage: Boolean(imageFilename),
-          hasDescription:
+        const groupKey = `${producerEmail}|${airingDate || "no-date"}`;
+
+        const existing = groupedSubmissions.get(groupKey);
+        if (existing) {
+          // Aggregate flags across all submissions for this group
+          existing.ids.push(submissionId);
+          existing.hasAudio = existing.hasAudio || Boolean(audioFilename);
+          existing.hasCoverImage = existing.hasCoverImage || Boolean(imageFilename);
+          existing.hasDescription = existing.hasDescription || 
             ftpMessage.includes("description uploaded") ||
-            ftpMessage.includes("description upload failed"),
-          hasTags: submittedTags.length > 0,
-          mixcloud: typeof row.mixcloud === "string" ? row.mixcloud : "not ready",
-        };
-      });
+            ftpMessage.includes("description upload failed");
+          existing.hasTags = existing.hasTags || submittedTags.length > 0;
+          existing.mixcloudStatuses.push(mixcloudStatus);
+          // Keep track of the latest submission
+          if (createdAt > existing.latestCreatedAt) {
+            existing.latestCreatedAt = createdAt;
+          }
+        } else {
+          groupedSubmissions.set(groupKey, {
+            ids: [submissionId],
+            producer,
+            airingDate,
+            hasAudio: Boolean(audioFilename),
+            hasCoverImage: Boolean(imageFilename),
+            hasDescription:
+              ftpMessage.includes("description uploaded") ||
+              ftpMessage.includes("description upload failed"),
+            hasTags: submittedTags.length > 0,
+            mixcloudStatuses: [mixcloudStatus],
+            latestCreatedAt: createdAt,
+          });
+        }
+      }
+
+      // Convert grouped submissions to activity log rows
+      activityLogRows = Array.from(groupedSubmissions.values())
+        .sort((a, b) => {
+          // Sort by latest created_at descending
+          return b.latestCreatedAt.localeCompare(a.latestCreatedAt);
+        })
+        .map((group) => {
+          // Determine overall mixcloud status for the group
+          let mixcloudStatus = "not ready";
+          
+          // If any submission in the group is published, mark as published
+          if (group.mixcloudStatuses.includes("published")) {
+            mixcloudStatus = "published";
+          }
+          // Otherwise, if all required parts are present, mark as ready
+          else if (group.hasAudio && group.hasCoverImage && group.hasDescription) {
+            mixcloudStatus = "ready";
+          }
+
+          return {
+            id: group.ids[0], // Use the first ID for bulk actions
+            producer: group.producer,
+            airingDate: group.airingDate,
+            hasAudio: group.hasAudio,
+            hasCoverImage: group.hasCoverImage,
+            hasDescription: group.hasDescription,
+            hasTags: group.hasTags,
+            mixcloud: mixcloudStatus,
+          };
+        });
     } catch {}
   }
 
