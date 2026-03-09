@@ -5,6 +5,9 @@ import { createClient } from "@/lib/supabase/server";
 import { signOut } from "@/app/actions";
 import { ShowSubmissionToggle } from "@/components/show-submission-toggle";
 import CalendarUserSync from "./_client/CalendarUserSync";
+import styles from "./status-chips.module.css";
+import ActivityLogWrapper from "./ActivityLogWrapper";
+import bulkStyles from "./bulk-action.module.css";
 import {
   getMostRecentPastAndFutureShowsByProducerEmail,
   getScheduledShowCountsForMonth,
@@ -76,6 +79,9 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
   const driveOauthState = typeof params.drive_oauth === "string" ? params.drive_oauth : "";
   const driveOauthMessage =
     typeof params.drive_oauth_message === "string" ? params.drive_oauth_message : "";
+  const mixcloudOauthState = typeof params.mixcloud_oauth === "string" ? params.mixcloud_oauth : "";
+  const mixcloudOauthMessage =
+    typeof params.mixcloud_oauth_message === "string" ? params.mixcloud_oauth_message : "";
   const metricMonthParam = typeof params.metric_month === "string" ? params.metric_month : "";
   const activityPageParam = getParam("activity_page");
   const parsedActivityPage = Number.parseInt(activityPageParam || "1", 10);
@@ -124,16 +130,21 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
   let driveConnected = false;
   let driveConnectedAt: string | null = null;
   let driveConnectedBy: string | null = null;
+  let mixcloudConnected = false;
+  let mixcloudConnectedAt: string | null = null;
+  let mixcloudConnectedBy: string | null = null;
   let scheduledShowsByDate: Record<string, number> = {};
   let uploadsByDate: Record<string, number> = {};
   let allTimeTagCounts: Array<{ tag: string; count: number }> = [];
   let activityLogRows: Array<{
+    id: string;
     producer: string;
     airingDate: string | null;
     hasAudio: boolean;
     hasCoverImage: boolean;
     hasDescription: boolean;
     hasTags: boolean;
+    mixcloud: string;
   }> = [];
   let activityTotalCount = 0;
 
@@ -155,6 +166,18 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
         driveConnectedAt = data.updated_at || null;
         driveConnectedBy = data.updated_by_email || null;
       }
+
+      const { data: mixcloudData } = await adminSupabase
+        .from("google_oauth_tokens")
+        .select("provider,updated_at,updated_by_email")
+        .eq("provider", "mixcloud")
+        .maybeSingle();
+
+      if (mixcloudData?.provider === "mixcloud") {
+        mixcloudConnected = true;
+        mixcloudConnectedAt = mixcloudData.updated_at || null;
+        mixcloudConnectedBy = mixcloudData.updated_by_email || null;
+      }
     } catch {}
 
     try {
@@ -169,19 +192,27 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
 
       const { data } = await adminSupabase
         .from("submissions")
-        .select("airing_date")
+        .select("airing_date, producer_email")
         .gte("airing_date", monthStart)
         .lte("airing_date", monthEnd);
 
-      uploadsByDate = (data || []).reduce<Record<string, number>>((acc, row) => {
+      // Group by producer_email + airing_date to count unique shows, not individual submissions
+      const showKeys = new Set<string>();
+      for (const row of data || []) {
         const airingDate = typeof row.airing_date === "string" ? row.airing_date : "";
-        if (!airingDate) {
-          return acc;
+        const producerEmail = typeof row.producer_email === "string" ? row.producer_email : "";
+        if (!airingDate || !producerEmail) {
+          continue;
         }
+        showKeys.add(`${airingDate}|${producerEmail}`);
+      }
 
-        acc[airingDate] = (acc[airingDate] || 0) + 1;
-        return acc;
-      }, {});
+      // Count shows per date
+      uploadsByDate = {};
+      for (const key of showKeys) {
+        const [airingDate] = key.split("|");
+        uploadsByDate[airingDate] = (uploadsByDate[airingDate] || 0) + 1;
+      }
     } catch {}
 
     try {
@@ -227,13 +258,13 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
       const activityTo = activityFrom + ACTIVITY_PAGE_SIZE - 1;
 
       const { data: submissions } = await adminSupabase
-        .from("submissions")
-        .select(
-          "producer_email,airing_date,audio_filename,image_filename,submitted_tags,ftp_message,created_at",
-          { count: "exact" },
-        )
-        .order("created_at", { ascending: false })
-        .range(activityFrom, activityTo);
+          .from("submissions")
+          .select(
+            "id,producer_email,airing_date,audio_filename,image_filename,submitted_tags,ftp_message,created_at,mixcloud",
+            { count: "exact" },
+          )
+          .order("created_at", { ascending: false })
+          .range(activityFrom, activityTo);
 
       activityTotalCount = submissions ? submissions.length : 0;
 
@@ -271,7 +302,20 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
         }, {});
       }
 
-      activityLogRows = (submissions || []).map((row) => {
+      // Group submissions by producer_email + airing_date
+      const groupedSubmissions = new Map<string, {
+        ids: string[];
+        producer: string;
+        airingDate: string | null;
+        hasAudio: boolean;
+        hasCoverImage: boolean;
+        hasDescription: boolean;
+        hasTags: boolean;
+        mixcloudStatuses: string[];
+        latestCreatedAt: string;
+      }>();
+
+      for (const row of submissions || []) {
         const producerEmail = String(row.producer_email || "").toLowerCase();
         const producer =
           producerNameByEmail[producerEmail] || producerEmail || "Unknown producer";
@@ -280,18 +324,74 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
         const imageFilename = typeof row.image_filename === "string" ? row.image_filename.trim() : "";
         const ftpMessage = typeof row.ftp_message === "string" ? row.ftp_message.toLowerCase() : "";
         const submittedTags = Array.isArray(row.submitted_tags) ? row.submitted_tags : [];
+        const submissionId = typeof row.id === "string" ? row.id : "";
+        const createdAt = typeof row.created_at === "string" ? row.created_at : "";
+        const mixcloudStatus = typeof row.mixcloud === "string" ? row.mixcloud : "not ready";
 
-        return {
-          producer,
-          airingDate,
-          hasAudio: Boolean(audioFilename),
-          hasCoverImage: Boolean(imageFilename),
-          hasDescription:
+        const groupKey = `${producerEmail}|${airingDate || "no-date"}`;
+
+        const existing = groupedSubmissions.get(groupKey);
+        if (existing) {
+          // Aggregate flags across all submissions for this group
+          existing.ids.push(submissionId);
+          existing.hasAudio = existing.hasAudio || Boolean(audioFilename);
+          existing.hasCoverImage = existing.hasCoverImage || Boolean(imageFilename);
+          existing.hasDescription = existing.hasDescription || 
             ftpMessage.includes("description uploaded") ||
-            ftpMessage.includes("description upload failed"),
-          hasTags: submittedTags.length > 0,
-        };
-      });
+            ftpMessage.includes("description upload failed");
+          existing.hasTags = existing.hasTags || submittedTags.length > 0;
+          existing.mixcloudStatuses.push(mixcloudStatus);
+          // Keep track of the latest submission
+          if (createdAt > existing.latestCreatedAt) {
+            existing.latestCreatedAt = createdAt;
+          }
+        } else {
+          groupedSubmissions.set(groupKey, {
+            ids: [submissionId],
+            producer,
+            airingDate,
+            hasAudio: Boolean(audioFilename),
+            hasCoverImage: Boolean(imageFilename),
+            hasDescription:
+              ftpMessage.includes("description uploaded") ||
+              ftpMessage.includes("description upload failed"),
+            hasTags: submittedTags.length > 0,
+            mixcloudStatuses: [mixcloudStatus],
+            latestCreatedAt: createdAt,
+          });
+        }
+      }
+
+      // Convert grouped submissions to activity log rows
+      activityLogRows = Array.from(groupedSubmissions.values())
+        .sort((a, b) => {
+          // Sort by latest created_at descending
+          return b.latestCreatedAt.localeCompare(a.latestCreatedAt);
+        })
+        .map((group) => {
+          // Determine overall mixcloud status for the group
+          let mixcloudStatus = "not ready";
+          
+          // If any submission in the group is published, mark as published
+          if (group.mixcloudStatuses.includes("published")) {
+            mixcloudStatus = "published";
+          }
+          // Otherwise, if all required parts are present, mark as ready
+          else if (group.hasAudio && group.hasCoverImage && group.hasDescription) {
+            mixcloudStatus = "ready";
+          }
+
+          return {
+            id: group.ids[0], // Use the first ID for bulk actions
+            producer: group.producer,
+            airingDate: group.airingDate,
+            hasAudio: group.hasAudio,
+            hasCoverImage: group.hasCoverImage,
+            hasDescription: group.hasDescription,
+            hasTags: group.hasTags,
+            mixcloud: mixcloudStatus,
+          };
+        });
     } catch {}
   }
 
@@ -489,69 +589,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
 
             <h2 className="dashboard-section-title">Activity Log</h2>
             {activityLogRows.length > 0 ? (
-              <>
-                <div className="dashboard-activity-table-wrap">
-                  <table className="dashboard-activity-table">
-                    <thead>
-                      <tr>
-                        <th>Producer</th>
-                        <th>Airing date</th>
-                        <th>Audio</th>
-                        <th>Cover image</th>
-                        <th>Description</th>
-                        <th>Tags</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {activityLogRows.map((row, index) => (
-                        <tr key={`${row.producer}-${row.airingDate || "none"}-${index}`}>
-                          <td>{row.producer}</td>
-                          <td>{formatAiringDate(row.airingDate)}</td>
-                          <td>
-                            <span className={row.hasAudio ? "status-check" : "status-missing"}>
-                              {row.hasAudio ? "✓" : "-"}
-                            </span>
-                          </td>
-                          <td>
-                            <span className={row.hasCoverImage ? "status-check" : "status-missing"}>
-                              {row.hasCoverImage ? "✓" : "-"}
-                            </span>
-                          </td>
-                          <td>
-                            <span className={row.hasDescription ? "status-check" : "status-missing"}>
-                              {row.hasDescription ? "✓" : "-"}
-                            </span>
-                          </td>
-                          <td>
-                            <span className={row.hasTags ? "status-check" : "status-missing"}>
-                              {row.hasTags ? "✓" : "-"}
-                            </span>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-                <div className="dashboard-pagination">
-                  <a
-                    className="btn-neutral"
-                    href={hasPreviousActivityPage ? buildActivityPageQuery(safeActivityPage - 1) : undefined}
-                    aria-disabled={!hasPreviousActivityPage}
-                  >
-                    Prev
-                  </a>
-                  <span className="muted dashboard-pagination-label">
-                    Page {safeActivityPage} / {activityTotalPages}
-                  </span>
-                  <a
-                    className="btn-neutral"
-                    href={hasNextActivityPage ? buildActivityPageQuery(safeActivityPage + 1) : undefined}
-                    aria-disabled={!hasNextActivityPage}
-                  >
-                    Next
-                  </a>
-                </div>
-              </>
+              <ActivityLogWrapper rows={activityLogRows} />
             ) : (
               <p className="muted">No activity rows yet.</p>
             )}
@@ -563,6 +601,42 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
             <a className="dashboard-connect" href="/api/google-drive/oauth/start">
               Connect Google Drive
             </a>
+            {driveConnected ? (
+              <p className="muted" style={{ marginTop: "0.5rem" }}>
+                Connected {driveConnectedAt ? `on ${new Date(driveConnectedAt).toLocaleString("en-GB")}` : ""}
+                {driveConnectedBy ? ` by ${driveConnectedBy}` : ""}.
+              </p>
+            ) : null}
+            {driveOauthState ? (
+              <p className={driveOauthState === "ok" ? "success" : "error"}>
+                {driveOauthMessage || (driveOauthState === "ok"
+                  ? "Google Drive connected successfully."
+                  : "Google Drive connection failed.")}
+              </p>
+            ) : null}
+
+            <h2 className="dashboard-section-title">Mixcloud Connection</h2>
+            <p className="muted">
+              Connect Mixcloud once so bulk publishing can upload directly from the dashboard.
+            </p>
+            <a className="dashboard-connect" href="/api/mixcloud/oauth/start">
+              Connect Mixcloud
+            </a>
+            {mixcloudConnected ? (
+              <p className="muted" style={{ marginTop: "0.5rem" }}>
+                Connected {mixcloudConnectedAt
+                  ? `on ${new Date(mixcloudConnectedAt).toLocaleString("en-GB")}`
+                  : ""}
+                {mixcloudConnectedBy ? ` by ${mixcloudConnectedBy}` : ""}.
+              </p>
+            ) : null}
+            {mixcloudOauthState ? (
+              <p className={mixcloudOauthState === "ok" ? "success" : "error"}>
+                {mixcloudOauthMessage || (mixcloudOauthState === "ok"
+                  ? "Mixcloud connected successfully."
+                  : "Mixcloud connection failed.")}
+              </p>
+            ) : null}
 
             <CalendarUserSync />
           </section>

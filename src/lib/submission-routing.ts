@@ -36,7 +36,7 @@ function getRequiredEnv(name: string) {
   return value;
 }
 
-function sanitizeFilename(name: string) {
+export function sanitizeFilename(name: string) {
   return name.replace(/[^a-zA-Z0-9._-]/g, "_");
 }
 
@@ -172,7 +172,7 @@ export async function routeAudioToFtp(
   producerFolderName: string,
   uploadNameOverride?: string,
 ): Promise<RouteResult> {
-  const uploadName = sanitizeFilename(uploadNameOverride || audio.name);
+  const uploadName = uploadNameOverride || audio.name;
   const bytes = Buffer.from(await audio.arrayBuffer());
   const result = await uploadBytesToFtpProducerFolder(bytes, uploadName, producerFolderName);
 
@@ -369,6 +369,22 @@ function createAdminSupabaseClient() {
 export async function persistSubmissionStatus(payload: PersistPayload) {
   const supabase = createAdminSupabaseClient();
 
+  // Determine Mixcloud readiness
+  let mixcloudStatus = "not ready";
+  const hasAudio = !!payload.audioFilename;
+  const hasImage = !!payload.imageFilename;
+  const hasTags = Array.isArray(payload.submittedTags) && payload.submittedTags.length > 0;
+  const isContentReady = hasAudio && hasImage && hasTags && payload.ftpStatus === "success" && payload.driveStatus === "success";
+  let isAiringPast = false;
+  if (payload.airingDate) {
+    const now = new Date();
+    const airing = new Date(payload.airingDate);
+    isAiringPast = now >= airing;
+  }
+  if (isContentReady && isAiringPast) {
+    mixcloudStatus = "ready";
+  }
+  // You can set to "published" after Mixcloud upload elsewhere
   const baseInsert = {
     producer_profile_id: payload.producerProfileId || null,
     producer_email: payload.producerEmail,
@@ -388,6 +404,7 @@ export async function persistSubmissionStatus(payload: PersistPayload) {
     drive_status: payload.driveStatus,
     ftp_message: payload.ftpMessage,
     drive_message: payload.driveMessage,
+    mixcloud: mixcloudStatus,
   };
 
   const { error } = await supabase.from("submissions").insert(baseInsert);

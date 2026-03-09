@@ -1,0 +1,25 @@
+.mixcloud-chip {
+  display: inline-block;
+  padding: 0.25em 0.75em;
+  border-radius: 999px;
+  font-size: 0.95em;
+  font-weight: 500;
+  color: var(--accent);
+  margin: 0 0.25em;
+  letter-spacing: 0.02em;
+}
+
+.mixcloud-chip-ready {
+  background: var(--orange);
+  color: var(--black);
+}
+
+.mixcloud-chip-published {
+  background: var(--neon-green);
+  color: var(--black);
+}
+
+.mixcloud-chip-not-ready {
+  background: var(--danger);
+  color: var(--black);
+}
