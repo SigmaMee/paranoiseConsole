@@ -329,6 +329,20 @@ export function SubmissionForm({ selectedShowStart, selectedShowTitle }: Submiss
 
   useEffect(() => { setHighlightedTagIndex(0); }, [tagInputValue]);
 
+  // Prevent accidental page navigation/refresh during upload
+  useEffect(() => {
+    if (!isLoading) return;
+
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = "";
+      return "";
+    };
+
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, [isLoading]);
+
   useEffect(() => {
     resetDraftState();
     setErrorMessage("");
