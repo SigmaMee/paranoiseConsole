@@ -133,15 +133,22 @@ function createFakeWaveformBars(seedSource: string, totalBars = 72) {
 function uploadPartToR2(
   chunk: Blob,
   presignedUrl: string,
+  onPartProgress?: (loadedBytes: number, totalBytes: number) => void,
 ): Promise<string> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open("PUT", presignedUrl, true);
 
+    xhr.upload.onprogress = (event) => {
+      if (!event.lengthComputable || event.total <= 0) return;
+      onPartProgress?.(event.loaded, event.total);
+    };
+
     xhr.onerror = () => reject(new Error("Part upload failed."));
     xhr.onload = () => {
       if (xhr.status >= 200 && xhr.status < 300) {
         const etag = xhr.getResponseHeader("ETag") || xhr.getResponseHeader("etag") || "";
+        onPartProgress?.(chunk.size, chunk.size);
         resolve(etag);
       } else {
         reject(new Error(`Part upload failed with status ${xhr.status}.`));
@@ -208,12 +215,12 @@ async function uploadFileToR2(
         const end = Math.min(start + partSize, file.size);
         const chunk = file.slice(start, end);
 
-        const etag = await uploadPartToR2(chunk, partUrls[i]);
+        const etag = await uploadPartToR2(chunk, partUrls[i], (loadedBytes) => {
+          bytesUploadedPerPart[i] = Math.min(chunk.size, Math.max(0, loadedBytes));
+          const totalUploaded = bytesUploadedPerPart.reduce((sum, b) => sum + b, 0);
+          onProgress(Math.min(99, Math.round((totalUploaded / file.size) * 100)));
+        });
         completedParts[i] = { PartNumber: i + 1, ETag: etag };
-
-        bytesUploadedPerPart[i] = chunk.size;
-        const totalUploaded = bytesUploadedPerPart.reduce((sum, b) => sum + b, 0);
-        onProgress(Math.min(99, Math.round((totalUploaded / file.size) * 100)));
       }),
     );
   }
@@ -281,6 +288,8 @@ export function SubmissionForm({ selectedShowStart, selectedShowTitle }: Submiss
     if (audioPreviewRef.current) {
       audioPreviewRef.current.pause();
       audioPreviewRef.current.currentTime = 0;
+      audioPreviewRef.current.src = "";
+      audioPreviewRef.current.load();
     }
     setAudioCurrentTime(0);
     setAudioDuration(0);
