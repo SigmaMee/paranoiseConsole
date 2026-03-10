@@ -44,7 +44,6 @@ export async function POST(request: Request) {
         
         const name = sub.airing_date ? `Show ${sub.airing_date}` : "Show";
         const tags = (sub.submitted_tags as string[]) || [];
-        const description = "Uploaded via Paranoise Console";
 
         if (!audioUrl) throw new Error("Missing audio file");
 
@@ -52,7 +51,6 @@ export async function POST(request: Request) {
           audioUrl,
           name,
           tags,
-          description,
           pictureUrl,
         });
 

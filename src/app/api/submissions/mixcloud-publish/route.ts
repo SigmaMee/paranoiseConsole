@@ -327,7 +327,6 @@ export async function POST(request: Request) {
         }
         
         const tags = show.submittedTags || [];
-        const description = "Uploaded via Paranoise Console";
 
         // Get producer folder name from profiles
         const { data: profile } = await adminSupabase
@@ -403,7 +402,6 @@ export async function POST(request: Request) {
           audioBuffer,
           name,
           tags,
-          description,
           pictureUrl,
           pictureBuffer,
         });
