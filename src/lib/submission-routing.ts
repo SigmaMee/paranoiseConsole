@@ -36,6 +36,11 @@ function getRequiredEnv(name: string) {
   return value;
 }
 
+function getOptionalEnv(name: string) {
+  const value = process.env[name];
+  return typeof value === "string" ? value : null;
+}
+
 export function sanitizeFilename(name: string) {
   return name.replace(/[^a-zA-Z0-9._-]/g, "_");
 }
@@ -221,35 +226,53 @@ export async function routeCoverToFtp(
   };
 }
 
-async function getDriveAuth() {
-  const serviceAccountEmail = getRequiredEnv("GOOGLE_SERVICE_ACCOUNT_EMAIL");
-  const privateKey = getRequiredEnv("GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY").replace(
-    /\\n/g,
-    "\n",
-  );
+type DriveAuthSelection = {
+  auth: InstanceType<typeof google.auth.JWT> | ReturnType<typeof google.auth.OAuth2>;
+  source: "oauth" | "service-account";
+  oauthInvalidGrant: boolean;
+};
 
-  const serviceAccountAuth = new google.auth.JWT({
-    email: serviceAccountEmail,
-    key: privateKey,
-    scopes: ["https://www.googleapis.com/auth/drive"],
-  });
-
+async function getDriveAuth(): Promise<DriveAuthSelection> {
   const oauthClient = await getGoogleDriveOAuthClientFromStoredToken();
   if (oauthClient) {
     try {
       await oauthClient.getAccessToken();
-      return oauthClient;
+      return { auth: oauthClient, source: "oauth", oauthInvalidGrant: false };
     } catch (error) {
       const message = error instanceof Error ? error.message.toLowerCase() : "";
       if (!message.includes("invalid_grant")) {
         throw error;
       }
 
-      return serviceAccountAuth;
+      const allowServiceAccountFallback =
+        process.env.GOOGLE_DRIVE_ALLOW_SERVICE_ACCOUNT_FALLBACK === "true";
+      if (!allowServiceAccountFallback) {
+        throw new Error(
+          "Stored Google Drive OAuth refresh token is invalid. Reconnect Google Drive in this same environment, or set GOOGLE_DRIVE_ALLOW_SERVICE_ACCOUNT_FALLBACK=true to allow service-account fallback.",
+        );
+      }
     }
   }
 
-  return serviceAccountAuth;
+  const serviceAccountEmail = getOptionalEnv("GOOGLE_SERVICE_ACCOUNT_EMAIL");
+  const privateKeyRaw = getOptionalEnv("GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY");
+  if (!serviceAccountEmail || !privateKeyRaw) {
+    throw new Error(
+      "Google Drive auth is not configured. Connect Google Drive in Dashboard or provide service account credentials.",
+    );
+  }
+
+  const serviceAccountAuth = new google.auth.JWT({
+    email: serviceAccountEmail,
+    key: privateKeyRaw.replace(/\\n/g, "\n"),
+    scopes: ["https://www.googleapis.com/auth/drive"],
+  });
+
+  return {
+    auth: serviceAccountAuth,
+    source: "service-account",
+    oauthInvalidGrant: Boolean(oauthClient),
+  };
 }
 
 function getWeekdayFolderName(showStart: string) {
@@ -286,8 +309,8 @@ export async function getDriveWeekdayFolderIdForShowStart(showStart: string) {
     throw new Error("Could not determine show weekday from calendar start time.");
   }
 
-  const auth = await getDriveAuth();
-  const drive = google.drive({ version: "v3", auth });
+  const authSelection = await getDriveAuth();
+  const drive = google.drive({ version: "v3", auth: authSelection.auth });
 
   const foldersResponse = await drive.files.list({
     q: `'${parentFolderId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`,
@@ -323,8 +346,8 @@ export async function routeImageToDrive(
   const folderId = destinationFolderId || getRequiredEnv("GOOGLE_DRIVE_FOLDER_ID");
 
   try {
-    const auth = await getDriveAuth();
-    const drive = google.drive({ version: "v3", auth });
+    const authSelection = await getDriveAuth();
+    const drive = google.drive({ version: "v3", auth: authSelection.auth });
     const originalName = image.name || `cover-${randomUUID()}`;
     const uploadName = uploadNameOverride
       ? uploadNameOverride
@@ -332,6 +355,26 @@ export async function routeImageToDrive(
         ? `${filenamePrefix}-${originalName}`
         : originalName;
     const bytes = Buffer.from(await image.arrayBuffer());
+
+    if (authSelection.source === "service-account") {
+      const folderResponse = await drive.files.get({
+        fileId: folderId,
+        fields: "id,driveId",
+        supportsAllDrives: true,
+      });
+
+      if (!folderResponse.data.driveId) {
+        const oauthReason = authSelection.oauthInvalidGrant
+          ? "Stored OAuth token is invalid or expired. Reconnect Google Drive from Dashboard."
+          : "No Google Drive OAuth token is connected.";
+
+        return {
+          success: false,
+          destination: "google-drive",
+          message: `Google Drive upload failed: service accounts can only upload reliably to Shared Drives. ${oauthReason}`,
+        };
+      }
+    }
 
     await drive.files.create({
       requestBody: {
@@ -352,10 +395,20 @@ export async function routeImageToDrive(
       message: `Cover uploaded to Google Drive as ${uploadName}`,
     };
   } catch (error) {
+    const message = error instanceof Error ? error.message : "Google Drive upload failed";
+    if (message.toLowerCase().includes("service accounts do not have storage quota")) {
+      return {
+        success: false,
+        destination: "google-drive",
+        message:
+          "Google Drive upload failed: target folder appears to be in My Drive while using a service account. Use a Shared Drive folder for GOOGLE_DRIVE_FOLDER_ID (and weekday folders) or reconnect Google Drive OAuth.",
+      };
+    }
+
     return {
       success: false,
       destination: "google-drive",
-      message: error instanceof Error ? error.message : "Google Drive upload failed",
+      message,
     };
   }
 }

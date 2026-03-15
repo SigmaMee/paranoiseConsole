@@ -36,6 +36,13 @@ Next.js + Supabase starter for the Console MVP.
 - If the target producer folder does not exist, upload fails (no auto-create).
 - With your FTP structure, this resolves to `media/{producer_full_name}`.
 
+## Google Drive Upload Auth
+- Cover uploads can use either:
+	- a connected Google OAuth token (Dashboard → Connect Google Drive), or
+	- a Google service account **only when** `GOOGLE_DRIVE_FOLDER_ID` points to a Shared Drive folder the service account can access.
+- Service accounts do not have personal My Drive quota. If uploads fail with quota messages, reconnect OAuth or move the target folder to a Shared Drive.
+- If a stored OAuth token becomes invalid, uploads now fail explicitly by default (instead of silently falling back). To re-enable fallback for that case, set `GOOGLE_DRIVE_ALLOW_SERVICE_ACCOUNT_FALLBACK=true`.
+
 ## Profile Staging Layer (Supabase -> Webflow)
 - Producer profile drafts are stored in Supabase (`profiles` table).
 - Every profile save enqueues a `profile_sync_jobs` row with `pending` status.
