@@ -29,8 +29,7 @@ export default function DashboardActivityLog({ rows }: { rows: ActivityLogRow[] 
   const [progress, setProgress] = React.useState(0);
   const [activeAction, setActiveAction] = React.useState<"publish" | "download" | null>(null);
 
-  const isCompleteShow = (row: ActivityLogRow) =>
-    row.hasAudio && row.hasCoverImage && row.hasDescription && row.hasTags;
+  const isSelectableRow = (row: ActivityLogRow) => row.hasAudio;
 
   const handleSelect = (idx: number) => {
     setSelected((prev) =>
@@ -39,7 +38,7 @@ export default function DashboardActivityLog({ rows }: { rows: ActivityLogRow[] 
   };
   
   const handleRowClick = (idx: number, row: ActivityLogRow) => {
-    const isSelectable = isCompleteShow(row);
+    const isSelectable = isSelectableRow(row);
     if (isSelectable) handleSelect(idx);
   };
 
@@ -51,7 +50,7 @@ export default function DashboardActivityLog({ rows }: { rows: ActivityLogRow[] 
       .map((row) => row.id);
 
     if (readyToPublishIds.length === 0) {
-      setMessage({ type: "error", text: "Selected complete shows are already published or not ready for Mixcloud." });
+      setMessage({ type: "error", text: "Selected shows are already published or not ready for Mixcloud." });
       return;
     }
 
@@ -126,13 +125,23 @@ export default function DashboardActivityLog({ rows }: { rows: ActivityLogRow[] 
   const handleBulkDownload = async () => {
     if (selected.length === 0) return;
 
+    const audioShowIds = selected
+      .map((idx) => rows[idx])
+      .filter((row) => row.hasAudio)
+      .map((row) => row.id);
+
+    if (audioShowIds.length === 0) {
+      setMessage({ type: "error", text: "Selected shows do not have audio for download." });
+      return;
+    }
+
     setLoading(true);
     setActiveAction("download");
     setMessage(null);
     setProgress(0);
 
     try {
-      const submissionIds = selected.map((idx) => rows[idx].id);
+      const submissionIds = audioShowIds;
       console.log("Selected indices for download:", selected);
       console.log("Submission IDs to download:", submissionIds);
       
@@ -182,7 +191,7 @@ export default function DashboardActivityLog({ rows }: { rows: ActivityLogRow[] 
       }, 1000);
 
       setProgress(100);
-      setMessage({ type: "success", text: `Downloaded ${selected.length} show package${selected.length !== 1 ? "s" : ""}.` });
+      setMessage({ type: "success", text: `Downloaded ${audioShowIds.length} show package${audioShowIds.length !== 1 ? "s" : ""}.` });
       setSelected([]);
 
       // Clear message after 3 seconds
@@ -264,7 +273,7 @@ export default function DashboardActivityLog({ rows }: { rows: ActivityLogRow[] 
                     type="checkbox"
                     className={logStyles["activity-log-checkbox"]}
                     checked={selected.includes(idx)}
-                    disabled={!isCompleteShow(row)}
+                    disabled={!isSelectableRow(row)}
                     onChange={(e) => {
                       e.stopPropagation();
                       handleSelect(idx);

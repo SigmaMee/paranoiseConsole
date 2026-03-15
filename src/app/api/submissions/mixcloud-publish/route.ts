@@ -286,14 +286,12 @@ export async function POST(request: Request) {
       }
     }
 
-    // Filter only ready shows (must have audio, image, and tags)
+    // Filter only ready shows (audio required)
     const readyShows = Array.from(aggregatedShows.values()).filter((show) => {
       const hasAudio = Boolean(show.audioFilename);
-      const hasImage = Boolean(show.imageFilename);
-      const hasTags = show.submittedTags.length > 0;
       const notPublished = !show.mixcloudStatuses.includes("published");
       
-      return hasAudio && hasImage && hasTags && notPublished;
+      return hasAudio && notPublished;
     });
 
     console.log("Ready shows:", readyShows);
@@ -304,7 +302,7 @@ export async function POST(request: Request) {
         debug: { 
           receivedIds: submissionIds, 
           aggregatedShows: Array.from(aggregatedShows.values()),
-          reason: "Shows must have audio, image, and tags, and not be already published"
+          reason: "Shows must have audio and not be already published"
         }
       }, { status: 400 });
     }

@@ -376,8 +376,8 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
           if (group.mixcloudStatuses.includes("published")) {
             mixcloudStatus = "published";
           }
-          // Otherwise, if all required parts are present, mark as ready
-          else if (group.hasAudio && group.hasCoverImage && group.hasDescription) {
+          // Otherwise, if audio is present, mark as ready
+          else if (group.hasAudio) {
             mixcloudStatus = "ready";
           }
 

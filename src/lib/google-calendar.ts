@@ -27,11 +27,11 @@ function toIsoDate(value: string) {
   return parsed.toISOString().slice(0, 10);
 }
 
-function getEndOfNextMonthIso(referenceDate: Date) {
+function getEndOfFutureWindowIso(referenceDate: Date) {
   const year = referenceDate.getFullYear();
   const month = referenceDate.getMonth();
-  const endOfNextMonth = new Date(year, month + 2, 0, 23, 59, 59, 999);
-  return endOfNextMonth.toISOString();
+  const endOfFutureWindow = new Date(year, month + 6, 0, 23, 59, 59, 999);
+  return endOfFutureWindow.toISOString();
 }
 
 function getRequiredEnv(name: string) {
@@ -82,12 +82,12 @@ export async function getUpcomingShowsByProducerEmail(
   const calendar = google.calendar({ version: "v3", auth });
   const now = getReferenceNow();
   const nowIso = now.toISOString();
-  const endOfNextMonthIso = getEndOfNextMonthIso(now);
+  const endOfFutureWindowIso = getEndOfFutureWindowIso(now);
 
   const response = await calendar.events.list({
     calendarId,
     timeMin: nowIso,
-    timeMax: endOfNextMonthIso,
+    timeMax: endOfFutureWindowIso,
     singleEvents: true,
     orderBy: "startTime",
     maxResults: 250,
@@ -272,7 +272,7 @@ export async function getMostRecentPastAndFutureShowsByProducerEmail(
   const now = getReferenceNow();
   const nowTime = now.getTime();
   const windowStart = new Date(now.getFullYear(), now.getMonth() - 3, 1, 0, 0, 0, 0).toISOString();
-  const windowEnd = getEndOfNextMonthIso(now);
+  const windowEnd = getEndOfFutureWindowIso(now);
 
   const response = await calendar.events.list({
     calendarId,

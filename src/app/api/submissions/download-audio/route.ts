@@ -264,19 +264,15 @@ export async function POST(request: Request) {
       }
     }
 
-    const completeShows = Array.from(showsWithAudio.values()).filter(
-      (show) =>
-        Boolean(show.audioFilename) &&
-        Boolean(show.imageFilename) &&
-        show.hasDescription &&
-        show.submittedTags.length > 0,
+    const eligibleShows = Array.from(showsWithAudio.values()).filter(
+      (show) => Boolean(show.audioFilename),
     );
 
-    if (completeShows.length === 0) {
-      return NextResponse.json({ error: "No complete shows found for download." }, { status: 400 });
+    if (eligibleShows.length === 0) {
+      return NextResponse.json({ error: "No shows with audio found for download." }, { status: 400 });
     }
 
-    console.log(`Found ${completeShows.length} complete shows to download`);
+    console.log(`Found ${eligibleShows.length} audio-eligible shows to download`);
 
     // Create ZIP archive and collect output bytes via stream
     const archive = archiver.default("zip", { zlib: { level: 0 } }); // No compression for faster processing
@@ -296,7 +292,7 @@ export async function POST(request: Request) {
 
     // Download each show package (audio + cover + metadata) and add to archive
     let appendedCount = 0;
-    for (const show of completeShows) {
+    for (const show of eligibleShows) {
       try {
         // Get producer folder name
         const { data: profile } = await adminSupabase
