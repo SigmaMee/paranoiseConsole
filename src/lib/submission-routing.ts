@@ -227,7 +227,7 @@ export async function routeCoverToFtp(
 }
 
 type DriveAuthSelection = {
-  auth: InstanceType<typeof google.auth.JWT> | ReturnType<typeof google.auth.OAuth2>;
+  auth: InstanceType<typeof google.auth.JWT> | InstanceType<typeof google.auth.OAuth2>;
   source: "oauth" | "service-account";
   oauthInvalidGrant: boolean;
 };
