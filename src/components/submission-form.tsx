@@ -87,6 +87,7 @@ type PresignedFileDescriptor = {
   filename: string;
   contentType: string;
   size: number;
+  partSizeBytes?: number;
 };
 
 type PresignedFileResult = {
@@ -119,6 +120,29 @@ type SubmissionFormProps = {
   selectedShowTitle: string | null;
 };
 
+type MultipartUploadOptions = {
+  concurrency: number;
+  partTimeoutMs: number;
+  maxPartAttempts: number;
+  modeLabel: "primary" | "adaptive";
+};
+
+const PRIMARY_MULTIPART_OPTIONS: MultipartUploadOptions = {
+  concurrency: 4,
+  partTimeoutMs: 120_000,
+  maxPartAttempts: 3,
+  modeLabel: "primary",
+};
+
+const ADAPTIVE_MULTIPART_OPTIONS: MultipartUploadOptions = {
+  concurrency: 1,
+  partTimeoutMs: 300_000,
+  maxPartAttempts: 3,
+  modeLabel: "adaptive",
+};
+
+const ADAPTIVE_PART_SIZE_BYTES = 10 * 1024 * 1024;
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -147,12 +171,13 @@ function createFakeWaveformBars(seedSource: string, totalBars = 72) {
 function uploadPartToR2(
   chunk: Blob,
   presignedUrl: string,
+  timeoutMs: number,
   onPartProgress?: (loadedBytes: number, totalBytes: number) => void,
 ): Promise<string> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open("PUT", presignedUrl, true);
-    xhr.timeout = 120_000;
+    xhr.timeout = timeoutMs;
 
     xhr.upload.onprogress = (event) => {
       if (!event.lengthComputable || event.total <= 0) return;
@@ -200,6 +225,7 @@ async function uploadFileToR2(
   file: File,
   result: PresignedFileResult,
   onProgress: (percentage: number) => void,
+  multipartOptions: MultipartUploadOptions = PRIMARY_MULTIPART_OPTIONS,
 ): Promise<void> {
   // --- Single-part ---
   if (result.presignedUrl) {
@@ -236,8 +262,8 @@ async function uploadFileToR2(
   const completedParts: Array<{ PartNumber: number; ETag: string }> = new Array(partUrls.length);
   const bytesUploadedPerPart: number[] = new Array(partUrls.length).fill(0);
 
-  const CONCURRENCY = 4;
-  const MAX_PART_ATTEMPTS = 3;
+  const CONCURRENCY = multipartOptions.concurrency;
+  const MAX_PART_ATTEMPTS = multipartOptions.maxPartAttempts;
 
   for (let batchStart = 0; batchStart < partUrls.length; batchStart += CONCURRENCY) {
     const batchEnd = Math.min(batchStart + CONCURRENCY, partUrls.length);
@@ -254,7 +280,7 @@ async function uploadFileToR2(
 
         for (let attempt = 1; attempt <= MAX_PART_ATTEMPTS; attempt += 1) {
           try {
-            etag = await uploadPartToR2(chunk, partUrls[i], (loadedBytes) => {
+            etag = await uploadPartToR2(chunk, partUrls[i], multipartOptions.partTimeoutMs, (loadedBytes) => {
               bytesUploadedPerPart[i] = Math.min(chunk.size, Math.max(0, loadedBytes));
               const totalUploaded = bytesUploadedPerPart.reduce((sum, b) => sum + b, 0);
               onProgress(Math.min(99, Math.round((totalUploaded / file.size) * 100)));
@@ -274,7 +300,7 @@ async function uploadFileToR2(
               fileSize: file.size,
               chunkSize: chunk.size,
               statusCode: -1,
-              message: lastError.message,
+              message: `[${multipartOptions.modeLabel}] ${lastError.message}`,
             });
 
             if (attempt < MAX_PART_ATTEMPTS) {
@@ -310,6 +336,69 @@ async function uploadFileToR2(
   }
 
   onProgress(100);
+}
+
+function isTimeoutLikeUploadError(error: Error) {
+  const message = error.message.toLowerCase();
+  return message.includes("timed out") || message.includes("timeout");
+}
+
+async function requestAdaptiveMultipartPresign(
+  field: "audio" | "image",
+  file: File,
+): Promise<PresignedFileResult> {
+  const presignResponse = await fetch("/api/submissions/presign", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      files: [
+        {
+          field,
+          filename: file.name,
+          contentType: file.type || (field === "audio" ? "audio/mpeg" : "image/jpeg"),
+          size: file.size,
+          partSizeBytes: ADAPTIVE_PART_SIZE_BYTES,
+        },
+      ],
+    }),
+  });
+
+  if (!presignResponse.ok) {
+    const errorData = (await presignResponse.json().catch(() => ({}))) as Record<string, unknown>;
+    throw new Error(
+      typeof errorData.error === "string"
+        ? errorData.error
+        : "Failed to prepare adaptive multipart upload.",
+    );
+  }
+
+  const data = (await presignResponse.json()) as { files: PresignedFileResult[] };
+  const next = data.files?.find((item) => item.field === field);
+  if (!next) {
+    throw new Error("Adaptive multipart upload URL generation returned no file result.");
+  }
+
+  return next;
+}
+
+async function uploadFileToR2WithAdaptiveFallback(
+  file: File,
+  result: PresignedFileResult,
+  onProgress: (percentage: number) => void,
+): Promise<void> {
+  try {
+    await uploadFileToR2(file, result, onProgress, PRIMARY_MULTIPART_OPTIONS);
+    return;
+  } catch (error) {
+    const typed = error instanceof Error ? error : new Error(String(error));
+    const isMultipart = Boolean(result.uploadId && result.partUrls && result.partSize);
+    if (!isMultipart || !isTimeoutLikeUploadError(typed)) {
+      throw typed;
+    }
+  }
+
+  const adaptiveResult = await requestAdaptiveMultipartPresign(result.field, file);
+  await uploadFileToR2(file, adaptiveResult, onProgress, ADAPTIVE_MULTIPART_OPTIONS);
 }
 
 // ---------------------------------------------------------------------------
@@ -770,7 +859,7 @@ export function SubmissionForm({ selectedShowStart, selectedShowTitle }: Submiss
 
       if (audioFile && audioResult) {
         uploads.push(
-          uploadFileToR2(audioFile, audioResult, (pct) => {
+          uploadFileToR2WithAdaptiveFallback(audioFile, audioResult, (pct) => {
             audioProgress = pct;
             setUploadProgress(blendedProgress());
           }),
@@ -779,7 +868,7 @@ export function SubmissionForm({ selectedShowStart, selectedShowTitle }: Submiss
 
       if (imageFile && imageResult) {
         uploads.push(
-          uploadFileToR2(imageFile, imageResult, (pct) => {
+          uploadFileToR2WithAdaptiveFallback(imageFile, imageResult, (pct) => {
             imageProgress = pct;
             setUploadProgress(blendedProgress());
           }),

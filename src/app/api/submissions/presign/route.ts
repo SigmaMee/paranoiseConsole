@@ -28,8 +28,10 @@ const URL_TTL_SECONDS = 900;
 
 // Files larger than this threshold use multipart upload (10 MB)
 const MULTIPART_THRESHOLD_BYTES = 10 * 1024 * 1024;
-// Each part is 10 MB (R2 minimum part size is 5 MB, except the last part)
-const PART_SIZE_BYTES = 20 * 1024 * 1024;
+// Default and bounds for multipart part sizing
+const DEFAULT_PART_SIZE_BYTES = 20 * 1024 * 1024;
+const MIN_PART_SIZE_BYTES = 5 * 1024 * 1024;
+const MAX_PART_SIZE_BYTES = 50 * 1024 * 1024;
 
 const UNSIGNABLE_HEADERS = new Set([
   "x-amz-content-sha256",
@@ -42,6 +44,7 @@ type FileDescriptor = {
   filename: string;
   contentType: string;
   size: number;
+  partSizeBytes?: number;
 };
 
 export async function POST(request: Request) {
@@ -80,6 +83,11 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: `Invalid field: ${file.field}` }, { status: 400 });
       }
 
+      const requestedPartSize =
+        typeof file.partSizeBytes === "number" && Number.isFinite(file.partSizeBytes)
+          ? Math.max(MIN_PART_SIZE_BYTES, Math.min(MAX_PART_SIZE_BYTES, Math.floor(file.partSizeBytes)))
+          : DEFAULT_PART_SIZE_BYTES;
+
       const objectKey = `staging/${user.id}/${file.field}/${randomUUID()}-${file.filename}`;
 
       if (file.size > MULTIPART_THRESHOLD_BYTES) {
@@ -95,7 +103,7 @@ export async function POST(request: Request) {
           throw new Error("Failed to initiate multipart upload.");
         }
 
-        const partCount = Math.ceil(file.size / PART_SIZE_BYTES);
+        const partCount = Math.ceil(file.size / requestedPartSize);
         const partUrls: string[] = [];
 
         for (let partNumber = 1; partNumber <= partCount; partNumber++) {
@@ -118,7 +126,7 @@ export async function POST(request: Request) {
           objectKey,
           uploadId: UploadId,
           partUrls,
-          partSize: PART_SIZE_BYTES,
+          partSize: requestedPartSize,
         });
       } else {
         // --- Single-part path ---
