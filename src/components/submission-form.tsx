@@ -100,6 +100,20 @@ type PresignedFileResult = {
   partSize?: number;
 };
 
+type PartUploadFailureTelemetry = {
+  objectKey: string;
+  uploadId: string;
+  partNumber: number;
+  attempt: number;
+  field: "audio" | "image";
+  fileName: string;
+  fileSize: number;
+  chunkSize: number;
+  statusCode: number;
+  message: string;
+  responseBody?: string;
+};
+
 type SubmissionFormProps = {
   selectedShowStart: string | null;
   selectedShowTitle: string | null;
@@ -138,25 +152,44 @@ function uploadPartToR2(
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open("PUT", presignedUrl, true);
+    xhr.timeout = 120_000;
 
     xhr.upload.onprogress = (event) => {
       if (!event.lengthComputable || event.total <= 0) return;
       onPartProgress?.(event.loaded, event.total);
     };
 
-    xhr.onerror = () => reject(new Error("Part upload failed."));
+    xhr.onerror = () => reject(new Error("Part upload failed due to a network error."));
+    xhr.ontimeout = () => reject(new Error("Part upload timed out."));
     xhr.onload = () => {
       if (xhr.status >= 200 && xhr.status < 300) {
         const etag = xhr.getResponseHeader("ETag") || xhr.getResponseHeader("etag") || "";
         onPartProgress?.(chunk.size, chunk.size);
         resolve(etag);
       } else {
-        reject(new Error(`Part upload failed with status ${xhr.status}.`));
+        const responseText = (xhr.responseText || "").trim();
+        const details = responseText ? ` ${responseText.slice(0, 300)}` : "";
+        reject(new Error(`Part upload failed with status ${xhr.status}.${details}`));
       }
     };
 
     xhr.send(chunk);
   });
+}
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function reportPartUploadFailure(telemetry: PartUploadFailureTelemetry) {
+  try {
+    await fetch("/api/submissions/upload-telemetry", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(telemetry),
+      keepalive: true,
+    });
+  } catch {}
 }
 
 /**
@@ -204,6 +237,7 @@ async function uploadFileToR2(
   const bytesUploadedPerPart: number[] = new Array(partUrls.length).fill(0);
 
   const CONCURRENCY = 4;
+  const MAX_PART_ATTEMPTS = 3;
 
   for (let batchStart = 0; batchStart < partUrls.length; batchStart += CONCURRENCY) {
     const batchEnd = Math.min(batchStart + CONCURRENCY, partUrls.length);
@@ -215,11 +249,47 @@ async function uploadFileToR2(
         const end = Math.min(start + partSize, file.size);
         const chunk = file.slice(start, end);
 
-        const etag = await uploadPartToR2(chunk, partUrls[i], (loadedBytes) => {
-          bytesUploadedPerPart[i] = Math.min(chunk.size, Math.max(0, loadedBytes));
-          const totalUploaded = bytesUploadedPerPart.reduce((sum, b) => sum + b, 0);
-          onProgress(Math.min(99, Math.round((totalUploaded / file.size) * 100)));
-        });
+        let etag = "";
+        let lastError: Error | null = null;
+
+        for (let attempt = 1; attempt <= MAX_PART_ATTEMPTS; attempt += 1) {
+          try {
+            etag = await uploadPartToR2(chunk, partUrls[i], (loadedBytes) => {
+              bytesUploadedPerPart[i] = Math.min(chunk.size, Math.max(0, loadedBytes));
+              const totalUploaded = bytesUploadedPerPart.reduce((sum, b) => sum + b, 0);
+              onProgress(Math.min(99, Math.round((totalUploaded / file.size) * 100)));
+            });
+            lastError = null;
+            break;
+          } catch (error) {
+            lastError = error instanceof Error ? error : new Error(String(error));
+
+            await reportPartUploadFailure({
+              objectKey,
+              uploadId,
+              partNumber: i + 1,
+              attempt,
+              field: result.field,
+              fileName: file.name,
+              fileSize: file.size,
+              chunkSize: chunk.size,
+              statusCode: -1,
+              message: lastError.message,
+            });
+
+            if (attempt < MAX_PART_ATTEMPTS) {
+              const backoffMs = 1000 * 2 ** (attempt - 1);
+              await sleep(backoffMs);
+            }
+          }
+        }
+
+        if (!etag) {
+          throw new Error(
+            `Part ${i + 1} upload failed after ${MAX_PART_ATTEMPTS} attempts.${lastError ? ` ${lastError.message}` : ""}`,
+          );
+        }
+
         completedParts[i] = { PartNumber: i + 1, ETag: etag };
       }),
     );
