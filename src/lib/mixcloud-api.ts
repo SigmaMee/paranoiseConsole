@@ -1,5 +1,7 @@
 import fetch from "node-fetch";
 import { getStoredMixcloudAccessToken } from "@/lib/mixcloud-oauth";
+import { readFile } from "node:fs/promises";
+import path from "node:path";
 
 function getRequiredEnv(name: string) {
   const value = process.env[name];
@@ -36,6 +38,17 @@ async function downloadFileAsBuffer(url: string): Promise<Buffer> {
   if (!response.ok) throw new Error(`Failed to download file: ${response.statusText}`);
   const buffer = await response.buffer();
   return buffer as Buffer;
+}
+
+async function getFallbackCoverBuffer(): Promise<Buffer> {
+  const fallbackPath = path.join(process.cwd(), "public", "branding", "mixcloud-fallback-cover.jpg");
+  const fallback = await readFile(fallbackPath);
+
+  if (!fallback || fallback.length === 0) {
+    throw new Error("Fallback Mixcloud cover image is missing or empty.");
+  }
+
+  return fallback;
 }
 
 export async function uploadToMixcloud({
@@ -99,7 +112,12 @@ export async function uploadToMixcloud({
     }
   }
 
-  if (pictureData) {
+  if (!pictureData || pictureData.length === 0) {
+    console.warn("Using fallback cover image for Mixcloud upload.");
+    pictureData = await getFallbackCoverBuffer();
+  }
+
+  if (pictureData.length > 0) {
     formData.append("picture", new File([new Uint8Array(pictureData)], "cover.jpg", { type: "image/jpeg" }));
   }
 
