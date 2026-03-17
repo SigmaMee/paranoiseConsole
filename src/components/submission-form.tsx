@@ -898,9 +898,10 @@ export function SubmissionForm({ selectedShowStart, selectedShowTitle }: Submiss
         imageContentType: imageFile?.type,
       };
 
-      // Animate progress from 70 → 95 while the server processes
+      // Animate progress 70 → 99 while the server processes.
+      // Past 88% the step shrinks to avoid a hard freeze at a fixed ceiling.
       const processingInterval = window.setInterval(() => {
-        setUploadProgress((prev) => Math.min(95, prev + 1));
+        setUploadProgress((prev) => prev < 88 ? Math.min(88, prev + 1) : Math.min(99, prev + 0.3));
       }, 400);
 
       let submissionStatus: number;
@@ -987,9 +988,15 @@ export function SubmissionForm({ selectedShowStart, selectedShowTitle }: Submiss
           <div className="upload-progress-monogram" style={monogramProgressStyle}>
             <div className="upload-progress-fill" />
           </div>
-          <p className="upload-progress-value">{uploadProgress}%</p>
+          <p className="upload-progress-value">{Math.round(uploadProgress)}%</p>
           {progressPhase === "processing" || uploadProgress >= 100 ? (
-            <p className="upload-progress-phase">almost done...</p>
+            <p className="upload-progress-phase">
+              {uploadProgress >= 88
+                ? "Scheduling your broadcast…"
+                : uploadProgress >= 80
+                  ? "Uploading to FTP…"
+                  : "Saving your show…"}
+            </p>
           ) : null}
         </div>
       ) : (
