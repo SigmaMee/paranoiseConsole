@@ -16,10 +16,9 @@ export type CentovaPlaylistUpdateResult = {
 export async function getCentovaPlaylistByName(
   playlistName: string,
 ): Promise<{ id: string; title: string } | null> {
-  const host = getRequiredEnv("CENTOVA_HOST");
+  const apiUrl = getRequiredEnv("CENTOVA_API_URL");
   const username = getRequiredEnv("CENTOVA_USERNAME");
   const password = getRequiredEnv("CENTOVA_PASSWORD");
-  const accountname = getRequiredEnv("CENTOVA_ACCOUNT_NAME");
 
   try {
     const params = new URLSearchParams({
@@ -30,7 +29,7 @@ export async function getCentovaPlaylistByName(
       "a[action]": "list",
     });
 
-    const response = await fetch(`${host}/api.php?${params.toString()}`, {
+    const response = await fetch(`${apiUrl}?${params.toString()}`, {
       method: "POST",
     });
 
@@ -59,7 +58,7 @@ export async function addAudioToPlaylist(
   playlistId: string,
   audioFilename: string,
 ): Promise<CentovaPlaylistUpdateResult> {
-  const host = getRequiredEnv("CENTOVA_HOST");
+  const apiUrl = getRequiredEnv("CENTOVA_API_URL");
   const username = getRequiredEnv("CENTOVA_USERNAME");
   const password = getRequiredEnv("CENTOVA_PASSWORD");
 
@@ -74,7 +73,7 @@ export async function addAudioToPlaylist(
       "a[trackname]": audioFilename,
     });
 
-    const response = await fetch(`${host}/api.php?${params.toString()}`, {
+    const response = await fetch(`${apiUrl}?${params.toString()}`, {
       method: "POST",
     });
 
@@ -104,7 +103,7 @@ export async function schedulePlaylist(
   playlistId: string,
   showStartAt: string,
 ): Promise<CentovaPlaylistUpdateResult> {
-  const host = getRequiredEnv("CENTOVA_HOST");
+  const apiUrl = getRequiredEnv("CENTOVA_API_URL");
   const username = getRequiredEnv("CENTOVA_USERNAME");
   const password = getRequiredEnv("CENTOVA_PASSWORD");
 
@@ -146,7 +145,7 @@ export async function schedulePlaylist(
       "a[scheduled_repeat]": "never",
     });
 
-    const response = await fetch(`${host}/api.php?${params.toString()}`, {
+    const response = await fetch(`${apiUrl}?${params.toString()}`, {
       method: "POST",
     });
 
