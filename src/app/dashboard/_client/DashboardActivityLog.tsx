@@ -63,9 +63,6 @@ export default function DashboardActivityLog({ rows }: { rows: ActivityLogRow[] 
 
     try {
       const submissionIds = readyToPublishIds;
-      console.log("Selected indices:", selected);
-      console.log("Submission IDs to publish:", submissionIds);
-      console.log("Full rows:", selected.map((idx) => rows[idx]));
       
       // Simulate progress during upload with logarithmic slowdown
       progressInterval = setInterval(() => {
@@ -87,7 +84,6 @@ export default function DashboardActivityLog({ rows }: { rows: ActivityLogRow[] 
       if (progressInterval) clearInterval(progressInterval);
 
       const data = await response.json();
-      console.log("API response:", data);
 
       if (!response.ok) {
         setMessage({ type: "error", text: data.error || "Failed to publish submissions." });
@@ -142,8 +138,6 @@ export default function DashboardActivityLog({ rows }: { rows: ActivityLogRow[] 
 
     try {
       const submissionIds = audioShowIds;
-      console.log("Selected indices for download:", selected);
-      console.log("Submission IDs to download:", submissionIds);
       
       setProgress(30);
       
