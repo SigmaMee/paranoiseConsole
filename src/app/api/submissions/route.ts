@@ -14,6 +14,7 @@ import {
   getUpcomingShowsByProducerEmail,
   getNextUpcomingShowStartByProducerEmail,
 } from "@/lib/google-calendar";
+import { updateShowPlaylist } from "@/lib/centova-api";
 import { S3Client, GetObjectCommand } from "@aws-sdk/client-s3";
 import type { Readable } from "stream";
 import { getReferenceNow } from "@/lib/reference-time";
@@ -416,6 +417,7 @@ export async function POST(request: Request) {
 
     let ftpResult;
     let driveResult;
+    let centovaResult: { success: boolean; message: string } | null = null;
     let uploadedImageFilename = optionalImage?.name || "";
     let uploadedAudioFilename = optionalAudio?.name || "";
 
@@ -451,6 +453,15 @@ export async function POST(request: Request) {
         destination: "google-drive" as const,
         message: "Cover upload skipped for audio action.",
       };
+
+      // Update Centova playlist if audio uploaded successfully to an upcoming show
+      if (audioResult.success && persistedShowStart && isUpcomingShowStart(persistedShowStart)) {
+        centovaResult = await updateShowPlaylist(
+          producerFolderName,
+          audioUploadName,
+          persistedShowStart,
+        );
+      }
     } else if (uploadType === "description") {
       const descriptionResult = await routeDescriptionToFtp(
         descriptionFileContent,
@@ -467,12 +478,14 @@ export async function POST(request: Request) {
     } else if (uploadType === "all") {
       const ftpMessages: string[] = [];
       let ftpSuccess = true;
+      let audioUploadSuccessful = false;
 
       if (optionalAudio) {
         const audioUploadName = optionalAudio.name;
         const audioResult = await routeAudioToFtp(optionalAudio, producerFolderName, audioUploadName);
         uploadedAudioFilename = audioUploadName;
         ftpSuccess = ftpSuccess && audioResult.success;
+        audioUploadSuccessful = audioResult.success;
         ftpMessages.push(audioResult.message);
       }
 
@@ -545,6 +558,15 @@ export async function POST(request: Request) {
         destination: "google-drive" as const,
         message: driveMessage,
       };
+
+      // Update Centova playlist if audio uploaded successfully to an upcoming show
+      if (audioUploadSuccessful && persistedShowStart && isUpcomingShowStart(persistedShowStart)) {
+        centovaResult = await updateShowPlaylist(
+          producerFolderName,
+          uploadedAudioFilename,
+          persistedShowStart,
+        );
+      }
     } else {
       const coverShowStart =
         selectedShowStart || showStart || (await getNextUpcomingShowStartByProducerEmail(userEmail));
@@ -618,13 +640,14 @@ export async function POST(request: Request) {
       );
     }
 
-    const allSucceeded = ftpResult.success && driveResult.success;
+    const allSucceeded = ftpResult.success && driveResult.success && (!centovaResult || centovaResult.success);
 
     return NextResponse.json(
       {
         success: allSucceeded,
         ftp: ftpResult,
         drive: driveResult,
+        ...(centovaResult && { centova: centovaResult }),
       },
       { status: allSucceeded ? 200 : 207 },
     );
