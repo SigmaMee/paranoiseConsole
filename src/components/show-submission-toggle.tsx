@@ -68,17 +68,10 @@ export function ShowSubmissionToggle({
         <div className="dashboard-show-selector">
           <p className="dashboard-show-selector-title">RADIO SHOW SUBMISSION</p>
           <p>
-            Select the date you want to submit your show for. For your upcoming show do not
-            forget to schedule to{" "}
-            <a
-              className="dashboard-show-selector-link"
-              href="https://titan.shoutca.st"
-              target="_blank"
-              rel="noreferrer"
-            >
-              Centova
-            </a>
-            !
+            Select the date you want to submit the show for. For upcoming shows, Console will:
+            <br />- Upload your show to Centova and schedule it for airing. No need to add it to
+            your playlist manually.
+            <br />- Add the cover to our Google Drive for sharing in social media
           </p>
           <div className="dashboard-show-toggle" role="group" aria-label="Select show">
             <button
