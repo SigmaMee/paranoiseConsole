@@ -12,6 +12,7 @@ const ATHENS_TZ = "Europe/Athens";
 const C = {
   black: "#0c0c0c",
   white: "#ffffff",
+  orange: "#ff6700",
   blue: "#44c8f5",
   grey: "#1a1a1a",
   muted: "#9e9e9e",
@@ -54,7 +55,16 @@ function emailWrapper(body: string): string {
           <!-- Header -->
           <tr>
             <td style="padding-bottom:32px;border-bottom:1px solid #2a2a2a;">
-              <img src="${LOGO_URL}" alt="Paranoise Radio" height="32" style="display:block;" />
+              <table role="presentation" cellpadding="0" cellspacing="0" style="border-collapse:collapse;">
+                <tr>
+                  <td style="padding:0;vertical-align:middle;">
+                    <img src="${LOGO_URL}" alt="Paranoise Radio" height="32" style="display:block;" />
+                  </td>
+                  <td style="padding:0 0 0 12px;vertical-align:middle;color:${C.orange};font-size:24px;font-weight:700;line-height:1;text-transform:uppercase;letter-spacing:0.04em;">
+                    Console
+                  </td>
+                </tr>
+              </table>
             </td>
           </tr>
 
@@ -110,21 +120,13 @@ export type SubmissionEmailPayload = {
   centovaResult: { success: boolean; message: string } | null;
 };
 
-export async function sendSubmissionConfirmationEmail(
-  payload: SubmissionEmailPayload,
-): Promise<void> {
-  const resend = getResend();
-
+export function buildSubmissionConfirmationHtml(payload: SubmissionEmailPayload): { html: string; subject: string } {
   const showDateFormatted = payload.showStartAt
     ? formatInTimeZone(new Date(payload.showStartAt), ATHENS_TZ, "d MMMM yyyy 'at' HH:mm")
     : null;
 
   const audioStatus = payload.ftpSuccess && payload.audioFilename ? tick : payload.audioFilename ? cross : dash;
-  const coverStatus = payload.imageFilename
-    ? payload.driveSuccess
-      ? tick
-      : cross
-    : dash;
+  const coverStatus = payload.imageFilename ? (payload.driveSuccess ? tick : cross) : dash;
   const descStatus = payload.hasDescription ? tick : dash;
 
   const centovaRow =
@@ -181,12 +183,15 @@ export async function sendSubmissionConfirmationEmail(
     ? `Show submitted — ${payload.showTitle} · ${showDateFormatted}`
     : `Show submitted — ${payload.showTitle}`;
 
-  await resend.emails.send({
-    from: FROM,
-    to: payload.to,
-    subject,
-    html: emailWrapper(body),
-  });
+  return { html: emailWrapper(body), subject };
+}
+
+export async function sendSubmissionConfirmationEmail(
+  payload: SubmissionEmailPayload,
+): Promise<void> {
+  const resend = getResend();
+  const { html, subject } = buildSubmissionConfirmationHtml(payload);
+  await resend.emails.send({ from: FROM, to: payload.to, subject, html });
 }
 
 // ---------------------------------------------------------------------------
@@ -205,15 +210,11 @@ export type UnmatchedCentovaPlaylist = {
   scheduledTime: string; // HH:mm
 };
 
-export async function sendDailyReportEmail(opts: {
-  reportDate: string; // display string e.g. "19 March 2026"
+export function buildDailyReportHtml(opts: {
+  reportDate: string;
   shows: DailyReportShow[];
   unmatchedCentova: UnmatchedCentovaPlaylist[];
-}): Promise<void> {
-  const resend = getResend();
-  const adminEmail = process.env.ADMIN_EMAIL;
-  if (!adminEmail) throw new Error("Missing ADMIN_EMAIL environment variable.");
-
+}): { html: string; subject: string } {
   const matched = opts.shows.filter((s) => s.status === "match").length;
   const mismatched = opts.shows.filter((s) => s.status === "time_mismatch").length;
   const missing = opts.shows.filter((s) => s.status === "missing_in_centova").length;
@@ -294,10 +295,17 @@ export async function sendDailyReportEmail(opts: {
       </td>
     </tr>`;
 
-  await resend.emails.send({
-    from: FROM,
-    to: adminEmail,
-    subject: `Daily show report — ${opts.reportDate}`,
-    html: emailWrapper(body),
-  });
+  return { html: emailWrapper(body), subject: `Daily show report — ${opts.reportDate}` };
+}
+
+export async function sendDailyReportEmail(opts: {
+  reportDate: string;
+  shows: DailyReportShow[];
+  unmatchedCentova: UnmatchedCentovaPlaylist[];
+}): Promise<void> {
+  const resend = getResend();
+  const adminEmail = process.env.ADMIN_EMAIL;
+  if (!adminEmail) throw new Error("Missing ADMIN_EMAIL environment variable.");
+  const { html, subject } = buildDailyReportHtml(opts);
+  await resend.emails.send({ from: FROM, to: adminEmail, subject, html });
 }

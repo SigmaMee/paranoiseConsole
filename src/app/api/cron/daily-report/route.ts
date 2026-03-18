@@ -18,9 +18,9 @@ const ATHENS_TZ = "Europe/Athens";
 // ---------------------------------------------------------------------------
 
 function isAuthorized(request: Request): boolean {
-  const cronSecret = process.env.CRON_SECRET;
+  const cronSecret = process.env.CRON_SECRET?.trim();
   if (!cronSecret) return false;
-  const authHeader = request.headers.get("authorization");
+  const authHeader = request.headers.get("authorization")?.trim();
   return authHeader === `Bearer ${cronSecret}`;
 }
 
