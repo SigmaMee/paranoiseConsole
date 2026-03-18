@@ -15,6 +15,7 @@ import {
   getNextUpcomingShowStartByProducerEmail,
 } from "@/lib/google-calendar";
 import { updateShowPlaylist } from "@/lib/centova-api";
+import { sendSubmissionConfirmationEmail } from "@/lib/email";
 import { S3Client, GetObjectCommand } from "@aws-sdk/client-s3";
 import type { Readable } from "stream";
 import { getReferenceNow } from "@/lib/reference-time";
@@ -641,6 +642,24 @@ export async function POST(request: Request) {
     }
 
     const allSucceeded = ftpResult.success && driveResult.success && (!centovaResult || centovaResult.success);
+
+    // Fire confirmation email non-blocking — does not affect the response
+    if (ftpResult.success) {
+      void sendSubmissionConfirmationEmail({
+        to: userEmail,
+        producerName: producerFolderName,
+        showTitle: selectedShowTitle,
+        showStartAt: persistedShowStart,
+        audioFilename: uploadedAudioFilename,
+        imageFilename: uploadedImageFilename,
+        hasDescription: Boolean(description.trim()),
+        ftpSuccess: ftpResult.success,
+        driveSuccess: driveResult.success,
+        centovaResult: centovaResult ?? null,
+      }).catch((err: unknown) => {
+        console.error("Failed to send submission confirmation email:", err);
+      });
+    }
 
     return NextResponse.json(
       {

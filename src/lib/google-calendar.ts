@@ -194,6 +194,47 @@ export async function getScheduledShowCountForDate(airingDateIso: string): Promi
   }).length;
 }
 
+/**
+ * Returns all calendar events (all producers) that start on a specific date.
+ * `dateIso` should be in `YYYY-MM-DD` format (local Athens date).
+ */
+export async function getShowsForDate(dateIso: string): Promise<UpcomingShow[]> {
+  const serviceAccountEmail = getRequiredEnv("GOOGLE_SERVICE_ACCOUNT_EMAIL");
+  const privateKey = getRequiredEnv("GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY").replace(
+    /\\n/g,
+    "\n",
+  );
+  const calendarId = getRequiredEnv("GOOGLE_CALENDAR_ID");
+
+  const auth = new google.auth.JWT({
+    email: serviceAccountEmail,
+    key: privateKey,
+    scopes: ["https://www.googleapis.com/auth/calendar.readonly"],
+  });
+
+  const calendar = google.calendar({ version: "v3", auth });
+  const dayStart = `${dateIso}T00:00:00.000Z`;
+  const dayEnd = `${dateIso}T23:59:59.999Z`;
+
+  const response = await calendar.events.list({
+    calendarId,
+    timeMin: dayStart,
+    timeMax: dayEnd,
+    singleEvents: true,
+    orderBy: "startTime",
+    maxResults: 250,
+  });
+
+  const items = response.data.items ?? [];
+  return items
+    .filter((event) => {
+      if (event.status === "cancelled") return false;
+      const startValue = event.start?.dateTime || event.start?.date;
+      return Boolean(startValue);
+    })
+    .map(mapCalendarEventToShow);
+}
+
 export async function getScheduledShowCountsForMonth(
   monthIso: string,
 ): Promise<Record<string, number>> {

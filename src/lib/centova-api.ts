@@ -335,6 +335,20 @@ export async function schedulePlaylist(
   }
 }
 
+/**
+ * Returns all Centova playlists whose scheduled_datetime falls on `dateIso` (Athens time).
+ * `dateIso` is in `YYYY-MM-DD` format. Centova stores scheduled_datetime as
+ * `YYYY-MM-DD HH:mm:ss` in Athens time.
+ */
+export async function getPlaylistsScheduledForDate(
+  dateIso: string,
+): Promise<CentovaPlaylist[]> {
+  const playlists = await listCentovaPlaylists();
+  return playlists.filter(
+    (p) => typeof p.scheduled_datetime === "string" && p.scheduled_datetime.startsWith(dateIso),
+  );
+}
+
 export async function updateShowPlaylist(
   producerFolderName: string,
   audioFilename: string,

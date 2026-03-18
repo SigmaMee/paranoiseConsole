@@ -3,6 +3,15 @@
     "src/app/api/submissions/route.ts": {
       "maxDuration": 300,
       "memory": 2048
+    },
+    "src/app/api/cron/daily-report/route.ts": {
+      "maxDuration": 60
     }
-  }
+  },
+  "crons": [
+    {
+      "path": "/api/cron/daily-report",
+      "schedule": "0 19 * * *"
+    }
+  ]
 }
