@@ -54,11 +54,11 @@ function emailWrapper(body: string): string {
 
           <!-- Header -->
           <tr>
-            <td style="padding-bottom:32px;border-bottom:1px solid #2a2a2a;">
+            <td style="padding-bottom:32px;">
               <table role="presentation" cellpadding="0" cellspacing="0" style="border-collapse:collapse;">
                 <tr>
                   <td style="padding:0;vertical-align:middle;">
-                    <img src="${LOGO_URL}" alt="Paranoise Radio" height="32" style="display:block;" />
+                    <img src="${LOGO_URL}" alt="Paranoise Radio" height="32" style="display:block;filter:brightness(0) invert(1);" />
                   </td>
                   <td style="padding:0 0 0 12px;vertical-align:middle;color:${C.orange};font-size:24px;font-weight:700;line-height:1;text-transform:uppercase;letter-spacing:0.04em;">
                     Console
