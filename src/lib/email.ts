@@ -6,7 +6,7 @@ import { formatInTimeZone } from "date-fns-tz";
 // ---------------------------------------------------------------------------
 
 const FROM = "Paranoise Console <console@paranoiseradio.com>";
-const LOGO_URL = "https://console.paranoiseradio.com/branding/navbar-logo.png";
+const LOGO_URL = "https://console.paranoiseradio.com/branding/monogram-white.png";
 const ATHENS_TZ = "Europe/Athens";
 
 const C = {
@@ -58,7 +58,7 @@ function emailWrapper(body: string): string {
               <table role="presentation" cellpadding="0" cellspacing="0" style="border-collapse:collapse;">
                 <tr>
                   <td style="padding:0;vertical-align:middle;">
-                    <img src="${LOGO_URL}" alt="Paranoise Radio" height="32" style="display:block;filter:brightness(0) invert(1);" />
+                    <img src="${LOGO_URL}" alt="Paranoise Radio" height="32" style="display:block;" />
                   </td>
                   <td style="padding:0 0 0 12px;vertical-align:middle;color:${C.orange};font-size:24px;font-weight:700;line-height:1;text-transform:uppercase;letter-spacing:0.04em;">
                     Console
@@ -200,9 +200,12 @@ export async function sendSubmissionConfirmationEmail(
 
 export type DailyReportShow = {
   calendarTitle: string;
+  calendarDate: string | null; // YYYY-MM-DD (Athens)
   calendarTime: string | null; // HH:mm Athens
+  centovaDate: string | null;  // YYYY-MM-DD
   centovaTime: string | null;  // HH:mm Athens
-  status: "match" | "time_mismatch" | "missing_in_centova";
+  audioUploaded: boolean;
+  status: "match" | "time_mismatch" | "date_mismatch" | "missing_in_centova";
 };
 
 export type UnmatchedCentovaPlaylist = {
@@ -216,16 +219,23 @@ export function buildDailyReportHtml(opts: {
   unmatchedCentova: UnmatchedCentovaPlaylist[];
 }): { html: string; subject: string } {
   const matched = opts.shows.filter((s) => s.status === "match").length;
-  const mismatched = opts.shows.filter((s) => s.status === "time_mismatch").length;
+  const mismatched = opts.shows.filter((s) => s.status === "time_mismatch" || s.status === "date_mismatch").length;
   const missing = opts.shows.filter((s) => s.status === "missing_in_centova").length;
 
   const statusBadge = (status: DailyReportShow["status"]) => {
     if (status === "match")
       return `<span style="color:${C.blue};font-weight:700;">✓ Match</span>`;
+    if (status === "date_mismatch")
+      return `<span style="color:${C.amber};font-weight:700;">⚠ Date mismatch</span>`;
     if (status === "time_mismatch")
       return `<span style="color:${C.amber};font-weight:700;">⚠ Time mismatch</span>`;
     return `<span style="color:${C.red};font-weight:700;">✗ Not in Centova</span>`;
   };
+
+  const audioBadge = (uploaded: boolean) =>
+    uploaded
+      ? `<span style="color:${C.blue};font-weight:700;">✓ Uploaded</span>`
+      : `<span style="color:${C.red};font-weight:700;">✗ Not found</span>`;
 
   const summaryTag = (bg: string, fg: string, label: string) =>
     `<span style="display:inline-block;padding:5px 14px;border-radius:4px;background:${bg};color:${fg};font-size:13px;font-weight:700;margin-right:8px;">${label}</span>`;
@@ -234,8 +244,11 @@ export function buildDailyReportHtml(opts: {
     .map(
       (show) => `<tr>
       <td style="padding:8px 12px;border-bottom:1px solid #222;color:${C.white};">${show.calendarTitle}</td>
+      <td style="padding:8px 12px;border-bottom:1px solid #222;color:${C.muted};">${show.calendarDate ?? "–"}</td>
       <td style="padding:8px 12px;border-bottom:1px solid #222;color:${C.muted};">${show.calendarTime ?? "–"}</td>
+      <td style="padding:8px 12px;border-bottom:1px solid #222;color:${C.muted};">${show.centovaDate ?? "–"}</td>
       <td style="padding:8px 12px;border-bottom:1px solid #222;color:${C.muted};">${show.centovaTime ?? "–"}</td>
+      <td style="padding:8px 12px;border-bottom:1px solid #222;">${audioBadge(show.audioUploaded)}</td>
       <td style="padding:8px 12px;border-bottom:1px solid #222;">${statusBadge(show.status)}</td>
     </tr>`,
     )
@@ -253,7 +266,10 @@ export function buildDailyReportHtml(opts: {
             (p) => `<tr>
           <td style="padding:8px 12px;border-bottom:1px solid #222;color:${C.white};">${p.title}</td>
           <td style="padding:8px 12px;border-bottom:1px solid #222;color:${C.muted};">–</td>
+          <td style="padding:8px 12px;border-bottom:1px solid #222;color:${C.muted};">–</td>
+          <td style="padding:8px 12px;border-bottom:1px solid #222;color:${C.muted};">–</td>
           <td style="padding:8px 12px;border-bottom:1px solid #222;color:${C.muted};">${p.scheduledTime}</td>
+          <td style="padding:8px 12px;border-bottom:1px solid #222;color:${C.muted};">–</td>
           <td style="padding:8px 12px;border-bottom:1px solid #222;color:${C.amber};font-weight:700;">⚠ Not in Calendar</td>
         </tr>`,
           )
@@ -287,7 +303,7 @@ export function buildDailyReportHtml(opts: {
     <tr>
       <td>
         <table role="presentation" width="100%" style="border-collapse:collapse;font-size:14px;">
-          ${opts.shows.length > 0 || opts.unmatchedCentova.length > 0 ? tableHeader("Show (Calendar)", "Calendar time", "Centova time", "Status") : ""}
+          ${opts.shows.length > 0 || opts.unmatchedCentova.length > 0 ? tableHeader("Show (Calendar)", "Calendar date", "Calendar time", "Centova date", "Centova time", "Audio", "Status") : ""}
           ${calendarRows}
           ${unmatchedRows}
           ${noShowsNote}

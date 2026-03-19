@@ -6,6 +6,7 @@ export type UpcomingShow = {
   title: string;
   startsAt: string;
   endsAt?: string;
+  attendeeEmails?: string[];
 };
 
 type ProducerShowSelection = {
@@ -55,11 +56,19 @@ function parseShowStartToTime(show: UpcomingShow) {
 }
 
 function mapCalendarEventToShow(event: any): UpcomingShow {
+  const attendeeEmails = Array.isArray(event.attendees)
+    ? event.attendees
+        .map((attendee: any) => attendee?.email)
+        .filter((email: unknown): email is string => typeof email === "string" && email.trim().length > 0)
+        .map((email: string) => email.toLowerCase())
+    : [];
+
   return {
     id: event.id ?? `${event.summary ?? "event"}-${event.start?.dateTime ?? event.start?.date}`,
     title: event.summary || "Untitled show",
     startsAt: event.start?.dateTime || event.start?.date || "",
     endsAt: event.end?.dateTime || event.end?.date || undefined,
+    attendeeEmails,
   };
 }
 

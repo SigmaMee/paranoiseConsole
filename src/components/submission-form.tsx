@@ -128,20 +128,21 @@ type MultipartUploadOptions = {
 };
 
 const PRIMARY_MULTIPART_OPTIONS: MultipartUploadOptions = {
-  concurrency: 4,
-  partTimeoutMs: 120_000,
-  maxPartAttempts: 3,
+  concurrency: 2,
+  partTimeoutMs: 300_000,
+  maxPartAttempts: 4,
   modeLabel: "primary",
 };
 
 const ADAPTIVE_MULTIPART_OPTIONS: MultipartUploadOptions = {
   concurrency: 1,
-  partTimeoutMs: 300_000,
+  partTimeoutMs: 600_000,
   maxPartAttempts: 3,
   modeLabel: "adaptive",
 };
 
-const ADAPTIVE_PART_SIZE_BYTES = 10 * 1024 * 1024;
+const PRIMARY_PART_SIZE_BYTES = 10 * 1024 * 1024;
+const ADAPTIVE_PART_SIZE_BYTES = 5 * 1024 * 1024;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -395,10 +396,36 @@ async function uploadFileToR2WithAdaptiveFallback(
     if (!isMultipart || !isTimeoutLikeUploadError(typed)) {
       throw typed;
     }
+
+    await reportPartUploadFailure({
+      objectKey: result.objectKey,
+      uploadId: result.uploadId || "",
+      partNumber: 0,
+      attempt: 0,
+      field: result.field,
+      fileName: file.name,
+      fileSize: file.size,
+      chunkSize: result.partSize || 0,
+      statusCode: 0,
+      message: `[adaptive] fallback triggered after primary failure: ${typed.message}`,
+    });
   }
 
   const adaptiveResult = await requestAdaptiveMultipartPresign(result.field, file);
   await uploadFileToR2(file, adaptiveResult, onProgress, ADAPTIVE_MULTIPART_OPTIONS);
+
+  await reportPartUploadFailure({
+    objectKey: adaptiveResult.objectKey,
+    uploadId: adaptiveResult.uploadId || "",
+    partNumber: 0,
+    attempt: 0,
+    field: adaptiveResult.field,
+    fileName: file.name,
+    fileSize: file.size,
+    chunkSize: adaptiveResult.partSize || 0,
+    statusCode: 0,
+    message: "[adaptive] fallback upload completed successfully.",
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -801,6 +828,7 @@ export function SubmissionForm({ selectedShowStart, selectedShowTitle }: Submiss
           filename: audioFile.name,
           contentType: audioFile.type || "audio/mpeg",
           size: audioFile.size,
+          partSizeBytes: PRIMARY_PART_SIZE_BYTES,
         });
       }
       if (imageFile) {
@@ -809,6 +837,7 @@ export function SubmissionForm({ selectedShowStart, selectedShowTitle }: Submiss
           filename: imageFile.name,
           contentType: imageFile.type || "image/jpeg",
           size: imageFile.size,
+          partSizeBytes: PRIMARY_PART_SIZE_BYTES,
         });
       }
 

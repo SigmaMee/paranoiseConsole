@@ -34,6 +34,8 @@ type CentovaPlaylist = {
   status?: string;
 };
 
+export type ScheduledCentovaPlaylist = Pick<CentovaPlaylist, "id" | "title" | "scheduled_datetime">;
+
 function getCentovaBaseUrl() {
   const apiUrl = getRequiredEnv("CENTOVA_API_URL");
   return apiUrl.replace(/\/api\.php(?:\?.*)?$/, "");
@@ -347,6 +349,17 @@ export async function getPlaylistsScheduledForDate(
   return playlists.filter(
     (p) => typeof p.scheduled_datetime === "string" && p.scheduled_datetime.startsWith(dateIso),
   );
+}
+
+export async function getScheduledCentovaPlaylists(): Promise<ScheduledCentovaPlaylist[]> {
+  const playlists = await listCentovaPlaylists();
+  return playlists
+    .filter((p) => typeof p.scheduled_datetime === "string" && p.scheduled_datetime.trim().length > 0)
+    .map((p) => ({
+      id: p.id,
+      title: p.title,
+      scheduled_datetime: p.scheduled_datetime,
+    }));
 }
 
 export async function updateShowPlaylist(

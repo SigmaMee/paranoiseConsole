@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { formatInTimeZone } from "date-fns-tz";
 import { getShowsForDate } from "@/lib/google-calendar";
-import { getPlaylistsScheduledForDate } from "@/lib/centova-api";
+import { getScheduledCentovaPlaylists } from "@/lib/centova-api";
+import { createClient as createAdminClient } from "@supabase/supabase-js";
 import {
   sendDailyReportEmail,
   type DailyReportShow,
@@ -12,6 +13,12 @@ export const runtime = "nodejs";
 export const maxDuration = 60;
 
 const ATHENS_TZ = "Europe/Athens";
+
+type SubmissionAudioRow = {
+  producer_email: string;
+  audio_filename: string;
+  ftp_status: string;
+};
 
 // ---------------------------------------------------------------------------
 // Auth guard — Vercel sends Authorization: Bearer <CRON_SECRET> automatically
@@ -35,6 +42,42 @@ function normalizeTitle(value: string): string {
     .trim();
 }
 
+function getAdminSupabase() {
+  if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
+    return null;
+  }
+
+  return createAdminClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL,
+    process.env.SUPABASE_SERVICE_ROLE_KEY,
+  );
+}
+
+async function getUploadedAudioByEmailForDate(dateIso: string): Promise<Map<string, boolean>> {
+  const supabase = getAdminSupabase();
+  if (!supabase) return new Map<string, boolean>();
+
+  const { data, error } = await supabase
+    .from("submissions")
+    .select("producer_email, audio_filename, ftp_status")
+    .eq("airing_date", dateIso)
+    .eq("ftp_status", "success")
+    .not("audio_filename", "is", null)
+    .neq("audio_filename", "");
+
+  if (error) {
+    throw new Error(`Failed to read submissions for report: ${error.message}`);
+  }
+
+  const rows = (data ?? []) as SubmissionAudioRow[];
+  const map = new Map<string, boolean>();
+  for (const row of rows) {
+    const email = row.producer_email?.toLowerCase().trim();
+    if (email) map.set(email, true);
+  }
+  return map;
+}
+
 // ---------------------------------------------------------------------------
 // GET handler — called by Vercel cron at 19:00 UTC (21:00 Athens EET)
 // ---------------------------------------------------------------------------
@@ -51,9 +94,10 @@ export async function GET(request: Request): Promise<NextResponse> {
     const tomorrowFormatted = formatInTimeZone(tomorrow, ATHENS_TZ, "d MMMM yyyy");
 
     // Fetch data from both sources in parallel
-    const [calendarShows, centovaPlaylists] = await Promise.all([
+    const [calendarShows, centovaPlaylists, audioUploadedByEmail] = await Promise.all([
       getShowsForDate(tomorrowDateIso),
-      getPlaylistsScheduledForDate(tomorrowDateIso),
+      getScheduledCentovaPlaylists(),
+      getUploadedAudioByEmailForDate(tomorrowDateIso),
     ]);
 
     // Track which Centova playlists have been matched
@@ -63,6 +107,9 @@ export async function GET(request: Request): Promise<NextResponse> {
       const calendarTimeAthens = show.startsAt
         ? formatInTimeZone(new Date(show.startsAt), ATHENS_TZ, "HH:mm")
         : null;
+      const calendarDateAthens = show.startsAt
+        ? formatInTimeZone(new Date(show.startsAt), ATHENS_TZ, "yyyy-MM-dd")
+        : tomorrowDateIso;
 
       const normalizedShowTitle = normalizeTitle(show.title);
 
@@ -76,10 +123,18 @@ export async function GET(request: Request): Promise<NextResponse> {
         null;
 
       if (!match) {
+        const attendeeEmails = Array.isArray(show.attendeeEmails)
+          ? show.attendeeEmails.map((email) => email.toLowerCase())
+          : [];
+        const audioUploaded = attendeeEmails.some((email) => audioUploadedByEmail.get(email) === true);
+
         return {
           calendarTitle: show.title,
+          calendarDate: calendarDateAthens,
           calendarTime: calendarTimeAthens,
+          centovaDate: null,
           centovaTime: null,
+          audioUploaded,
           status: "missing_in_centova" as const,
         };
       }
@@ -88,7 +143,15 @@ export async function GET(request: Request): Promise<NextResponse> {
 
       // Extract HH:mm from Centova scheduled_datetime ("YYYY-MM-DD HH:mm:ss")
       const centovaTimeFull = match.scheduled_datetime ?? "";
+      const centovaDate = centovaTimeFull.slice(0, 10) || null;
       const centovaTime = centovaTimeFull.slice(11, 16) || null; // "HH:mm"
+
+      const attendeeEmails = Array.isArray(show.attendeeEmails)
+        ? show.attendeeEmails.map((email) => email.toLowerCase())
+        : [];
+      const audioUploaded = attendeeEmails.some((email) => audioUploadedByEmail.get(email) === true);
+
+      const dateMatches = calendarDateAthens !== null && centovaDate !== null && calendarDateAthens === centovaDate;
 
       const timesMatch =
         calendarTimeAthens !== null &&
@@ -97,14 +160,22 @@ export async function GET(request: Request): Promise<NextResponse> {
 
       return {
         calendarTitle: show.title,
+        calendarDate: calendarDateAthens,
         calendarTime: calendarTimeAthens,
+        centovaDate,
         centovaTime,
-        status: timesMatch ? ("match" as const) : ("time_mismatch" as const),
+        audioUploaded,
+        status: dateMatches && timesMatch
+          ? ("match" as const)
+          : dateMatches
+            ? ("time_mismatch" as const)
+            : ("date_mismatch" as const),
       };
     });
 
-    // Centova playlists that had no matching calendar show
+    // Centova playlists for tomorrow that had no matching calendar show
     const unmatchedCentova: UnmatchedCentovaPlaylist[] = centovaPlaylists
+      .filter((p) => (p.scheduled_datetime ?? "").startsWith(tomorrowDateIso))
       .filter((p) => !matchedCentovaIds.has(String(p.id)))
       .map((p) => ({
         title: p.title,
