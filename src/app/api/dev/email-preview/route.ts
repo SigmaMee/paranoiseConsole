@@ -24,9 +24,33 @@ export async function GET(request: Request): Promise<NextResponse> {
     ({ html } = buildDailyReportHtml({
       reportDate: "19 March 2026",
       shows: [
-        { calendarTitle: "Azem",      calendarTime: "22:00", centovaTime: "22:00", status: "match" },
-        { calendarTitle: "Yardy",     calendarTime: "20:00", centovaTime: "21:00", status: "time_mismatch" },
-        { calendarTitle: "Deep Cuts", calendarTime: "18:00", centovaTime: null,    status: "missing_in_centova" },
+        {
+          calendarTitle: "Azem",
+          calendarDate: "2026-03-20",
+          calendarTime: "22:00",
+          centovaDate: "2026-03-20",
+          centovaTime: "22:00",
+          audioUploaded: true,
+          status: "match",
+        },
+        {
+          calendarTitle: "Yardy",
+          calendarDate: "2026-03-20",
+          calendarTime: "20:00",
+          centovaDate: "2026-03-21",
+          centovaTime: "20:00",
+          audioUploaded: true,
+          status: "date_mismatch",
+        },
+        {
+          calendarTitle: "Deep Cuts",
+          calendarDate: "2026-03-20",
+          calendarTime: "18:00",
+          centovaDate: null,
+          centovaTime: null,
+          audioUploaded: false,
+          status: "missing_in_centova",
+        },
       ],
       unmatchedCentova: [
         { title: "LateBroadcast", scheduledTime: "23:30" },
