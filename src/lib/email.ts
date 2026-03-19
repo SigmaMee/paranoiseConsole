@@ -218,9 +218,10 @@ export function buildDailyReportHtml(opts: {
   shows: DailyReportShow[];
   unmatchedCentova: UnmatchedCentovaPlaylist[];
 }): { html: string; subject: string } {
-  const matched = opts.shows.filter((s) => s.status === "match").length;
-  const mismatched = opts.shows.filter((s) => s.status === "time_mismatch" || s.status === "date_mismatch").length;
-  const missing = opts.shows.filter((s) => s.status === "missing_in_centova").length;
+  const readyToStream = opts.shows.filter(
+    (show) => show.status === "match" && show.audioUploaded,
+  ).length;
+  const notReadyToStream = opts.shows.length - readyToStream;
 
   const statusBadge = (status: DailyReportShow["status"]) => {
     if (status === "match")
@@ -229,7 +230,7 @@ export function buildDailyReportHtml(opts: {
       return `<span style="color:${C.amber};font-weight:700;">⚠ Date mismatch</span>`;
     if (status === "time_mismatch")
       return `<span style="color:${C.amber};font-weight:700;">⚠ Time mismatch</span>`;
-    return `<span style="color:${C.red};font-weight:700;">✗ Not in Centova</span>`;
+    return `<span style="color:${C.red};font-weight:700;">✗ No playlist found</span>`;
   };
 
   const audioBadge = (uploaded: boolean) =>
@@ -292,9 +293,8 @@ export function buildDailyReportHtml(opts: {
       opts.shows.length > 0 || opts.unmatchedCentova.length > 0
         ? `<tr>
             <td style="padding-bottom:24px;">
-              ${summaryTag(C.greenBg, C.green, `✓ ${matched} matched`)}
-              ${mismatched > 0 ? summaryTag(C.amberBg, C.amber, `⚠ ${mismatched} mismatch`) : ""}
-              ${missing > 0 ? summaryTag(C.redBg, C.red, `✗ ${missing} missing`) : ""}
+              ${summaryTag(C.greenBg, C.green, `✓ ${readyToStream} ready to stream`)}
+              ${notReadyToStream > 0 ? summaryTag(C.redBg, C.red, `✗ ${notReadyToStream} not ready to stream`) : ""}
               ${opts.unmatchedCentova.length > 0 ? summaryTag(C.amberBg, C.amber, `⚠ ${opts.unmatchedCentova.length} Centova-only`) : ""}
             </td>
           </tr>`
