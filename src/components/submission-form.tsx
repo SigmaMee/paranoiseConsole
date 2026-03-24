@@ -1183,17 +1183,20 @@ export function SubmissionForm({ selectedShowStart, selectedShowTitle }: Submiss
               </div>
 
               <div className="submission-block submission-description-block">
-                <div className="field-label-row">
+                <div className="field-label-row field-label-row-stacked">
                   <label className="field-label" htmlFor="show-description">
                     Description
                   </label>
-                  <span className="field-label-helper">briefly describe your show</span>
+                  <span className="field-label-helper field-label-helper-body">
+                    Briefly describe your show. The description will be used in Mixcloud and social media for the daily
+                    schedule post. If you leave it blank we will have to improvise 😎
+                  </span>
                 </div>
                 <textarea
                   id="show-description"
                   className="textarea"
                   value={description}
-                  placeholder="Briefly describe your radio show"
+                  placeholder="What the listenrs should expect from your show, or any other details you'd like to share."
                   onChange={(event) => setDescription(event.target.value)}
                   rows={4}
                 />
@@ -1206,7 +1209,7 @@ export function SubmissionForm({ selectedShowStart, selectedShowTitle }: Submiss
               <label className="field-label" htmlFor="show-tags">
                 Tags
               </label>
-              <span className="field-label-helper">MAX 5 TAGS</span>
+              <span className="field-label-helper">5 tags max. Start typing, select a tag and press Enter.</span>
             </div>
             <div className="tags-input-shell submission-tags-shell">
               <div className="tags-chip-row">

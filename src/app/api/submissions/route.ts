@@ -7,6 +7,7 @@ import {
   routeCoverToFtp,
   routeDescriptionToFtp,
   routeImageToDrive,
+  routeTextToDrive,
   validateSubmission,
   sanitizeFilename,
 } from "@/lib/submission-routing";
@@ -162,6 +163,17 @@ function buildCoverFilenamePrefix(producerName: string, showStart: string) {
   const producerPart = safeProducer || "producer";
   const datePart = formatShowDateDdMmYy(showStart);
   return `${producerPart}-${datePart}`;
+}
+
+function buildDescriptionDriveFilename(producerName: string, showStart: string) {
+  const safeProducer = producerName
+    .trim()
+    .replace(/[\\/:*?"<>|]/g, "-")
+    .replace(/\s+/g, " ")
+    .replace(/-+/g, "-")
+    .trim();
+  const producerPart = safeProducer || "Producer";
+  return `${producerPart} - ${formatShowDateDdMmYy(showStart)}.txt`;
 }
 
 function toAiringDateIso(showStart: string | null) {
@@ -470,12 +482,23 @@ export async function POST(request: Request) {
         descriptionFilenameHint,
       );
 
+      const descriptionShowStart =
+        selectedShowStart || showStart || (await getNextUpcomingShowStartByProducerEmail(userEmail));
+      persistedShowStart = descriptionShowStart;
+
+      if (!descriptionShowStart) {
+        throw new Error("No upcoming calendar shows found for this producer.");
+      }
+
+      const weekdayFolderId = await getDriveWeekdayFolderIdForShowStart(descriptionShowStart);
+      const driveDescriptionResult = await routeTextToDrive(
+        descriptionFileContent,
+        buildDescriptionDriveFilename(producerFolderName, descriptionShowStart),
+        weekdayFolderId,
+      );
+
       ftpResult = descriptionResult;
-      driveResult = {
-        success: true,
-        destination: "google-drive" as const,
-        message: "Cover upload skipped for description action.",
-      };
+      driveResult = driveDescriptionResult;
     } else if (uploadType === "all") {
       const ftpMessages: string[] = [];
       let ftpSuccess = true;
@@ -500,17 +523,23 @@ export async function POST(request: Request) {
         ftpMessages.push(descriptionResult.message);
       }
 
+      const driveMessages: string[] = [];
       let driveSuccess = true;
-      let driveMessage = "Cover upload skipped.";
+
+      const driveShowStart =
+        selectedShowStart || showStart || (await getNextUpcomingShowStartByProducerEmail(userEmail));
+      persistedShowStart = driveShowStart;
+
+      if ((optionalImage || descriptionFileContent) && !driveShowStart) {
+        throw new Error("No upcoming calendar shows found for this producer.");
+      }
+
+      const weekdayFolderId = driveShowStart
+        ? await getDriveWeekdayFolderIdForShowStart(driveShowStart)
+        : null;
 
       if (optionalImage) {
-        const coverShowStart =
-          selectedShowStart || showStart || (await getNextUpcomingShowStartByProducerEmail(userEmail));
-        persistedShowStart = coverShowStart;
-
-        if (!coverShowStart) {
-          throw new Error("No upcoming calendar shows found for this producer.");
-        }
+        const coverShowStart = driveShowStart as string;
 
         const coverFilenamePrefix = buildCoverFilenamePrefix(producerFolderName, coverShowStart);
         uploadedImageFilename = sanitizeFilename(applyShowDateSuffixToFilename(
@@ -519,34 +548,33 @@ export async function POST(request: Request) {
           "show-cover",
         ));
 
-        const shouldUploadToDrive = isUpcomingShowStart(coverShowStart);
-
         const ftpCoverResult = await routeCoverToFtp(
           optionalImage,
           producerFolderName,
           uploadedImageFilename,
         );
-        const driveCoverResult = shouldUploadToDrive
-          ? await (async () => {
-              const weekdayFolderId = await getDriveWeekdayFolderIdForShowStart(coverShowStart);
-              return routeImageToDrive(
-                optionalImage,
-                weekdayFolderId,
-                coverFilenamePrefix,
-                uploadedImageFilename,
-              );
-            })()
-          : {
-              success: true,
-              destination: "google-drive" as const,
-              message: "Cover upload to Google Drive skipped for previous show selection.",
-            };
+        const driveCoverResult = await routeImageToDrive(
+          optionalImage,
+          weekdayFolderId as string,
+          coverFilenamePrefix,
+          uploadedImageFilename,
+        );
 
         ftpSuccess = ftpSuccess && ftpCoverResult.success;
         ftpMessages.push(ftpCoverResult.message);
 
-        driveSuccess = driveCoverResult.success;
-        driveMessage = driveCoverResult.message;
+        driveSuccess = driveSuccess && driveCoverResult.success;
+        driveMessages.push(driveCoverResult.message);
+      }
+
+      if (descriptionFileContent) {
+        const driveDescriptionResult = await routeTextToDrive(
+          descriptionFileContent,
+          buildDescriptionDriveFilename(producerFolderName, driveShowStart as string),
+          weekdayFolderId as string,
+        );
+        driveSuccess = driveSuccess && driveDescriptionResult.success;
+        driveMessages.push(driveDescriptionResult.message);
       }
 
       ftpResult = {
@@ -557,7 +585,10 @@ export async function POST(request: Request) {
       driveResult = {
         success: driveSuccess,
         destination: "google-drive" as const,
-        message: driveMessage,
+        message:
+          driveMessages.length > 0
+            ? driveMessages.join(" ").trim()
+            : "No Google Drive payload uploaded.",
       };
 
       // Update Centova playlist if audio uploaded successfully to an upcoming show

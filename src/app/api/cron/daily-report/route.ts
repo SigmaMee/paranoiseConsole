@@ -20,6 +20,8 @@ type SubmissionAudioRow = {
   ftp_status: string;
 };
 
+type CronHeartbeatMetadata = Record<string, unknown>;
+
 // ---------------------------------------------------------------------------
 // Auth guard — Vercel sends Authorization: Bearer <CRON_SECRET> automatically
 // ---------------------------------------------------------------------------
@@ -53,6 +55,26 @@ function getAdminSupabase() {
   );
 }
 
+async function writeCronHeartbeat(
+  status: "success" | "unauthorized" | "error",
+  message: string,
+  metadata: CronHeartbeatMetadata = {},
+) {
+  const supabase = getAdminSupabase();
+  if (!supabase) return;
+
+  const { error } = await supabase.from("cron_heartbeats").insert({
+    route: "/api/cron/daily-report",
+    status,
+    message,
+    metadata,
+  });
+
+  if (error) {
+    console.error("Failed to persist cron heartbeat:", error.message);
+  }
+}
+
 async function getUploadedAudioByEmailForDate(dateIso: string): Promise<Map<string, boolean>> {
   const supabase = getAdminSupabase();
   if (!supabase) return new Map<string, boolean>();
@@ -84,6 +106,7 @@ async function getUploadedAudioByEmailForDate(dateIso: string): Promise<Map<stri
 
 export async function GET(request: Request): Promise<NextResponse> {
   if (!isAuthorized(request)) {
+    await writeCronHeartbeat("unauthorized", "Authorization header did not match CRON_SECRET");
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
@@ -188,6 +211,14 @@ export async function GET(request: Request): Promise<NextResponse> {
       unmatchedCentova,
     });
 
+    await writeCronHeartbeat("success", "Daily report sent", {
+      reportDate: tomorrowDateIso,
+      calendarShows: calendarShows.length,
+      centovaPlaylistsTotal: centovaPlaylists.length,
+      unmatchedCentova: unmatchedCentova.length,
+      readyToStream: shows.filter((show) => show.status === "match" && show.audioUploaded).length,
+    });
+
     return NextResponse.json({
       ok: true,
       reportDate: tomorrowDateIso,
@@ -196,6 +227,12 @@ export async function GET(request: Request): Promise<NextResponse> {
     });
   } catch (error) {
     console.error("Daily report cron failed:", error);
+
+    await writeCronHeartbeat(
+      "error",
+      error instanceof Error ? error.message : "Unknown error",
+    );
+
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Unknown error" },
       { status: 500 },

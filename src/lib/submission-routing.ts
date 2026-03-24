@@ -413,6 +413,75 @@ export async function routeImageToDrive(
   }
 }
 
+export async function routeTextToDrive(
+  content: string,
+  uploadName: string,
+  destinationFolderId?: string,
+): Promise<RouteResult> {
+  const folderId = destinationFolderId || getRequiredEnv("GOOGLE_DRIVE_FOLDER_ID");
+
+  try {
+    const authSelection = await getDriveAuth();
+    const drive = google.drive({ version: "v3", auth: authSelection.auth });
+    const bytes = Buffer.from(content, "utf8");
+
+    if (authSelection.source === "service-account") {
+      const folderResponse = await drive.files.get({
+        fileId: folderId,
+        fields: "id,driveId",
+        supportsAllDrives: true,
+      });
+
+      if (!folderResponse.data.driveId) {
+        const oauthReason = authSelection.oauthInvalidGrant
+          ? "Stored OAuth token is invalid or expired. Reconnect Google Drive from Dashboard."
+          : "No Google Drive OAuth token is connected.";
+
+        return {
+          success: false,
+          destination: "google-drive",
+          message: `Google Drive upload failed: service accounts can only upload reliably to Shared Drives. ${oauthReason}`,
+        };
+      }
+    }
+
+    await drive.files.create({
+      requestBody: {
+        name: uploadName,
+        parents: [folderId],
+      },
+      media: {
+        mimeType: "text/plain",
+        body: Readable.from(bytes),
+      },
+      fields: "id,name",
+      supportsAllDrives: true,
+    });
+
+    return {
+      success: true,
+      destination: "google-drive",
+      message: `Description uploaded to Google Drive as ${uploadName}`,
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Google Drive upload failed";
+    if (message.toLowerCase().includes("service accounts do not have storage quota")) {
+      return {
+        success: false,
+        destination: "google-drive",
+        message:
+          "Google Drive upload failed: target folder appears to be in My Drive while using a service account. Use a Shared Drive folder for GOOGLE_DRIVE_FOLDER_ID (and weekday folders) or reconnect Google Drive OAuth.",
+      };
+    }
+
+    return {
+      success: false,
+      destination: "google-drive",
+      message,
+    };
+  }
+}
+
 function createAdminSupabaseClient() {
   const url = getRequiredEnv("NEXT_PUBLIC_SUPABASE_URL");
   const serviceRoleKey = getRequiredEnv("SUPABASE_SERVICE_ROLE_KEY");

@@ -374,10 +374,21 @@ a {
 
 .field-label-helper {
   color: #cfd8dc;
-  font-size: 0.78rem;
+  font-size: 0.8rem;
   letter-spacing: 0.06em;
-  text-transform: uppercase;
+  text-transform: none;
   white-space: nowrap;
+}
+
+.field-label-row-stacked {
+  align-items: flex-start;
+  flex-direction: column;
+  gap: 0.32rem;
+}
+
+.field-label-helper-body {
+  text-transform: none;
+  white-space: normal;
 }
 
 .dashboard-screen {
