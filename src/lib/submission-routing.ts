@@ -5,7 +5,7 @@ import { Readable } from "stream";
 import { createClient } from "@supabase/supabase-js";
 import { getGoogleDriveOAuthClientFromStoredToken } from "@/lib/google-drive-oauth";
 
-const MAX_AUDIO_BYTES = 500 * 1024 * 1024;
+const MAX_AUDIO_BYTES = 900 * 1024 * 1024;
 
 export type RouteResult = {
   success: boolean;
@@ -126,7 +126,7 @@ export function validateSubmission(
       }
 
       if (audio.size > MAX_AUDIO_BYTES) {
-        return "Audio exceeds 500 MB maximum size.";
+        return "Audio exceeds 900 MB maximum size.";
       }
     }
 
@@ -149,7 +149,7 @@ export function validateSubmission(
     }
 
     if (audio.size > MAX_AUDIO_BYTES) {
-      return "Audio exceeds 500 MB maximum size.";
+      return "Audio exceeds 900 MB maximum size.";
     }
 
     if (!hasTextPayload) {

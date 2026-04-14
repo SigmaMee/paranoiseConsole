@@ -31,7 +31,7 @@ The console sits between the weekly radio schedule and the broadcast/archive sta
 
 Residents authenticate through Supabase and land on a protected dashboard. From there they can upload:
 
-- MP3 audio up to 500 MB
+- MP3 audio up to 900 MB
 - square cover art
 - show description
 - up to 5 genre tags
