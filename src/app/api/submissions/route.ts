@@ -344,19 +344,38 @@ async function getProducerFolderNameFromProfilesTable(user: {
 // ---------------------------------------------------------------------------
 
 export async function POST(request: Request) {
+  const traceId = `sub-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  let stage = "init";
+
+  const logContext: {
+    uploadType?: "audio" | "cover" | "description" | "all";
+    userId?: string;
+    userEmail?: string;
+    hasAudioObjectKey?: boolean;
+    hasImageObjectKey?: boolean;
+    hasDescription?: boolean;
+    tagsCount?: number;
+    selectedShowStart?: string | null;
+  } = {};
+
   try {
+    stage = "auth:get-user";
     const supabase = await createClient();
     const {
       data: { user },
     } = await supabase.auth.getUser();
 
     if (!user || !user.email) {
+      console.warn("[SUBMISSIONS_TRACE_UNAUTHORIZED]", { traceId, stage });
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
     const userEmail = user.email;
+    logContext.userId = user.id;
+    logContext.userEmail = userEmail;
 
     // Parse JSON body (files are already in R2; we receive object keys)
+    stage = "request:parse-body";
     const body = (await request.json()) as Record<string, unknown>;
 
     const uploadTypeRaw = typeof body.uploadType === "string" ? body.uploadType.toLowerCase() : "";
@@ -366,6 +385,7 @@ export async function POST(request: Request) {
       uploadTypeRaw === "all"
         ? uploadTypeRaw
         : "audio";
+    logContext.uploadType = uploadType;
 
     const description = typeof body.description === "string" ? body.description : "";
     const selectedShowStartRaw =
@@ -381,6 +401,9 @@ export async function POST(request: Request) {
           .filter(Boolean)
       : parseSubmittedTags(typeof body.tags === "string" ? body.tags : "");
     const tags = tagsRaw;
+    logContext.hasDescription = Boolean(description.trim());
+    logContext.tagsCount = tags.length;
+    logContext.selectedShowStart = selectedShowStartRaw || null;
 
     const descriptionFileContent = buildDescriptionFileContent(description, tags);
 
@@ -399,6 +422,16 @@ export async function POST(request: Request) {
     const imageContentType =
       typeof body.imageContentType === "string" ? body.imageContentType : "image/jpeg";
 
+    logContext.hasAudioObjectKey = Boolean(audioObjectKey);
+    logContext.hasImageObjectKey = Boolean(imageObjectKey);
+
+    console.info("[SUBMISSIONS_TRACE_START]", {
+      traceId,
+      stage,
+      ...logContext,
+    });
+
+    stage = "staging:download-from-r2";
     const [optionalAudio, optionalImage] = await Promise.all([
       audioObjectKey ? downloadFromR2(audioObjectKey, audioContentType, audioFilename) : null,
       imageObjectKey ? downloadFromR2(imageObjectKey, imageContentType, imageFilename) : null,
@@ -407,9 +440,11 @@ export async function POST(request: Request) {
     const hasAnyPayload =
       Boolean(optionalAudio) || Boolean(optionalImage) || Boolean(descriptionFileContent);
     if (!hasAnyPayload) {
+      console.warn("[SUBMISSIONS_TRACE_NO_PAYLOAD]", { traceId, stage, ...logContext });
       return NextResponse.json({ error: "At least one upload input is required." }, { status: 400 });
     }
 
+    stage = "validation:submission";
     const validationError = validateSubmission(
       optionalAudio,
       optionalImage,
@@ -418,9 +453,16 @@ export async function POST(request: Request) {
       uploadType,
     );
     if (validationError) {
+      console.warn("[SUBMISSIONS_TRACE_VALIDATION_ERROR]", {
+        traceId,
+        stage,
+        validationError,
+        ...logContext,
+      });
       return NextResponse.json({ error: validationError }, { status: 400 });
     }
 
+    stage = "profile:resolve-producer";
     const producerProfile = await getProducerFolderNameFromProfilesTable({
       id: user.id,
       email: userEmail,
@@ -434,6 +476,7 @@ export async function POST(request: Request) {
     let uploadedImageFilename = optionalImage?.name || "";
     let uploadedAudioFilename = optionalAudio?.name || "";
 
+    stage = "calendar:fetch-upcoming";
     const upcomingShows = await getUpcomingShowsByProducerEmail(userEmail);
     const nextShow = upcomingShows[0];
     const showStart = nextShow?.startsAt || null;
@@ -447,6 +490,7 @@ export async function POST(request: Request) {
       : optionalAudio?.name || "show-description";
 
     if (uploadType === "audio") {
+      stage = "route:audio";
       const audioUploadName = (optionalAudio as File).name;
       const audioResult = await routeAudioToFtp(
         optionalAudio as File,
@@ -469,6 +513,7 @@ export async function POST(request: Request) {
 
       // Update Centova playlist if audio uploaded successfully to an upcoming show
       if (audioResult.success && persistedShowStart && isUpcomingShowStart(persistedShowStart)) {
+        stage = "centova:update-playlist";
         centovaResult = await updateShowPlaylist(
           producerFolderName,
           audioUploadName,
@@ -476,6 +521,7 @@ export async function POST(request: Request) {
         );
       }
     } else if (uploadType === "description") {
+      stage = "route:description";
       const descriptionResult = await routeDescriptionToFtp(
         descriptionFileContent,
         producerFolderName,
@@ -500,6 +546,7 @@ export async function POST(request: Request) {
       ftpResult = descriptionResult;
       driveResult = driveDescriptionResult;
     } else if (uploadType === "all") {
+      stage = "route:all";
       const ftpMessages: string[] = [];
       let ftpSuccess = true;
       let audioUploadSuccessful = false;
@@ -593,6 +640,7 @@ export async function POST(request: Request) {
 
       // Update Centova playlist if audio uploaded successfully to an upcoming show
       if (audioUploadSuccessful && persistedShowStart && isUpcomingShowStart(persistedShowStart)) {
+        stage = "centova:update-playlist";
         centovaResult = await updateShowPlaylist(
           producerFolderName,
           uploadedAudioFilename,
@@ -600,6 +648,7 @@ export async function POST(request: Request) {
         );
       }
     } else {
+      stage = "route:cover";
       const coverShowStart =
         selectedShowStart || showStart || (await getNextUpcomingShowStartByProducerEmail(userEmail));
       persistedShowStart = coverShowStart;
@@ -643,6 +692,7 @@ export async function POST(request: Request) {
     }
 
     try {
+      stage = "persist:submission-status";
       const airingDate = toAiringDateIso(persistedShowStart);
       await persistSubmissionStatus({
         producerProfileId: producerProfile.profileId,
@@ -659,6 +709,13 @@ export async function POST(request: Request) {
         driveMessage: driveResult.message,
       });
     } catch (error) {
+      console.error("[SUBMISSIONS_TRACE_PERSIST_FAILED]", {
+        traceId,
+        stage,
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
+        ...logContext,
+      });
       return NextResponse.json(
         {
           error:
@@ -676,6 +733,7 @@ export async function POST(request: Request) {
 
     // Fire confirmation email non-blocking — does not affect the response
     if (ftpResult.success) {
+      stage = "email:confirmation";
       void sendSubmissionConfirmationEmail({
         to: userEmail,
         producerName: producerFolderName,
@@ -692,6 +750,16 @@ export async function POST(request: Request) {
       });
     }
 
+    console.info("[SUBMISSIONS_TRACE_SUCCESS]", {
+      traceId,
+      stage,
+      allSucceeded,
+      ftpSuccess: ftpResult.success,
+      driveSuccess: driveResult.success,
+      centovaSuccess: centovaResult ? centovaResult.success : null,
+      ...logContext,
+    });
+
     return NextResponse.json(
       {
         success: allSucceeded,
@@ -703,6 +771,14 @@ export async function POST(request: Request) {
     );
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : "";
+    console.error("[SUBMISSIONS_TRACE_UNHANDLED]", {
+      traceId,
+      stage,
+      error: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
+      ...logContext,
+    });
+
     if (errorMessage.toLowerCase().includes("multipart")) {
       return NextResponse.json(
         {
