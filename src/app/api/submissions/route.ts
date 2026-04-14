@@ -3,7 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import {
   getDriveWeekdayFolderIdForShowStart,
   persistSubmissionStatus,
-  routeAudioToFtp,
+  routeAudioStreamToFtp,
   routeCoverToFtp,
   routeDescriptionToFtp,
   routeImageToDrive,
@@ -59,6 +59,18 @@ async function downloadFromR2(
   }
   const buffer = Buffer.concat(chunks);
   return new File([buffer], filename, { type: contentType });
+}
+
+async function getR2ObjectStream(objectKey: string): Promise<Readable> {
+  const command = new GetObjectCommand({
+    Bucket: process.env.R2_BUCKET_NAME!,
+    Key: objectKey,
+  });
+  const response = await r2.send(command);
+  if (!response.Body) {
+    throw new Error(`R2 object not found: ${objectKey}`);
+  }
+  return response.Body as Readable;
 }
 
 // ---------------------------------------------------------------------------
@@ -414,6 +426,10 @@ export async function POST(request: Request) {
       typeof body.audioFilename === "string" ? body.audioFilename : "audio.mp3";
     const audioContentType =
       typeof body.audioContentType === "string" ? body.audioContentType : "audio/mpeg";
+    const audioSize =
+      typeof body.audioSize === "number" && Number.isFinite(body.audioSize)
+        ? Math.max(0, Math.floor(body.audioSize))
+        : null;
 
     const imageObjectKey =
       typeof body.imageObjectKey === "string" ? body.imageObjectKey : null;
@@ -432,13 +448,12 @@ export async function POST(request: Request) {
     });
 
     stage = "staging:download-from-r2";
-    const [optionalAudio, optionalImage] = await Promise.all([
-      audioObjectKey ? downloadFromR2(audioObjectKey, audioContentType, audioFilename) : null,
+    const [optionalImage] = await Promise.all([
       imageObjectKey ? downloadFromR2(imageObjectKey, imageContentType, imageFilename) : null,
     ]);
 
     const hasAnyPayload =
-      Boolean(optionalAudio) || Boolean(optionalImage) || Boolean(descriptionFileContent);
+      Boolean(audioObjectKey) || Boolean(optionalImage) || Boolean(descriptionFileContent);
     if (!hasAnyPayload) {
       console.warn("[SUBMISSIONS_TRACE_NO_PAYLOAD]", { traceId, stage, ...logContext });
       return NextResponse.json({ error: "At least one upload input is required." }, { status: 400 });
@@ -446,11 +461,18 @@ export async function POST(request: Request) {
 
     stage = "validation:submission";
     const validationError = validateSubmission(
-      optionalAudio,
+      null,
       optionalImage,
       description,
       tags,
       uploadType,
+      audioObjectKey
+        ? {
+            name: audioFilename,
+            type: audioContentType,
+            size: audioSize,
+          }
+        : null,
     );
     if (validationError) {
       console.warn("[SUBMISSIONS_TRACE_VALIDATION_ERROR]", {
@@ -474,7 +496,7 @@ export async function POST(request: Request) {
     let driveResult;
     let centovaResult: { success: boolean; message: string } | null = null;
     let uploadedImageFilename = optionalImage?.name || "";
-    let uploadedAudioFilename = optionalAudio?.name || "";
+    let uploadedAudioFilename = audioObjectKey ? audioFilename : "";
 
     stage = "calendar:fetch-upcoming";
     const upcomingShows = await getUpcomingShowsByProducerEmail(userEmail);
@@ -487,13 +509,18 @@ export async function POST(request: Request) {
     const dateForSuffix = selectedShowStart || showStart;
     const descriptionFilenameHint = dateForSuffix
       ? `${selectedShowTitle}-${formatShowDateDdMmYy(dateForSuffix)}`
-      : optionalAudio?.name || "show-description";
+      : audioFilename || "show-description";
 
     if (uploadType === "audio") {
       stage = "route:audio";
-      const audioUploadName = (optionalAudio as File).name;
-      const audioResult = await routeAudioToFtp(
-        optionalAudio as File,
+      if (!audioObjectKey) {
+        throw new Error("Audio object key is missing for audio submission.");
+      }
+
+      const audioUploadName = audioFilename;
+      const audioStream = await getR2ObjectStream(audioObjectKey);
+      const audioResult = await routeAudioStreamToFtp(
+        audioStream,
         producerFolderName,
         audioUploadName,
       );
@@ -551,9 +578,14 @@ export async function POST(request: Request) {
       let ftpSuccess = true;
       let audioUploadSuccessful = false;
 
-      if (optionalAudio) {
-        const audioUploadName = optionalAudio.name;
-        const audioResult = await routeAudioToFtp(optionalAudio, producerFolderName, audioUploadName);
+      if (audioObjectKey) {
+        const audioUploadName = audioFilename;
+        const audioStream = await getR2ObjectStream(audioObjectKey);
+        const audioResult = await routeAudioStreamToFtp(
+          audioStream,
+          producerFolderName,
+          audioUploadName,
+        );
         uploadedAudioFilename = audioUploadName;
         ftpSuccess = ftpSuccess && audioResult.success;
         audioUploadSuccessful = audioResult.success;

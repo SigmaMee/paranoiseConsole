@@ -922,6 +922,7 @@ export function SubmissionForm({ selectedShowStart, selectedShowTitle }: Submiss
         audioObjectKey: audioResult?.objectKey,
         audioFilename: audioFile?.name,
         audioContentType: audioFile?.type,
+        audioSize: audioFile?.size,
         imageObjectKey: imageResult?.objectKey,
         imageFilename: imageFile?.name,
         imageContentType: imageFile?.type,

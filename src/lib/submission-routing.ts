@@ -58,6 +58,14 @@ async function uploadBytesToFtpProducerFolder(
   uploadName: string,
   producerFolderName: string,
 ): Promise<RouteResult> {
+  return uploadReadableToFtpProducerFolder(Readable.from(bytes), uploadName, producerFolderName);
+}
+
+async function uploadReadableToFtpProducerFolder(
+  readable: Readable,
+  uploadName: string,
+  producerFolderName: string,
+): Promise<RouteResult> {
   const host = getRequiredEnv("FTP_HOST");
   const user = getRequiredEnv("FTP_USER");
   const password = getRequiredEnv("FTP_PASSWORD");
@@ -87,7 +95,7 @@ async function uploadBytesToFtpProducerFolder(
   try {
     await client.access({ host, user, password, secure });
     await client.cd(targetDir);
-    await client.uploadFrom(Readable.from(bytes), uploadName);
+    await client.uploadFrom(readable, uploadName);
 
     return {
       success: true,
@@ -108,25 +116,57 @@ async function uploadBytesToFtpProducerFolder(
   }
 }
 
+type AudioValidationMeta = {
+  name: string;
+  type: string;
+  size?: number | null;
+};
+
+function getAudioValidationMeta(audio: File | null, fallbackAudioMeta?: AudioValidationMeta | null) {
+  if (audio) {
+    return {
+      name: audio.name,
+      type: audio.type,
+      size: audio.size,
+    };
+  }
+
+  if (fallbackAudioMeta) {
+    return fallbackAudioMeta;
+  }
+
+  return null;
+}
+
+function validateAudioMeta(meta: AudioValidationMeta) {
+  const isMp3 = meta.type === "audio/mpeg" || meta.name.toLowerCase().endsWith(".mp3");
+  if (!isMp3) {
+    return "Audio must be an MP3 file.";
+  }
+
+  if (typeof meta.size === "number" && Number.isFinite(meta.size) && meta.size > MAX_AUDIO_BYTES) {
+    return "Audio exceeds 900 MB maximum size.";
+  }
+
+  return null;
+}
+
 export function validateSubmission(
   audio: File | null,
   image: File | null,
   description: string,
   tags: string[],
   uploadType: "audio" | "cover" | "description" | "all",
+  fallbackAudioMeta?: AudioValidationMeta | null,
 ): string | null {
   const hasTextPayload = Boolean(description.trim()) || tags.length > 0;
 
   if (uploadType === "all") {
-    if (audio) {
-      const isMp3 =
-        audio.type === "audio/mpeg" || audio.name.toLowerCase().endsWith(".mp3");
-      if (!isMp3) {
-        return "Audio must be an MP3 file.";
-      }
-
-      if (audio.size > MAX_AUDIO_BYTES) {
-        return "Audio exceeds 900 MB maximum size.";
+    const audioMeta = getAudioValidationMeta(audio, fallbackAudioMeta);
+    if (audioMeta) {
+      const audioValidationError = validateAudioMeta(audioMeta);
+      if (audioValidationError) {
+        return audioValidationError;
       }
     }
 
@@ -138,18 +178,14 @@ export function validateSubmission(
   }
 
   if (uploadType === "audio") {
-    if (!audio) {
+    const audioMeta = getAudioValidationMeta(audio, fallbackAudioMeta);
+    if (!audioMeta) {
       return "Audio file is required.";
     }
 
-    const isMp3 =
-      audio.type === "audio/mpeg" || audio.name.toLowerCase().endsWith(".mp3");
-    if (!isMp3) {
-      return "Audio must be an MP3 file.";
-    }
-
-    if (audio.size > MAX_AUDIO_BYTES) {
-      return "Audio exceeds 900 MB maximum size.";
+    const audioValidationError = validateAudioMeta(audioMeta);
+    if (audioValidationError) {
+      return audioValidationError;
     }
 
     if (!hasTextPayload) {
@@ -180,6 +216,21 @@ export async function routeAudioToFtp(
   const uploadName = uploadNameOverride || audio.name;
   const bytes = Buffer.from(await audio.arrayBuffer());
   const result = await uploadBytesToFtpProducerFolder(bytes, uploadName, producerFolderName);
+
+  return {
+    ...result,
+    message: result.success
+      ? `Audio uploaded to FTP as ${uploadName}`
+      : `Audio upload failed: ${result.message}`,
+  };
+}
+
+export async function routeAudioStreamToFtp(
+  audioStream: Readable,
+  producerFolderName: string,
+  uploadName: string,
+): Promise<RouteResult> {
+  const result = await uploadReadableToFtpProducerFolder(audioStream, uploadName, producerFolderName);
 
   return {
     ...result,
