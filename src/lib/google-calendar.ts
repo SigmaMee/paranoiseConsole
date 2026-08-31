@@ -1,4 +1,4 @@
-import { google } from "googleapis";
+import { calendar_v3, google } from "googleapis";
 import { getReferenceNow } from "@/lib/reference-time";
 
 export type UpcomingShow = {
@@ -55,10 +55,10 @@ function parseShowStartToTime(show: UpcomingShow) {
   return Number.isNaN(parsed.getTime()) ? null : parsed.getTime();
 }
 
-function mapCalendarEventToShow(event: any): UpcomingShow {
+function mapCalendarEventToShow(event: calendar_v3.Schema$Event): UpcomingShow {
   const attendeeEmails = Array.isArray(event.attendees)
     ? event.attendees
-        .map((attendee: any) => attendee?.email)
+        .map((attendee) => attendee.email)
         .filter((email: unknown): email is string => typeof email === "string" && email.trim().length > 0)
         .map((email: string) => email.toLowerCase())
     : [];

@@ -210,7 +210,19 @@ export async function POST(request: Request) {
     }
 
     // Fetch ALL submissions for these shows (not just the selected IDs)
-    const allShowSubmissions: any[] = [];
+    type MixcloudSubmission = {
+      id: string;
+      producer_email: string;
+      mixcloud: string | null;
+      audio_filename: string | null;
+      image_filename: string | null;
+      airing_date: string;
+      submitted_tags: string[] | null;
+      ftp_status: string | null;
+      drive_status: string | null;
+      ftp_message: string | null;
+    };
+    const allShowSubmissions: MixcloudSubmission[] = [];
     for (const key of showKeys) {
       const [producerEmail, airingDate] = key.split("|");
       const { data: showSubs, error: showError } = await adminSupabase
@@ -439,13 +451,13 @@ export async function POST(request: Request) {
           status: "published", 
           mixcloud: mixcloudRes 
         });
-      } catch (err: any) {
+      } catch (err) {
         console.error(`Error processing show for ${show.producerEmail} on ${show.airingDate}:`, err);
         results.push({ 
           producer: show.producerEmail, 
           airingDate: show.airingDate,
           status: "error", 
-          error: err.message 
+          error: err instanceof Error ? err.message : "Unknown publishing error",
         });
       } finally {
         // Explicitly free memory

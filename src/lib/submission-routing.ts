@@ -590,13 +590,16 @@ export async function persistSubmissionStatus(payload: PersistPayload) {
     error?.message?.toLowerCase().includes('column "submitted_description"');
 
   if (missingAiringColumns) {
-    const {
-      producer_profile_id: _producerProfileId,
-      show_start_at: _showStartAt,
-      airing_date: _airingDate,
-      submitted_description: _submittedDescription,
-      ...legacyInsert
-    } = baseInsert;
+    const legacyInsert = {
+      producer_email: baseInsert.producer_email,
+      audio_filename: baseInsert.audio_filename,
+      image_filename: baseInsert.image_filename,
+      ftp_status: baseInsert.ftp_status,
+      drive_status: baseInsert.drive_status,
+      ftp_message: baseInsert.ftp_message,
+      drive_message: baseInsert.drive_message,
+      mixcloud: baseInsert.mixcloud,
+    };
     const { error: legacyColumnsError } = await supabase.from("submissions").insert(legacyInsert);
 
     if (!legacyColumnsError) {

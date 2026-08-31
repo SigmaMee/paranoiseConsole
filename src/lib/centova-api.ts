@@ -207,9 +207,7 @@ export async function getCentovaPlaylistByName(
   try {
     const playlists = await listCentovaPlaylists();
     const playlist = playlists.find(
-      (p: any) =>
-        typeof p.title === "string" &&
-        p.title.toLowerCase().trim() === playlistName.toLowerCase().trim(),
+      (item) => item.title.toLowerCase().trim() === playlistName.toLowerCase().trim(),
     );
 
     return playlist

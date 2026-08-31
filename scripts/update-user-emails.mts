@@ -40,6 +40,11 @@ async function main() {
 
     // Get user by old email
     const { data: listData, error: listError } = await supabase.auth.admin.listUsers();
+    if (listError) {
+      console.log(`❌ Failed to find ${oldEmail}: ${listError.message}`);
+      failed++;
+      continue;
+    }
     const user = listData?.users?.find((u) => normalizeEmail(u.email ?? "") === normalizedOld);
 
     if (!user) {
@@ -49,7 +54,7 @@ async function main() {
     }
 
     // Update email
-    const { data, error } = await supabase.auth.admin.updateUserById(user.id, {
+    const { error } = await supabase.auth.admin.updateUserById(user.id, {
       email: normalizedNew,
       email_confirm: true, // Auto-confirm the new email
     });

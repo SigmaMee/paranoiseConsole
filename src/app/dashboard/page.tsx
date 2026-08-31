@@ -6,26 +6,11 @@ import { isAdminUser } from "@/lib/admin-access";
 import { signOut } from "@/app/actions";
 import { ShowSubmissionToggle } from "@/components/show-submission-toggle";
 import CalendarUserSync from "./_client/CalendarUserSync";
-import styles from "./status-chips.module.css";
 import ActivityLogWrapper from "./ActivityLogWrapper";
-import bulkStyles from "./bulk-action.module.css";
 import {
   getMostRecentPastAndFutureShowsByProducerEmail,
   getScheduledShowCountsForMonth,
 } from "@/lib/google-calendar";
-
-function formatAiringDate(airingDateIso: string | null) {
-  if (!airingDateIso) {
-    return "-";
-  }
-
-  const match = airingDateIso.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (!match) {
-    return airingDateIso;
-  }
-
-  return `${match[3]}/${match[2]}/${match[1]}`;
-}
 
 type DashboardPageProps = {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
@@ -146,7 +131,6 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
     hasTags: boolean;
     mixcloud: string;
   }> = [];
-  let activityTotalCount = 0;
 
   if (isAdmin && process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY) {
     try {
@@ -261,20 +245,9 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
           .from("submissions")
           .select(
             "id,producer_email,airing_date,audio_filename,image_filename,submitted_tags,ftp_message,created_at,mixcloud",
-            { count: "exact" },
           )
           .order("created_at", { ascending: false })
           .range(activityFrom, activityTo);
-
-      activityTotalCount = submissions ? submissions.length : 0;
-
-      const { count } = await adminSupabase
-        .from("submissions")
-        .select("id", { count: "exact", head: true });
-
-      if (typeof count === "number") {
-        activityTotalCount = count;
-      }
 
       const producerEmails = Array.from(
         new Set(
@@ -394,18 +367,6 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
         });
     } catch {}
   }
-
-  const activityTotalPages = Math.max(1, Math.ceil(activityTotalCount / ACTIVITY_PAGE_SIZE));
-  const safeActivityPage = Math.min(activityPage, activityTotalPages);
-  const hasPreviousActivityPage = safeActivityPage > 1;
-  const hasNextActivityPage = safeActivityPage < activityTotalPages;
-
-  const buildActivityPageQuery = (page: number) => {
-    const nextParams = new URLSearchParams();
-    nextParams.set("metric_month", selectedMetricMonth);
-    nextParams.set("activity_page", String(page));
-    return `/dashboard?${nextParams.toString()}`;
-  };
 
   const daysInMonth = new Date(Date.UTC(metricYear, metricMonth, 0)).getUTCDate();
   const firstDayWeekday = new Date(Date.UTC(metricYear, metricMonth - 1, 1)).getUTCDay();

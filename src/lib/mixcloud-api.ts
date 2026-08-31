@@ -30,6 +30,11 @@ export interface MixcloudUploadParams {
   pictureBuffer?: Buffer;
 }
 
+export type MixcloudUploadResponse = {
+  key: string;
+  [field: string]: unknown;
+};
+
 /**
  * Download file from URL and convert to Buffer
  */
@@ -59,7 +64,7 @@ export async function uploadToMixcloud({
   description,
   pictureUrl,
   pictureBuffer,
-}: MixcloudUploadParams): Promise<any> {
+}: MixcloudUploadParams): Promise<MixcloudUploadResponse> {
   const accessToken = await getMixcloudAccessToken();
   const apiUrl = "https://api.mixcloud.com/upload/";
 
@@ -121,9 +126,9 @@ export async function uploadToMixcloud({
     formData.append("picture", new File([new Uint8Array(pictureData)], "cover.jpg", { type: "image/jpeg" }));
   }
 
-  const response = await fetch(apiUrl + `?access_token=${accessToken}`, {
+  const response = await globalThis.fetch(apiUrl + `?access_token=${accessToken}`, {
     method: "POST",
-    body: formData as any,
+    body: formData,
   });
 
   if (!response.ok) {
@@ -131,5 +136,10 @@ export async function uploadToMixcloud({
     throw new Error(`Mixcloud upload failed: ${error}`);
   }
 
-  return await response.json();
+  const result: unknown = await response.json();
+  if (!result || typeof result !== "object" || !("key" in result) || typeof result.key !== "string") {
+    throw new Error("Mixcloud upload returned an invalid response.");
+  }
+
+  return result as MixcloudUploadResponse;
 }

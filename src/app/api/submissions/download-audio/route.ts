@@ -19,10 +19,6 @@ function sanitizeFilename(name: string) {
   return name.replace(/[^a-zA-Z0-9._-]/g, "_");
 }
 
-function sanitizePathSegment(value: string) {
-  return value.replace(/[^a-zA-Z0-9._-]/g, "_");
-}
-
 /**
  * Format date as DDMMYY
  */
@@ -186,7 +182,16 @@ export async function POST(request: Request) {
     }
 
     // Fetch ALL submissions for these shows
-    const allShowSubmissions: any[] = [];
+    type DownloadSubmission = {
+      producer_email: string;
+      airing_date: string;
+      audio_filename: string | null;
+      image_filename: string | null;
+      submitted_description: string | null;
+      submitted_tags: string[] | null;
+      ftp_message: string | null;
+    };
+    const allShowSubmissions: DownloadSubmission[] = [];
     for (const key of showKeys) {
       const [producerEmail, airingDate] = key.split("|");
       const { data: showSubs, error: showError } = await adminSupabase

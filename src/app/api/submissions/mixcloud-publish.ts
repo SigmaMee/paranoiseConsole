@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { uploadToMixcloud } from "@/lib/mixcloud-api";
-import { getSignedR2Url, deleteFromR2, fileExistsInR2 } from "@/lib/r2-utils";
+import { getSignedR2Url, deleteFromR2 } from "@/lib/r2-utils";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -78,12 +78,16 @@ export async function POST(request: Request) {
         }
 
         results.push({ id: sub.id, status: "published", mixcloud: mixcloudRes });
-      } catch (err: any) {
-        results.push({ id: sub.id, status: "error", error: err.message });
+      } catch (err) {
+        results.push({
+          id: sub.id,
+          status: "error",
+          error: err instanceof Error ? err.message : "Unknown publishing error",
+        });
       }
     }
     return NextResponse.json({ success: true, results });
-  } catch (err) {
+  } catch {
     return NextResponse.json({ error: "Unexpected error." }, { status: 500 });
   }
 }

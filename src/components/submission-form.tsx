@@ -626,14 +626,12 @@ export function SubmissionForm({ selectedShowStart, selectedShowTitle }: Submiss
     return () => {
       controller.abort();
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedShowStart]);
 
   useEffect(() => {
     return () => {
       clearPersistedImagePreviewUrl();
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const normalizedTagInput = tagInputValue.trim().toLowerCase();
@@ -1101,7 +1099,7 @@ export function SubmissionForm({ selectedShowStart, selectedShowTitle }: Submiss
                   <label className="field-label" htmlFor="show-audio">
                     Audio
                   </label>
-                  <span className="field-label-helper">MP3 320KBPS 120' MAX</span>
+                  <span className="field-label-helper">MP3 320KBPS 120&apos; MAX</span>
                 </div>
                 {!audioFile ? (
                   <div
@@ -1258,7 +1256,7 @@ export function SubmissionForm({ selectedShowStart, selectedShowTitle }: Submiss
                       className="tag-suggestion-item tag-suggestion-create"
                       onMouseDown={(event) => { event.preventDefault(); addTag(normalizedTagInput); }}
                     >
-                      Create "{normalizedTagInput}"
+                      Create &quot;{normalizedTagInput}&quot;
                     </button>
                   ) : null}
                 </div>

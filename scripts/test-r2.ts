@@ -5,7 +5,7 @@
  * Requires your .env.local to be present, or env vars set in your shell.
  */
 
-import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand, ListBucketsCommand } from "@aws-sdk/client-s3";
+import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3";
 import { config } from "dotenv";
 import { resolve } from "path";
 

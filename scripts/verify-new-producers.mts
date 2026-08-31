@@ -1,4 +1,4 @@
-import { createClient } from "@supabase/supabase-js";
+import { createClient, type User } from "@supabase/supabase-js";
 import dotenv from "dotenv";
 
 dotenv.config({ path: ".env.local" });
@@ -41,7 +41,7 @@ async function main() {
   ];
 
   // Get all Supabase users
-  const allSupabaseUsers = new Map<string, any>();
+  const allSupabaseUsers = new Map<string, User>();
   let page = 1;
   const perPage = 200;
 

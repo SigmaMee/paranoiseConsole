@@ -15,6 +15,10 @@ export type ActivityLogRow = {
   mixcloud: string;
 };
 
+type ErrorResponse = { error?: string };
+type PublishResult = { status?: string };
+type PublishResponse = ErrorResponse & { results?: PublishResult[] };
+
 function formatAiringDate(airingDateIso: string | null) {
   if (!airingDateIso) return "-";
   const match = airingDateIso.match(/^(\d{4})-(\d{2})-(\d{2})$/);
@@ -83,7 +87,7 @@ export default function DashboardActivityLog({ rows }: { rows: ActivityLogRow[] 
 
       if (progressInterval) clearInterval(progressInterval);
 
-      const data = await response.json();
+      const data: PublishResponse = await response.json();
 
       if (!response.ok) {
         setMessage({ type: "error", text: data.error || "Failed to publish submissions." });
@@ -92,8 +96,8 @@ export default function DashboardActivityLog({ rows }: { rows: ActivityLogRow[] 
       }
 
       // Count successes
-      const successCount = (data.results || []).filter((r: any) => r.status === "published").length;
-      const failureCount = (data.results || []).filter((r: any) => r.status === "error").length;
+      const successCount = (data.results || []).filter((result) => result.status === "published").length;
+      const failureCount = (data.results || []).filter((result) => result.status === "error").length;
 
       let feedbackText = `Published ${successCount} submission${successCount !== 1 ? "s" : ""}`;
       if (failureCount > 0) {
@@ -108,9 +112,12 @@ export default function DashboardActivityLog({ rows }: { rows: ActivityLogRow[] 
 
       // Reload page after 2 seconds to show updated status
       setTimeout(() => window.location.reload(), 2000);
-    } catch (err: any) {
+    } catch (err) {
       if (progressInterval) clearInterval(progressInterval);
-      setMessage({ type: "error", text: err.message || "Network error. Please try again." });
+      setMessage({
+        type: "error",
+        text: err instanceof Error ? err.message : "Network error. Please try again.",
+      });
       setProgress(0);
     } finally {
       setLoading(false);
@@ -151,7 +158,7 @@ export default function DashboardActivityLog({ rows }: { rows: ActivityLogRow[] 
       setProgress(60);
 
       if (!response.ok) {
-        const data = await response.json();
+        const data: ErrorResponse = await response.json();
         setMessage({ type: "error", text: data.error || "Failed to download show package." });
         setProgress(0);
         return;
@@ -159,7 +166,7 @@ export default function DashboardActivityLog({ rows }: { rows: ActivityLogRow[] 
 
       const contentType = response.headers.get("content-type") || "";
       if (contentType.includes("application/json")) {
-        const data = await response.json();
+        const data: ErrorResponse = await response.json();
         setMessage({ type: "error", text: data.error || "Download endpoint returned JSON instead of ZIP." });
         setProgress(0);
         return;
@@ -193,8 +200,11 @@ export default function DashboardActivityLog({ rows }: { rows: ActivityLogRow[] 
         setMessage(null);
         setProgress(0);
       }, 3000);
-    } catch (err: any) {
-      setMessage({ type: "error", text: err.message || "Network error. Please try again." });
+    } catch (err) {
+      setMessage({
+        type: "error",
+        text: err instanceof Error ? err.message : "Network error. Please try again.",
+      });
       setProgress(0);
     } finally {
       setLoading(false);

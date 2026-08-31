@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { requireAdminUser } from "@/lib/admin-access";
 
 export const runtime = "nodejs";
@@ -10,15 +10,7 @@ type AuthUserSummary = {
   email: string;
 };
 
-type AdminListUsersClient = {
-  auth: {
-    admin: {
-      listUsers: (args: { page: number; perPage: number }) => Promise<any>;
-    };
-  };
-};
-
-async function listAllAuthUsers(adminClient: AdminListUsersClient) {
+async function listAllAuthUsers(adminClient: SupabaseClient) {
   const users: AuthUserSummary[] = [];
   let page = 1;
   const perPage = 200;

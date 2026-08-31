@@ -1,4 +1,4 @@
-import { createClient } from "@supabase/supabase-js";
+import { createClient, type User } from "@supabase/supabase-js";
 import { google } from "googleapis";
 import dotenv from "dotenv";
 
@@ -89,7 +89,7 @@ async function main() {
   const serviceRole = getRequiredEnv("SUPABASE_SERVICE_ROLE_KEY");
   const supabase = createClient(supabaseUrl, serviceRole);
 
-  const allSupabaseUsers = new Map<string, any>();
+  const allSupabaseUsers = new Map<string, User>();
   let page = 1;
   const perPage = 200;
 

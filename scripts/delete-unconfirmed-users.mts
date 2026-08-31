@@ -1,4 +1,4 @@
-import { createClient } from "@supabase/supabase-js";
+import { createClient, type User } from "@supabase/supabase-js";
 import dotenv from "dotenv";
 
 dotenv.config({ path: ".env.local" });
@@ -7,10 +7,6 @@ function getRequiredEnv(name: string) {
   const value = process.env[name];
   if (!value) throw new Error(`Missing: ${name}`);
   return value;
-}
-
-function normalizeEmail(email: string) {
-  return String(email || "").trim().toLowerCase();
 }
 
 async function main() {
@@ -22,7 +18,7 @@ async function main() {
 
   let page = 1;
   const perPage = 200;
-  const unconfirmedUsers: any[] = [];
+  const unconfirmedUsers: User[] = [];
 
   // Fetch all users
   while (true) {

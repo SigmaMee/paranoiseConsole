@@ -1,5 +1,5 @@
 import { google } from "googleapis";
-import { createClient } from "@supabase/supabase-js";
+import { createClient, type SupabaseClient, type User } from "@supabase/supabase-js";
 
 function getRequiredEnv(name: string) {
   const value = process.env[name];
@@ -9,7 +9,7 @@ function getRequiredEnv(name: string) {
   return value;
 }
 
-function normalizeEmail(email: string) {
+function normalizeEmail(email: string | null | undefined) {
   return String(email || "").trim().toLowerCase();
 }
 
@@ -136,8 +136,8 @@ export async function scanCalendarForProducers(): Promise<CalendarProducer[]> {
 /**
  * List all existing auth users by email
  */
-async function listAllUsersByEmail(supabase: any): Promise<Map<string, any>> {
-  const usersByEmail = new Map();
+async function listAllUsersByEmail(supabase: SupabaseClient): Promise<Map<string, User>> {
+  const usersByEmail = new Map<string, User>();
   let page = 1;
   const perPage = 200;
 

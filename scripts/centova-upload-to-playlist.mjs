@@ -42,23 +42,7 @@ async function addTrackToPlaylist() {
     console.log('Could not retrieve media library tracks:', songsData.response?.message || songsData);
   }
   // 1. Ensure playlist exists (list playlists, create if missing)
-  const playlistListParams = new URLSearchParams({
-    xm: 'server.playlist',
-    f: 'json',
-    'a[username]': CENTOVA_USERNAME,
-    'a[password]': CENTOVA_PASSWORD,
-    'a[action]': 'list',
-    'a[playlistname]': producerName,
-  });
-  const listRes = await fetch(`${CENTOVA_API_URL}?${playlistListParams}`);
-  const listData = await listRes.json();
-  let playlistExists = false;
-  if (listData.type === 'success' && listData.response.data && listData.response.data.length > 0) {
-    playlistExists = true;
-  }
-  // Optionally: create playlist if not exists (not shown here, as Centova may require UI for this)
-
-  // 2. Add track to playlist
+  // Add track to the existing playlist. Playlist creation is managed in Centova's UI.
   const addParams = new URLSearchParams({
     xm: 'server.playlist',
     f: 'json',
