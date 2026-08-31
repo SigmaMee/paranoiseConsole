@@ -7,7 +7,13 @@ import {
   UploadPartCommand,
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
-import { randomUUID } from "crypto";
+import {
+  createSafeAudioFilename,
+  createSafeImageFilename,
+  createStagingObjectKey,
+  validateUploadSize,
+} from "@/lib/upload-security";
+import { writeUploadSecurityEvent } from "@/lib/upload-security-audit";
 
 export const runtime = "nodejs";
 
@@ -69,6 +75,8 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Maximum 2 files per request." }, { status: 400 });
     }
 
+    const traceId = `pre-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
     const results: Array<{
       field: string;
       objectKey: string;
@@ -83,12 +91,36 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: `Invalid field: ${file.field}` }, { status: 400 });
       }
 
+      validateUploadSize(file.field, file.size);
+      const safeFilename =
+        file.field === "audio"
+          ? createSafeAudioFilename(file.filename, file.contentType)
+          : createSafeImageFilename(file.filename, file.contentType);
+
       const requestedPartSize =
         typeof file.partSizeBytes === "number" && Number.isFinite(file.partSizeBytes)
           ? Math.max(MIN_PART_SIZE_BYTES, Math.min(MAX_PART_SIZE_BYTES, Math.floor(file.partSizeBytes)))
           : DEFAULT_PART_SIZE_BYTES;
 
-      const objectKey = `staging/${user.id}/${file.field}/${randomUUID()}-${file.filename}`;
+      const objectKey = createStagingObjectKey(user.id, file.field, safeFilename);
+
+      await writeUploadSecurityEvent({
+        traceId,
+        actorUserId: user.id,
+        actorEmail: user.email,
+        eventType: "presign_issued",
+        outcome: "accepted",
+        uploadType: file.field === "audio" ? "audio" : "cover",
+        stagedObjectKeys: [objectKey],
+        ...(file.field === "audio"
+          ? { audioFilename: safeFilename }
+          : { imageFilename: safeFilename }),
+        details: {
+          content_type: file.contentType.toLowerCase(),
+          declared_size_bytes: file.size,
+          multipart: file.size > MULTIPART_THRESHOLD_BYTES,
+        },
+      });
 
       if (file.size > MULTIPART_THRESHOLD_BYTES) {
         // --- Multipart path ---

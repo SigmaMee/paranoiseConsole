@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
 import { createClient as createAdminClient } from "@supabase/supabase-js";
 import { GetObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { Client } from "basic-ftp";
 import { PassThrough, Writable } from "stream";
 import * as archiver from "archiver";
+import { requireAdminUser } from "@/lib/admin-access";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -155,12 +155,8 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "No submissions selected." }, { status: 400 });
     }
 
-    // Verify user is authenticated
-    const supabase = await createClient();
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    const authorization = await requireAdminUser();
+    if (authorization.response) return authorization.response;
 
     const adminSupabase = createAdminClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,

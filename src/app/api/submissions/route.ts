@@ -17,9 +17,17 @@ import {
 } from "@/lib/google-calendar";
 import { updateShowPlaylist } from "@/lib/centova-api";
 import { sendSubmissionConfirmationEmail } from "@/lib/email";
-import { S3Client, GetObjectCommand } from "@aws-sdk/client-s3";
+import { S3Client, GetObjectCommand, HeadObjectCommand } from "@aws-sdk/client-s3";
 import type { Readable } from "stream";
 import { getReferenceNow } from "@/lib/reference-time";
+import {
+  assertOwnedStagingObjectKey,
+  assertStagingObjectMatchesFilename,
+  createSafeAudioFilename,
+  createSafeImageFilename,
+  validateUploadSize,
+} from "@/lib/upload-security";
+import { writeUploadSecurityEvent } from "@/lib/upload-security-audit";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -71,6 +79,37 @@ async function getR2ObjectStream(objectKey: string): Promise<Readable> {
     throw new Error(`R2 object not found: ${objectKey}`);
   }
   return response.Body as Readable;
+}
+
+async function validateStagedObject(
+  objectKey: string,
+  userId: string,
+  field: "audio" | "image",
+  filename: string,
+  expectedContentType: string,
+): Promise<{ contentLength: number; eTag: string | null }> {
+  assertOwnedStagingObjectKey(objectKey, userId, field);
+  assertStagingObjectMatchesFilename(objectKey, filename);
+
+  const response = await r2.send(
+    new HeadObjectCommand({
+      Bucket: process.env.R2_BUCKET_NAME!,
+      Key: objectKey,
+    }),
+  );
+
+  const contentLength = response.ContentLength;
+  if (typeof contentLength !== "number") {
+    throw new Error("Staged upload has no recorded file size.");
+  }
+  validateUploadSize(field, contentLength);
+
+  const storedContentType = response.ContentType?.toLowerCase() || "";
+  if (storedContentType !== expectedContentType.toLowerCase()) {
+    throw new Error("Staged upload content type does not match the approved upload.");
+  }
+
+  return { contentLength, eTag: response.ETag ?? null };
 }
 
 // ---------------------------------------------------------------------------
@@ -422,9 +461,9 @@ export async function POST(request: Request) {
     // Download staged files from R2 if object keys were provided
     const audioObjectKey =
       typeof body.audioObjectKey === "string" ? body.audioObjectKey : null;
-    const audioFilename =
+    const audioFilenameRaw =
       typeof body.audioFilename === "string" ? body.audioFilename : "audio.mp3";
-    const audioContentType =
+    const audioContentTypeRaw =
       typeof body.audioContentType === "string" ? body.audioContentType : "audio/mpeg";
     const audioSize =
       typeof body.audioSize === "number" && Number.isFinite(body.audioSize)
@@ -433,10 +472,19 @@ export async function POST(request: Request) {
 
     const imageObjectKey =
       typeof body.imageObjectKey === "string" ? body.imageObjectKey : null;
-    const imageFilename =
+    const imageFilenameRaw =
       typeof body.imageFilename === "string" ? body.imageFilename : "cover.jpg";
-    const imageContentType =
+    const imageContentTypeRaw =
       typeof body.imageContentType === "string" ? body.imageContentType : "image/jpeg";
+
+    const audioFilename = audioObjectKey
+      ? createSafeAudioFilename(audioFilenameRaw, audioContentTypeRaw)
+      : "";
+    const imageFilename = imageObjectKey
+      ? createSafeImageFilename(imageFilenameRaw, imageContentTypeRaw)
+      : "";
+    const audioContentType = audioContentTypeRaw.toLowerCase();
+    const imageContentType = imageContentTypeRaw.toLowerCase();
 
     logContext.hasAudioObjectKey = Boolean(audioObjectKey);
     logContext.hasImageObjectKey = Boolean(imageObjectKey);
@@ -446,6 +494,16 @@ export async function POST(request: Request) {
       stage,
       ...logContext,
     });
+
+    stage = "staging:validate-r2-ownership";
+    const [audioObjectMeta, imageObjectMeta] = await Promise.all([
+      audioObjectKey
+        ? validateStagedObject(audioObjectKey, user.id, "audio", audioFilename, audioContentType)
+        : null,
+      imageObjectKey
+        ? validateStagedObject(imageObjectKey, user.id, "image", imageFilename, imageContentType)
+        : null,
+    ]);
 
     stage = "staging:download-from-r2";
     const [optionalImage] = await Promise.all([
@@ -510,6 +568,29 @@ export async function POST(request: Request) {
     const descriptionFilenameHint = dateForSuffix
       ? `${selectedShowTitle}-${formatShowDateDdMmYy(dateForSuffix)}`
       : audioFilename || "show-description";
+
+    stage = "audit:delivery-attempted";
+    await writeUploadSecurityEvent({
+      traceId,
+      actorUserId: user.id,
+      actorEmail: userEmail,
+      eventType: "delivery_attempted",
+      outcome: "pending",
+      uploadType,
+      stagedObjectKeys: [audioObjectKey, imageObjectKey].filter(
+        (objectKey): objectKey is string => Boolean(objectKey),
+      ),
+      audioFilename,
+      imageFilename,
+      targetProducerFolder: producerFolderName,
+      details: {
+        audio_size_bytes: audioObjectMeta?.contentLength ?? null,
+        audio_storage_etag: audioObjectMeta?.eTag ?? null,
+        image_size_bytes: imageObjectMeta?.contentLength ?? null,
+        image_storage_etag: imageObjectMeta?.eTag ?? null,
+        has_description: Boolean(descriptionFileContent),
+      },
+    });
 
     if (uploadType === "audio") {
       stage = "route:audio";
@@ -762,6 +843,27 @@ export async function POST(request: Request) {
     }
 
     const allSucceeded = ftpResult.success && driveResult.success && (!centovaResult || centovaResult.success);
+
+    stage = "audit:delivery-completed";
+    await writeUploadSecurityEvent({
+      traceId,
+      actorUserId: user.id,
+      actorEmail: userEmail,
+      eventType: "delivery_completed",
+      outcome: allSucceeded ? "success" : ftpResult.success || driveResult.success ? "partial" : "failed",
+      uploadType,
+      stagedObjectKeys: [audioObjectKey, imageObjectKey].filter(
+        (objectKey): objectKey is string => Boolean(objectKey),
+      ),
+      audioFilename: uploadedAudioFilename,
+      imageFilename: uploadedImageFilename,
+      targetProducerFolder: producerFolderName,
+      details: {
+        ftp_status: ftpResult.success ? "success" : "failed",
+        drive_status: driveResult.success ? "success" : "failed",
+        centova_status: centovaResult ? (centovaResult.success ? "success" : "failed") : null,
+      },
+    });
 
     // Fire confirmation email non-blocking — does not affect the response
     if (ftpResult.success) {

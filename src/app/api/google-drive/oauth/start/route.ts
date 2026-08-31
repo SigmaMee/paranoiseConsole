@@ -1,18 +1,12 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
 import { getGoogleDriveOAuthAuthUrl } from "@/lib/google-drive-oauth";
+import { requireAdminUser } from "@/lib/admin-access";
 
 export const runtime = "nodejs";
 
 export async function GET() {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user?.email) {
-    return NextResponse.redirect(new URL("/login", process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000"));
-  }
+  const authorization = await requireAdminUser();
+  if (authorization.response) return authorization.response;
 
   try {
     const authUrl = getGoogleDriveOAuthAuthUrl();

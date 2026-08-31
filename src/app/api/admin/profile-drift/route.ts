@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { createClient as createSessionClient } from "@/lib/supabase/server";
+import { requireAdminUser } from "@/lib/admin-access";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -55,21 +55,8 @@ async function listAllAuthUsers(adminClient: AdminListUsersClient) {
 
 export async function GET() {
   try {
-    const sessionClient = await createSessionClient();
-    const {
-      data: { user },
-    } = await sessionClient.auth.getUser();
-
-    if (!user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
-    const adminEmail = (process.env.ADMIN_EMAIL || "").toLowerCase();
-    const isAdmin = Boolean(user.email && adminEmail && user.email.toLowerCase() === adminEmail);
-
-    if (!isAdmin) {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
+    const authorization = await requireAdminUser();
+    if (authorization.response) return authorization.response;
 
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
     const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;

@@ -1,29 +1,15 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
 import { createUsersFromCalendar } from "@/lib/calendar-user-sync";
 import { scanCalendarForProducers } from "@/lib/calendar-user-sync";
+import { requireAdminUser } from "@/lib/admin-access";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
 export async function POST(request: Request) {
   try {
-    // Verify admin access
-    const supabase = await createClient();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-
-    if (!user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
-    const adminEmail = (process.env.ADMIN_EMAIL || "").toLowerCase();
-    const isAdmin = Boolean(user.email && adminEmail && user.email.toLowerCase() === adminEmail);
-
-    if (!isAdmin) {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
+    const authorization = await requireAdminUser();
+    if (authorization.response) return authorization.response;
 
     const body = await request.json();
     const { action } = body;

@@ -249,6 +249,18 @@ Optional data import:
 - Producer profile drafts live in Supabase.
 - Profile saves enqueue sync jobs so Supabase can act as a staging layer while another CMS remains the publishing destination.
 
+### Admin authorization
+
+Routes that manage other producers' data or use service-role access require an explicit admin role.
+
+- Preferred: set `app_metadata.role` to `admin`, or include `admin` in `app_metadata.roles`, through the Supabase Admin API.
+- During migration, the email configured in `ADMIN_EMAIL` also retains admin access. It may contain a comma-separated list of administrator emails.
+- Do not use `user_metadata` for authorization; users can edit it themselves.
+
+### Upload security audit
+
+Apply [`supabase/upload_security_events.sql`](supabase/upload_security_events.sql) before deploying the corresponding application version. Console fails closed before external media delivery if it cannot persist the audit event.
+
 
 
 ## Deployment Notes

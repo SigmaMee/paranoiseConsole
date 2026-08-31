@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import Image from "next/image";
 import { createClient as createAdminClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
+import { isAdminUser } from "@/lib/admin-access";
 import { signOut } from "@/app/actions";
 import { ShowSubmissionToggle } from "@/components/show-submission-toggle";
 import CalendarUserSync from "./_client/CalendarUserSync";
@@ -105,8 +106,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
     redirect("/login");
   }
 
-  const adminEmail = (process.env.ADMIN_EMAIL || "").toLowerCase();
-  const isAdmin = Boolean(user.email && adminEmail && user.email.toLowerCase() === adminEmail);
+  const isAdmin = isAdminUser(user);
   const producerName =
     typeof user.user_metadata?.full_name === "string" && user.user_metadata.full_name.trim()
       ? user.user_metadata.full_name.trim()

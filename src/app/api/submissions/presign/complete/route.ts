@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { S3Client, CompleteMultipartUploadCommand } from "@aws-sdk/client-s3";
+import { assertOwnedStagingObjectKey } from "@/lib/upload-security";
 
 export const runtime = "nodejs";
 
@@ -43,10 +44,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Missing objectKey, uploadId, or parts." }, { status: 400 });
     }
 
-    // Verify the object belongs to this user
-    if (!body.objectKey.startsWith(`staging/${user.id}/`)) {
-      return NextResponse.json({ error: "Unauthorized." }, { status: 403 });
-    }
+    assertOwnedStagingObjectKey(body.objectKey, user.id);
 
     await r2.send(
       new CompleteMultipartUploadCommand({
