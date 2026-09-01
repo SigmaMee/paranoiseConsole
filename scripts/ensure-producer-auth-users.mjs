@@ -1,4 +1,3 @@
-import crypto from "node:crypto";
 import process from "node:process";
 import { createClient } from "@supabase/supabase-js";
 import dotenv from "dotenv";
@@ -88,11 +87,8 @@ async function run() {
       continue;
     }
 
-    const temporaryPassword = `tmp-${crypto.randomUUID()}-pw`;
-
     const { data, error } = await supabase.auth.admin.createUser({
       email: profile.email,
-      password: temporaryPassword,
       email_confirm: true,
       user_metadata: {
         full_name: profile.fullName,

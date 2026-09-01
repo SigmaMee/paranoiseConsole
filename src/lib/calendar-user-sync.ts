@@ -14,7 +14,7 @@ function normalizeEmail(email: string | null | undefined) {
 }
 
 /**
- * Parse event name to extract producer name (password)
+ * Parse event name to extract the producer name.
  * Format: producer-name - radio show name
  * Returns the producer-name part
  */
@@ -30,7 +30,7 @@ function isGuestMixEvent(eventTitle: string): boolean {
 
 export type CalendarProducer = {
   email: string;
-  password: string;
+  producerName: string;
   fullName: string | null;
   eventTitle: string;
 };
@@ -99,7 +99,7 @@ export async function scanCalendarForProducers(): Promise<CalendarProducer[]> {
       if (!producerMap.has(email)) {
         producerMap.set(email, {
           email,
-          password: producerName,
+          producerName,
           fullName: attendee.displayName || null,
           eventTitle,
         });
@@ -169,8 +169,8 @@ async function listAllUsersByEmail(supabase: SupabaseClient): Promise<Map<string
 
 /**
  * Create auth users from calendar events
- * Event format: producer-name - radio show name
- * Password is derived from producer-name
+ * Event format: producer-name - radio show name.
+ * Accounts are passwordless and can sign in only through their email address.
  */
 export async function createUsersFromCalendar(): Promise<CreateUsersResult> {
   const supabaseUrl = getRequiredEnv("NEXT_PUBLIC_SUPABASE_URL");
@@ -197,10 +197,8 @@ export async function createUsersFromCalendar(): Promise<CreateUsersResult> {
       continue;
     }
 
-    // Create user with derived password
     const { data, error } = await supabase.auth.admin.createUser({
       email: producer.email,
-      password: producer.password,
       email_confirm: true,
       user_metadata: {
         full_name: producer.fullName || producer.email.split("@")[0],

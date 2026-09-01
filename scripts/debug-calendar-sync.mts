@@ -75,7 +75,7 @@ async function main() {
       if (!producerMap.has(email)) {
         producerMap.set(email, {
           email,
-          password: producerName,
+          producerName,
           eventTitle,
         });
       }
@@ -135,14 +135,14 @@ async function main() {
 
   console.log("🆕 NEW PRODUCERS:");
   for (const producer of newProducers) {
-    console.log(`  ${producer.email} | Password: ${producer.password} | Event: "${producer.eventTitle}"`);
+    console.log(`  ${producer.email} | Producer: ${producer.producerName} | Event: "${producer.eventTitle}"`);
   }
 
   console.log("\n⚠️  ALREADY EXISTING (should have been filtered out):");
   for (const producer of existingProducers) {
     const supabaseUser = allSupabaseUsers.get(producer.email);
     console.log(
-      `  ${producer.email} | Password: ${producer.password} | Event: "${producer.eventTitle}" | Created: ${supabaseUser?.created_at}`,
+      `  ${producer.email} | Producer: ${producer.producerName} | Event: "${producer.eventTitle}" | Created: ${supabaseUser?.created_at}`,
     );
   }
 }

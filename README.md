@@ -29,7 +29,7 @@ The console sits between the weekly radio schedule and the broadcast/archive sta
 
 ### 1. Producer Submission Flow
 
-Residents authenticate through Supabase and land on a protected dashboard. From there they can upload:
+Residents authenticate through an invitation-only Supabase email-code flow and land on a protected dashboard. Unknown emails cannot create accounts. From there they can upload:
 
 - MP3 audio up to 900 MB
 - square cover art
@@ -114,6 +114,8 @@ Why it matters:
 ### Calendar-driven onboarding
 
 Google Calendar acts as a source of truth for upcoming shows and producer presence. Admin tooling can scan events, identify producers, and create missing auth users in bulk.
+
+New auth users are created without passwords. To enable eight-digit login codes, configure Resend as the Supabase custom SMTP provider and customize the Magic Link email template to include `{{ .Token }}`. Keep public signup disabled; the client also sets `shouldCreateUser: false` as defense in depth.
 
 Why it matters:
 

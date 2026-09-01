@@ -4,7 +4,7 @@ import styles from "./calendar-user-sync.module.css";
 
 type Producer = {
   email: string;
-  password: string;
+  producerName: string;
   fullName: string | null;
   eventTitle: string;
 };
@@ -79,8 +79,7 @@ export default function CalendarUserSync() {
     <div className={styles.section}>
       <h2 className="dashboard-section-title">Add new producers</h2>
       <p className={`muted ${styles.description}`}>
-        Scan calendar events and create auth users for producers. Event format: producer-name - radio show name. 
-        The producer-name will be used as the password.
+        Scan calendar events and create passwordless auth users for producers. Event format: producer-name - radio show name.
       </p>
       
       <button
@@ -101,7 +100,7 @@ export default function CalendarUserSync() {
               <thead className={styles.scanTableHeader}>
                 <tr>
                   <th className={styles.scanTableHeaderCell}>Email</th>
-                  <th className={styles.scanTableHeaderCell}>Password</th>
+                  <th className={styles.scanTableHeaderCell}>Producer</th>
                   <th className={styles.scanTableHeaderCell}>From Event</th>
                 </tr>
               </thead>
@@ -109,8 +108,8 @@ export default function CalendarUserSync() {
                 {scannedProducers.map((producer, idx) => (
                   <tr key={idx} className={styles.scanTableBody}>
                     <td className={styles.scanTableCell}>{producer.email}</td>
-                    <td className={`${styles.scanTableCell} ${styles.scanTablePassword}`}>
-                      {producer.password}
+                    <td className={styles.scanTableCell}>
+                      {producer.producerName}
                     </td>
                     <td className={`${styles.scanTableCell} ${styles.scanTableEvent}`}>
                       {producer.eventTitle}

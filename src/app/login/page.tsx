@@ -10,32 +10,63 @@ export default function LoginPage() {
   const supabase = useMemo(() => createClient(), []);
 
   const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
+  const [code, setCode] = useState("");
+  const [codeRequested, setCodeRequested] = useState(false);
   const [message, setMessage] = useState("");
   const [isError, setIsError] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
 
-  async function onSubmit(event: FormEvent<HTMLFormElement>) {
+  async function sendCode() {
+    setIsLoading(true);
+    setMessage("");
+    setIsError(false);
+
+    await supabase.auth.signInWithOtp({
+      email: email.trim().toLowerCase(),
+      options: {
+        shouldCreateUser: false,
+      },
+    });
+
+    setCodeRequested(true);
+    setMessage("If this email belongs to a resident account, a sign-in code is on its way.");
+    setIsLoading(false);
+  }
+
+  async function requestCode(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    await sendCode();
+  }
+
+  async function verifyCode(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setIsLoading(true);
     setMessage("");
     setIsError(false);
 
-    const { error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
+    const { error } = await supabase.auth.verifyOtp({
+      email: email.trim().toLowerCase(),
+      token: code.replace(/\s/g, ""),
+      type: "email",
     });
 
     if (error) {
       setIsError(true);
-      setMessage(error.message || "Sign-in failed.");
+      setMessage("That code is invalid or has expired. Check the code and try again.");
       setIsLoading(false);
       return;
     }
 
-    setMessage("Sign-in successful. Redirecting...");
+    setMessage("Signed in. Redirecting...");
     router.push("/dashboard");
     router.refresh();
+  }
+
+  function changeEmail() {
+    setCodeRequested(false);
+    setCode("");
+    setMessage("");
+    setIsError(false);
   }
 
   return (
@@ -55,42 +86,77 @@ export default function LoginPage() {
           </div>
         </div>
 
-        <form className="login-form" onSubmit={onSubmit}>
+        <form className="login-form" onSubmit={codeRequested ? verifyCode : requestCode}>
           <div className="login-residents-banner">RESIDENTS ONLY</div>
-          <div className="login-label-row">
-            <label className="login-label" htmlFor="email">
-              Email
-            </label>
-            <p className="login-label-helper">The one used with Paranoise.</p>
-          </div>
-          <input
-            id="email"
-            className="input"
-            type="email"
-            placeholder="Producer email"
-            value={email}
-            onChange={(event) => setEmail(event.target.value)}
-            required
-          />
-          <div className="login-label-row">
-            <label className="login-label" htmlFor="password">
-              Producer name
-            </label>
-            <p className="login-label-helper">The one in our schedule</p>
-          </div>
-          <input
-            id="password"
-            className="input"
-            type="password"
-            placeholder="Password"
-            value={password}
-            onChange={(event) => setPassword(event.target.value)}
-            required
-          />
+          {!codeRequested ? (
+            <>
+              <div className="login-label-row">
+                <label className="login-label" htmlFor="email">
+                  Email
+                </label>
+                <p className="login-label-helper">The one used with Paranoise.</p>
+              </div>
+              <input
+                id="email"
+                className="input"
+                type="email"
+                inputMode="email"
+                autoComplete="email"
+                placeholder="Producer email"
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+                disabled={isLoading}
+                required
+              />
+            </>
+          ) : (
+            <>
+              <div className="login-label-row">
+                <label className="login-label" htmlFor="code">
+                  Sign-in code
+                </label>
+                <button className="login-text-button" type="button" onClick={changeEmail}>
+                  Change email
+                </button>
+              </div>
+              <p className="login-code-recipient">Sent to {email.trim().toLowerCase()}</p>
+              <input
+                id="code"
+                className="input login-code-input"
+                type="text"
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                pattern="[0-9]{8}"
+                maxLength={8}
+                placeholder="00000000"
+                value={code}
+                onChange={(event) => setCode(event.target.value.replace(/\D/g, ""))}
+                autoFocus
+                disabled={isLoading}
+                required
+              />
+            </>
+          )}
           <button className="login-submit" type="submit" disabled={isLoading}>
-            {isLoading ? "Signing in..." : "Sign in"}
+            {isLoading
+              ? codeRequested
+                ? "Verifying..."
+                : "Sending code..."
+              : codeRequested
+                ? "Verify & sign in"
+                : "Email me a sign-in code"}
           </button>
-          <p className="login-label-helper login-footer-helper">Issues logging in? Contact us</p>
+          {codeRequested ? (
+            <button
+              className="login-text-button login-resend"
+              type="button"
+              onClick={() => void sendCode()}
+              disabled={isLoading}
+            >
+              Send a new code
+            </button>
+          ) : null}
+          <p className="login-label-helper login-footer-helper">Issues signing in? Contact us</p>
         </form>
 
         {message ? (
