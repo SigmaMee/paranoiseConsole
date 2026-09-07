@@ -13,6 +13,7 @@ import {
 } from "react";
 
 const MAX_AUDIO_BYTES = 900 * 1024 * 1024;
+const ARTWORK_SIZE = 1200;
 
 const MUSICBRAINZ_GENRE_TAGS = [
   "acid house",
@@ -164,6 +165,120 @@ function createFakeWaveformBars(seedSource: string, totalBars = 72) {
   }
 
   return bars;
+}
+
+function loadBrowserImage(source: string) {
+  return new Promise<HTMLImageElement>((resolve, reject) => {
+    const image = new window.Image();
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error("The selected image could not be read."));
+    image.src = source;
+  });
+}
+
+function formatArtworkDate(showStart: string | null) {
+  if (!showStart) return "PARANOISE RADIO";
+  const date = new Date(showStart);
+  if (Number.isNaN(date.getTime())) return "PARANOISE RADIO";
+  const dateLabel = new Intl.DateTimeFormat("en-GB", {
+    weekday: "short",
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    timeZone: "Europe/Athens",
+  }).format(date).toUpperCase();
+  const timeLabel = new Intl.DateTimeFormat("en-GB", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+    timeZone: "Europe/Athens",
+  }).format(date);
+  return `${dateLabel} · ${timeLabel} GR`;
+}
+
+async function createShowArtwork(
+  sourceFile: File,
+  showTitle: string | null,
+  showStart: string | null,
+) {
+  const sourceUrl = URL.createObjectURL(sourceFile);
+  try {
+    const [sourceImage, monogram] = await Promise.all([
+      loadBrowserImage(sourceUrl),
+      loadBrowserImage("/branding/monogram-white.png"),
+      document.fonts?.load('400 48px "Favoritpro"'),
+      document.fonts?.load('500 30px "Favoritpro"'),
+    ]);
+    const canvas = document.createElement("canvas");
+    canvas.width = ARTWORK_SIZE;
+    canvas.height = ARTWORK_SIZE;
+    const context = canvas.getContext("2d");
+    if (!context) throw new Error("Artwork generation is not supported by this browser.");
+
+    // Cover-crop the producer's image into the square template.
+    const imageScale = Math.max(ARTWORK_SIZE / sourceImage.width, ARTWORK_SIZE / sourceImage.height);
+    const imageWidth = sourceImage.width * imageScale;
+    const imageHeight = sourceImage.height * imageScale;
+    context.drawImage(
+      sourceImage,
+      (ARTWORK_SIZE - imageWidth) / 2,
+      (ARTWORK_SIZE - imageHeight) / 2,
+      imageWidth,
+      imageHeight,
+    );
+
+    const gradient = context.createLinearGradient(0, ARTWORK_SIZE * 0.42, 0, ARTWORK_SIZE);
+    gradient.addColorStop(0, "rgba(0,0,0,0)");
+    gradient.addColorStop(0.58, "rgba(0,0,0,0.38)");
+    gradient.addColorStop(1, "rgba(0,0,0,0.92)");
+    context.fillStyle = gradient;
+    context.fillRect(0, 0, ARTWORK_SIZE, ARTWORK_SIZE);
+
+    const margin = 64;
+    const logoWidth = 112;
+    const logoHeight = (monogram.height / monogram.width) * logoWidth;
+    const dateBaseline = ARTWORK_SIZE - 64;
+    const titleStart = margin + logoWidth + 16;
+
+    const title = (showTitle || "Paranoise Radio").trim();
+    context.fillStyle = "#ffffff";
+    context.font = '400 48px "Favoritpro", Arial, sans-serif';
+    context.textBaseline = "bottom";
+    const maxTitleWidth = ARTWORK_SIZE - titleStart - margin;
+    let titleSize = 48;
+    while (context.measureText(title).width > maxTitleWidth && titleSize > 26) {
+      titleSize -= 2;
+      context.font = `400 ${titleSize}px "Favoritpro", Arial, sans-serif`;
+    }
+    const titleMetrics = context.measureText(title);
+    context.font = '500 30px "Favoritpro", Arial, sans-serif';
+    const dateLabel = formatArtworkDate(showStart);
+    const dateMetrics = context.measureText(dateLabel);
+    const titleBaseline =
+      dateBaseline - dateMetrics.actualBoundingBoxAscent - 16 - titleMetrics.actualBoundingBoxDescent;
+
+    context.globalAlpha = 0.96;
+    context.drawImage(monogram, margin, dateBaseline - logoHeight, logoWidth, logoHeight);
+    context.globalAlpha = 1;
+    context.font = `400 ${titleSize}px "Favoritpro", Arial, sans-serif`;
+    context.fillText(title, titleStart, titleBaseline);
+
+    context.fillStyle = "#53c8f0";
+    context.font = '500 30px "Favoritpro", Arial, sans-serif';
+    context.fillText(dateLabel, titleStart, dateBaseline);
+
+    const blob = await new Promise<Blob>((resolve, reject) => {
+      canvas.toBlob(
+        (result) => result ? resolve(result) : reject(new Error("The artwork could not be exported.")),
+        "image/jpeg",
+        0.94,
+      );
+    });
+    const safeTitle = title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "show";
+    return new File([blob], `${safeTitle}-artwork.jpg`, { type: "image/jpeg" });
+  } finally {
+    URL.revokeObjectURL(sourceUrl);
+  }
 }
 
 /**
@@ -435,6 +550,7 @@ async function uploadFileToR2WithAdaptiveFallback(
 export function SubmissionForm({ selectedShowStart, selectedShowTitle }: SubmissionFormProps) {
   const [audioFile, setAudioFile] = useState<File | null>(null);
   const [imageFile, setImageFile] = useState<File | null>(null);
+  const [isArtworkGenerating, setIsArtworkGenerating] = useState(false);
   const [audioPreviewUrl, setAudioPreviewUrl] = useState<string | null>(null);
   const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null);
   const [persistedImagePreviewUrl, setPersistedImagePreviewUrl] = useState<string | null>(null);
@@ -464,6 +580,7 @@ export function SubmissionForm({ selectedShowStart, selectedShowTitle }: Submiss
   function resetDraftState() {
     setAudioFile(null);
     setImageFile(null);
+    setIsArtworkGenerating(false);
     setDescription("");
     setSelectedTags([]);
     setTagInputValue("");
@@ -701,8 +818,27 @@ export function SubmissionForm({ selectedShowStart, selectedShowTitle }: Submiss
     setAudioFile(event.target.files?.[0] ?? null);
   }
 
+  async function setArtworkSource(sourceFile: File | null) {
+    if (!sourceFile) return;
+    if (!sourceFile.type.startsWith("image/")) {
+      setErrorMessage("Cover must be a standard image file type.");
+      return;
+    }
+    setIsArtworkGenerating(true);
+    setErrorMessage("");
+    try {
+      const generatedArtwork = await createShowArtwork(sourceFile, selectedShowTitle, selectedShowStart);
+      setImageFile(generatedArtwork);
+      clearPersistedImagePreviewUrl();
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "The artwork could not be generated.");
+    } finally {
+      setIsArtworkGenerating(false);
+    }
+  }
+
   function onImageInputChange(event: ChangeEvent<HTMLInputElement>) {
-    setImageFile(event.target.files?.[0] ?? null);
+    void setArtworkSource(event.target.files?.[0] ?? null);
   }
 
   function onAudioDragOver(event: DragEvent<HTMLDivElement>) { event.preventDefault(); setIsAudioDragging(true); }
@@ -717,7 +853,7 @@ export function SubmissionForm({ selectedShowStart, selectedShowTitle }: Submiss
 
   function onImageDrop(event: DragEvent<HTMLDivElement>) {
     event.preventDefault(); setIsImageDragging(false);
-    setImageFile(event.dataTransfer.files?.[0] ?? null);
+    void setArtworkSource(event.dataTransfer.files?.[0] ?? null);
   }
 
   function openAudioPicker() { audioInputRef.current?.click(); }
@@ -739,6 +875,18 @@ export function SubmissionForm({ selectedShowStart, selectedShowTitle }: Submiss
     setImageFile(null);
     clearPersistedImagePreviewUrl();
     if (imageInputRef.current) imageInputRef.current.value = "";
+  }
+
+  function downloadArtwork(event: MouseEvent<HTMLButtonElement>) {
+    event.preventDefault();
+    event.stopPropagation();
+    if (!imagePreviewUrl || !imageFile) return;
+    const anchor = document.createElement("a");
+    anchor.href = imagePreviewUrl;
+    anchor.download = imageFile.name;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
   }
 
   function toggleAudioPreviewPlayback() {
@@ -1033,9 +1181,8 @@ export function SubmissionForm({ selectedShowStart, selectedShowTitle }: Submiss
             <div className="submission-column submission-column-cover">
               <div className="field-label-row">
                 <label className="field-label" htmlFor="show-cover">
-                  Cover image
+                  Show artwork
                 </label>
-                <span className="field-label-helper">JPEG 800X800 MIN</span>
               </div>
               {!activeCoverPreviewUrl ? (
                 <div
@@ -1057,8 +1204,10 @@ export function SubmissionForm({ selectedShowStart, selectedShowTitle }: Submiss
                     className="cover-dropzone-monogram"
                     aria-hidden
                   />
-                  <p className="upload-zone-primary">Drag and drop your cover image here</p>
-                  <p className="upload-zone-secondary">or click to upload</p>
+                  <p className="upload-zone-primary">
+                    {isArtworkGenerating ? "Creating your artwork…" : "Drag and drop your show photo here"}
+                  </p>
+                  <p className="upload-zone-secondary">Console will crop it and apply the Paranoise template</p>
                 </div>
               ) : null}
               <input
@@ -1081,14 +1230,21 @@ export function SubmissionForm({ selectedShowStart, selectedShowTitle }: Submiss
                   <Image
                     className="cover-preview-image"
                     src={activeCoverPreviewUrl}
-                    alt="Selected cover preview"
+                    alt="Generated show artwork preview"
                     width={800}
                     height={800}
                     unoptimized
                   />
-                  <button className="btn-tertiary" type="button" onClick={clearImageFile}>
-                    Remove cover image
-                  </button>
+                  <div className="cover-preview-actions">
+                    {imagePreviewUrl ? (
+                      <button className="btn-tertiary" type="button" onClick={downloadArtwork}>
+                        Download artwork
+                      </button>
+                    ) : null}
+                    <button className="btn-tertiary" type="button" onClick={clearImageFile}>
+                      Remove artwork
+                    </button>
+                  </div>
                 </div>
               ) : null}
             </div>
@@ -1269,7 +1425,7 @@ export function SubmissionForm({ selectedShowStart, selectedShowTitle }: Submiss
               className={submitAllSuccess ? "button-success-static submission-submit" : "button button-primary submission-submit"}
               type="button"
               onClick={() => onSubmit()}
-              disabled={isLoading}
+              disabled={isLoading || isArtworkGenerating}
             >
               {isLoading
                 ? "Submitting show..."

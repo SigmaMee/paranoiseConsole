@@ -2,22 +2,6 @@
   opacity: 0.4;
   cursor: not-allowed;
 }
-.cover-preview-card {
-  width: 100%;
-  aspect-ratio: 1 / 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.cover-preview-image {
-  width: 100%;
-  height: 100%;
-  aspect-ratio: 1 / 1;
-  object-fit: cover;
-  border-radius: 0;
-  display: block;
-}
 @font-face {
   font-family: "Favoritpro";
   src: url("/fonts/favoritpro/616c09970666a509c5a892c0_FavoritPro-Light.otf") format("opentype");
@@ -902,6 +886,12 @@ a {
   min-height: 0;
   width: 100%;
   aspect-ratio: 1 / 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+  overflow: hidden;
 }
 
 .upload-zone:focus-visible {
@@ -1144,6 +1134,39 @@ a {
 .submission-column {
   display: grid;
   gap: 0.5rem;
+  min-width: 0;
+}
+
+.submission-column .field-label-row {
+  min-width: 0;
+  flex-wrap: wrap;
+  row-gap: 0.25rem;
+}
+
+.submission-column .field-label-helper {
+  min-width: 0;
+  white-space: normal;
+  text-align: right;
+}
+
+.submission-column .field-label-helper-body {
+  width: 100%;
+  text-align: left;
+}
+
+.submission-column-cover .field-label-helper {
+  flex: 1 1 170px;
+}
+
+.submission-column-cover .upload-zone-primary,
+.submission-column-cover .upload-zone-secondary {
+  flex: 0 0 auto;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+.submission-column-cover .upload-zone-primary {
+  margin-top: 1rem;
 }
 
 .submission-block {
@@ -1181,14 +1204,38 @@ a {
 
 .cover-preview-image {
   width: 100%;
+  height: auto;
   aspect-ratio: 1 / 1;
-  object-fit: cover;
+  object-fit: contain;
   border-radius: 0;
   display: block;
 }
 
 .cover-preview-card .btn-tertiary {
   padding: 0.5rem;
+}
+
+.cover-preview-actions {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  padding: 0.35rem 0.5rem;
+  background: #101417;
+}
+
+.cover-preview-actions .btn-tertiary {
+  justify-self: start;
+  white-space: nowrap;
+}
+
+.submission-column-cover .cover-dropzone-monogram {
+  flex: 0 0 auto;
+  width: 38%;
+  max-width: 180px;
+  margin: 0;
 }
 
 .upload-progress-panel {
@@ -1467,7 +1514,7 @@ a {
 @media (min-width: 960px) {
   .submission-grid {
     grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
-    align-items: stretch;
+    align-items: start;
   }
 
   .submission-column-cover {
@@ -1475,8 +1522,8 @@ a {
   }
 
   .submission-column-meta {
-    grid-template-rows: auto 1fr;
-    align-content: stretch;
+    grid-template-rows: auto auto;
+    align-content: start;
   }
 
   .submission-column-meta .submission-block {
@@ -1484,13 +1531,13 @@ a {
   }
 
   .submission-description-block {
-    align-content: stretch;
-    grid-template-rows: auto 1fr;
+    align-content: start;
+    grid-template-rows: auto auto;
   }
 
   .submission-description-block .textarea {
-    min-height: 0;
-    height: 100%;
+    min-height: 180px;
+    height: auto;
   }
 
   .submission-submit {
