@@ -115,12 +115,26 @@ export function assertOwnedStagingObjectKey(
   userId: string,
   field?: UploadField,
 ) {
-  const expectedPrefix = `staging/${userId}/${field ? `${field}/` : ""}`;
-  if (!objectKey.startsWith(expectedPrefix)) {
+  const userPrefix = `staging/${userId}/`;
+  if (!objectKey.startsWith(userPrefix)) {
     throw new Error("Staged upload does not belong to this user or media field.");
   }
 
-  const remainder = objectKey.slice(expectedPrefix.length);
+  let remainder = objectKey.slice(userPrefix.length);
+  if (field) {
+    const fieldPrefix = `${field}/`;
+    if (!remainder.startsWith(fieldPrefix)) {
+      throw new Error("Staged upload does not belong to this user or media field.");
+    }
+    remainder = remainder.slice(fieldPrefix.length);
+  } else {
+    const fieldMatch = /^(audio|image)\/(.+)$/.exec(remainder);
+    if (!fieldMatch) {
+      throw new Error("Staged upload does not belong to this user or media field.");
+    }
+    remainder = fieldMatch[2];
+  }
+
   if (
     !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}-.+$/i.test(
       remainder,

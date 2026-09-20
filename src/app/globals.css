@@ -95,7 +95,7 @@ body {
 body {
   color: var(--foreground);
   background: var(--background);
-  font-family: "Favoritpro", var(--font-geist-sans), Arial, Helvetica, sans-serif;
+  font-family: "Favoritpro", Arial, Helvetica, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   line-height: 1.45;
@@ -910,13 +910,13 @@ a {
   font-size: 0.95rem;
   font-weight: 500;
   color: #aab8be;
-  font-family: var(--font-geist-mono), monospace;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 }
 
 .upload-zone-secondary {
   font-size: 0.82rem;
   color: #aab8be;
-  font-family: var(--font-geist-mono), monospace;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 }
 
 .cover-dropzone-monogram {
@@ -1001,7 +1001,7 @@ a {
 
 .textarea::placeholder,
 .tag-input::placeholder {
-  font-family: var(--font-geist-mono), monospace;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-size: inherit;
   font-weight: inherit;
   letter-spacing: inherit;
@@ -1357,7 +1357,7 @@ a {
 .login-form .input {
   background: var(--panel-soft);
   color: var(--white);
-  font-family: var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 }
 
 .login-form .input::placeholder {
@@ -1374,7 +1374,7 @@ a {
   caret-color: var(--white);
   -webkit-box-shadow: 0 0 0 1000px var(--panel-soft) inset;
   box-shadow: 0 0 0 1000px var(--panel-soft) inset;
-  font-family: var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 }
 
 .login-residents-banner {
