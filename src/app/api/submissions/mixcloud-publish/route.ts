@@ -413,10 +413,18 @@ export async function POST(request: Request) {
         });
         console.log(`[${name}] Mixcloud upload successful, ID: ${mixcloudRes.key}`);
 
+        const mixcloudUrl = new URL(mixcloudRes.key, "https://www.mixcloud.com").toString();
+
         // Mark ALL submissions for this show as published
         const { error: updateError } = await adminSupabase
           .from("submissions")
-          .update({ mixcloud: "published" })
+          .update({
+            mixcloud: "published",
+            mixcloud_key: mixcloudRes.key,
+            mixcloud_url: mixcloudUrl,
+            webflow_status: "ready",
+            webflow_error: null,
+          })
           .eq("producer_email", show.producerEmail)
           .eq("airing_date", show.airingDate);
         
@@ -436,14 +444,7 @@ export async function POST(request: Request) {
           }
         }
         
-        if (imageInR2 && imageR2Key) {
-          try {
-            await deleteFromR2(imageR2Key);
-            console.log(`[${name}] Deleted image from R2: ${imageR2Key}`);
-          } catch (err) {
-            console.warn(`[${name}] Failed to delete image from R2:`, err);
-          }
-        }
+        // Keep the cover in R2 until the Webflow CMS publication succeeds.
 
         results.push({ 
           producer: show.producerEmail, 

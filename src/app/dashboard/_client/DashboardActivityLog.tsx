@@ -13,6 +13,9 @@ export type ActivityLogRow = {
   hasDescription: boolean;
   hasTags: boolean;
   mixcloud: string;
+  webflow: string;
+  webflowItemId: string | null;
+  webflowError: string | null;
 };
 
 type ErrorResponse = { error?: string };
@@ -31,7 +34,12 @@ export default function DashboardActivityLog({ rows }: { rows: ActivityLogRow[] 
   const [loading, setLoading] = React.useState(false);
   const [message, setMessage] = React.useState<{ type: "success" | "error"; text: string } | null>(null);
   const [progress, setProgress] = React.useState(0);
-  const [activeAction, setActiveAction] = React.useState<"publish" | "download" | null>(null);
+  const [activeAction, setActiveAction] = React.useState<"publish" | "webflow" | "download" | null>(null);
+
+  const selectedRows = selected.map((idx) => rows[idx]);
+  const canPublishToWebflow = selectedRows.length > 0 && selectedRows.every(
+    (row) => row.mixcloud === "published" && row.hasCoverImage && ["ready", "failed"].includes(row.webflow),
+  );
 
   const isSelectableRow = (row: ActivityLogRow) => row.hasAudio;
 
@@ -212,6 +220,39 @@ export default function DashboardActivityLog({ rows }: { rows: ActivityLogRow[] 
     }
   };
 
+  const handleWebflowPublish = async () => {
+    if (!canPublishToWebflow) return;
+    setLoading(true);
+    setActiveAction("webflow");
+    setMessage(null);
+    setProgress(25);
+
+    try {
+      const response = await fetch("/api/submissions/webflow-publish", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ submissionIds: selectedRows.map((row) => row.id) }),
+      });
+      const data: PublishResponse = await response.json();
+      if (!response.ok) throw new Error(data.error || "Failed to publish to the website.");
+      const successes = (data.results || []).filter((result) => result.status === "published").length;
+      const failures = (data.results || []).filter((result) => result.status === "error").length;
+      setProgress(100);
+      setMessage({
+        type: failures ? "error" : "success",
+        text: `Published ${successes} show${successes === 1 ? "" : "s"} to the website${failures ? `; ${failures} failed.` : "."}`,
+      });
+      setSelected([]);
+      setTimeout(() => window.location.reload(), 2000);
+    } catch (error) {
+      setMessage({ type: "error", text: error instanceof Error ? error.message : "Network error." });
+      setProgress(0);
+    } finally {
+      setLoading(false);
+      setActiveAction(null);
+    }
+  };
+
   return (
     <>
       <div className={bulkStyles["dashboard-bulk-action-bar"]}>
@@ -230,6 +271,15 @@ export default function DashboardActivityLog({ rows }: { rows: ActivityLogRow[] 
           onClick={handleBulkPublish}
         >
           {loading && activeAction === "publish" ? "Publishing..." : "Publish to Mixcloud"}
+        </button>
+        <button
+          type="button"
+          className="btn-neutral"
+          disabled={!canPublishToWebflow || loading}
+          onClick={handleWebflowPublish}
+          title={selected.length > 0 && !canPublishToWebflow ? "All selected shows must be published on Mixcloud, have a cover, and be ready for website publishing." : undefined}
+        >
+          {loading && activeAction === "webflow" ? "Publishing..." : "Publish to website"}
         </button>
         {message && (
           <p
@@ -260,6 +310,7 @@ export default function DashboardActivityLog({ rows }: { rows: ActivityLogRow[] 
               <th>Description</th>
               <th>Tags</th>
               <th>Mixcloud</th>
+              <th>Website</th>
             </tr>
           </thead>
           <tbody>
@@ -276,6 +327,7 @@ export default function DashboardActivityLog({ rows }: { rows: ActivityLogRow[] 
                   <input
                     type="checkbox"
                     className={logStyles["activity-log-checkbox"]}
+                    aria-label={`Select ${row.producer} show airing ${formatAiringDate(row.airingDate)}`}
                     checked={selected.includes(idx)}
                     disabled={!isSelectableRow(row)}
                     onChange={(e) => {
@@ -318,6 +370,19 @@ export default function DashboardActivityLog({ rows }: { rows: ActivityLogRow[] 
                     }
                   >
                     {row.mixcloud}
+                  </span>
+                </td>
+                <td title={row.webflowError || undefined}>
+                  <span
+                    className={`${styles["mixcloud-chip"]} ${
+                      row.webflow === "published"
+                        ? styles["mixcloud-chip-published"]
+                        : row.webflow === "ready"
+                          ? styles["mixcloud-chip-ready"]
+                          : styles["mixcloud-chip-not-ready"]
+                    }`}
+                  >
+                    {row.webflow}
                   </span>
                 </td>
               </tr>

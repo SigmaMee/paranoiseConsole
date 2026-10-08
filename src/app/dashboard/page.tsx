@@ -130,6 +130,9 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
     hasDescription: boolean;
     hasTags: boolean;
     mixcloud: string;
+    webflow: string;
+    webflowItemId: string | null;
+    webflowError: string | null;
   }> = [];
 
   if (isAdmin && process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY) {
@@ -244,7 +247,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
       const { data: submissions } = await adminSupabase
           .from("submissions")
           .select(
-            "id,producer_email,airing_date,audio_filename,image_filename,submitted_tags,ftp_message,created_at,mixcloud",
+            "id,producer_email,airing_date,audio_filename,image_filename,submitted_tags,ftp_message,created_at,mixcloud,mixcloud_url,webflow_status,webflow_item_id,webflow_error",
           )
           .order("created_at", { ascending: false })
           .range(activityFrom, activityTo);
@@ -285,6 +288,10 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
         hasDescription: boolean;
         hasTags: boolean;
         mixcloudStatuses: string[];
+        hasMixcloudUrl: boolean;
+        webflowStatuses: string[];
+        webflowItemId: string | null;
+        webflowError: string | null;
         latestCreatedAt: string;
       }>();
 
@@ -314,6 +321,10 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
             ftpMessage.includes("description upload failed");
           existing.hasTags = existing.hasTags || submittedTags.length > 0;
           existing.mixcloudStatuses.push(mixcloudStatus);
+          existing.hasMixcloudUrl = existing.hasMixcloudUrl || Boolean(row.mixcloud_url);
+          existing.webflowStatuses.push(typeof row.webflow_status === "string" ? row.webflow_status : "not ready");
+          existing.webflowItemId ||= typeof row.webflow_item_id === "string" ? row.webflow_item_id : null;
+          existing.webflowError ||= typeof row.webflow_error === "string" ? row.webflow_error : null;
           // Keep track of the latest submission
           if (createdAt > existing.latestCreatedAt) {
             existing.latestCreatedAt = createdAt;
@@ -330,6 +341,10 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
               ftpMessage.includes("description upload failed"),
             hasTags: submittedTags.length > 0,
             mixcloudStatuses: [mixcloudStatus],
+            hasMixcloudUrl: Boolean(row.mixcloud_url),
+            webflowStatuses: [typeof row.webflow_status === "string" ? row.webflow_status : "not ready"],
+            webflowItemId: typeof row.webflow_item_id === "string" ? row.webflow_item_id : null,
+            webflowError: typeof row.webflow_error === "string" ? row.webflow_error : null,
             latestCreatedAt: createdAt,
           });
         }
@@ -363,6 +378,17 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
             hasDescription: group.hasDescription,
             hasTags: group.hasTags,
             mixcloud: mixcloudStatus,
+            webflow: group.webflowStatuses.includes("published")
+              ? "published"
+              : group.webflowStatuses.includes("publishing")
+                ? "publishing"
+                : group.webflowStatuses.includes("failed")
+                  ? "failed"
+                  : mixcloudStatus === "published" && group.hasCoverImage && group.hasMixcloudUrl
+                    ? "ready"
+                    : "not ready",
+            webflowItemId: group.webflowItemId,
+            webflowError: group.webflowError,
           };
         });
     } catch {}
