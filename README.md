@@ -163,7 +163,7 @@ Why it matters:
 
 ### Requirements
 
-- Node.js 20.x
+- Node.js 24.x
 - npm
 - Supabase project with Auth and the required tables
 - Access to the external services used by the app
