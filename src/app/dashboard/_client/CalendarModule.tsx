@@ -187,7 +187,10 @@ export default function CalendarModule({ days, pictures, programmeCopyByDate, in
       });
       const result = (await response.json()) as { error?: string; permalink?: string | null; alreadyPublished?: boolean };
       if (!response.ok) throw new Error(result.error || "The Instagram carousel could not be published.");
-      const prefix = result.alreadyPublished ? "This carousel was already published." : "Instagram carousel published.";
+      const publicationLabel = dayPictures.length === 1 ? "post" : "carousel";
+      const prefix = result.alreadyPublished
+        ? `This Instagram ${publicationLabel} was already published.`
+        : `Instagram ${publicationLabel} published.`;
       setMessage(result.permalink ? `${prefix} ${result.permalink}` : prefix);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "The Instagram carousel could not be published.");
@@ -311,16 +314,16 @@ export default function CalendarModule({ days, pictures, programmeCopyByDate, in
                       <button
                         type="button"
                         className={styles.publishButton}
-                        disabled={busy || !instagramConnected || dayPictures.length < 2 || dayPictures.length > 10 || !(editableCopyByDate[day.dateIso] || "").trim()}
+                        disabled={busy || !instagramConnected || dayPictures.length < 1 || dayPictures.length > 10 || !(editableCopyByDate[day.dateIso] || "").trim()}
                         onClick={() => publishCarousel(day.dateIso, dayPictures)}
                       >
-                        {busy ? "Publishing…" : "Publish carousel"}
+                        {busy ? "Publishing…" : dayPictures.length === 1 ? "Publish post" : "Publish carousel"}
                       </button>
                       <p>
                         {!instagramConnected
                           ? "Connect Instagram first."
-                          : dayPictures.length < 2 || dayPictures.length > 10
-                            ? "Select a day with 2–10 pictures."
+                          : dayPictures.length < 1 || dayPictures.length > 10
+                            ? "Select a day with 1–10 pictures."
                             : `${(editableCopyByDate[day.dateIso] || "").length}/2200 caption characters`}
                       </p>
                     </div>

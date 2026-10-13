@@ -3,8 +3,8 @@ import { createClient } from "@supabase/supabase-js";
 import { getSignedR2Url } from "@/lib/r2-utils";
 import { getInstagramGraphUrl, getInstagramPublishingCredentials } from "@/lib/instagram-oauth";
 
-const MIN_CAROUSEL_ITEMS = 2;
-const MAX_CAROUSEL_ITEMS = 10;
+const MIN_PUBLICATION_ITEMS = 1;
+const MAX_PUBLICATION_ITEMS = 10;
 const MAX_CAPTION_LENGTH = 2_200;
 
 type MetaResponse = {
@@ -73,8 +73,8 @@ export async function publishInstagramCarousel(input: {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(input.dateIso)) throw new Error("Select a valid calendar day.");
   if (caption.length === 0) throw new Error("The Today on air caption cannot be empty.");
   if (caption.length > MAX_CAPTION_LENGTH) throw new Error(`The Instagram caption cannot exceed ${MAX_CAPTION_LENGTH} characters.`);
-  if (submissionIds.length < MIN_CAROUSEL_ITEMS || submissionIds.length > MAX_CAROUSEL_ITEMS) {
-    throw new Error(`Instagram carousels require ${MIN_CAROUSEL_ITEMS}–${MAX_CAROUSEL_ITEMS} pictures.`);
+  if (submissionIds.length < MIN_PUBLICATION_ITEMS || submissionIds.length > MAX_PUBLICATION_ITEMS) {
+    throw new Error(`Instagram posts require ${MIN_PUBLICATION_ITEMS}–${MAX_PUBLICATION_ITEMS} pictures.`);
   }
 
   const supabase = adminSupabase();
@@ -136,6 +136,27 @@ export async function publishInstagramCarousel(input: {
   try {
     const { accountId, accessToken } = await getInstagramPublishingCredentials();
     const imageUrls = await Promise.all(orderedRows.map((row) => getSignedR2Url(row.image_object_key as string)));
+    if (imageUrls.length === 1) {
+      const container = await metaRequest(`${accountId}/media`, accessToken, {
+        image_url: imageUrls[0],
+        caption,
+      });
+      if (!container.id) throw new Error("Instagram did not return a media container ID.");
+      await waitForContainer(container.id, accessToken);
+      const published = await metaRequest(`${accountId}/media_publish`, accessToken, { creation_id: container.id });
+      if (!published.id) throw new Error("Instagram did not return the published media ID.");
+      const publishedMedia = await metaGet(published.id, accessToken, "permalink");
+      const publishedAt = new Date().toISOString();
+      await supabase.from("instagram_publications").update({
+        status: "published",
+        instagram_media_id: published.id,
+        permalink: publishedMedia.permalink || null,
+        published_at: publishedAt,
+        updated_at: publishedAt,
+      }).eq("id", publicationId);
+      return { mediaId: published.id, permalink: publishedMedia.permalink || null, alreadyPublished: false };
+    }
+
     const childIds: string[] = [];
     for (const imageUrl of imageUrls) {
       const child = await metaRequest(`${accountId}/media`, accessToken, {
