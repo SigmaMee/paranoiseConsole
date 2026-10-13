@@ -155,37 +155,7 @@
 }
 
 .publishControls {
-  display: grid;
-  gap: var(--space-2);
   margin-top: var(--space-3);
-}
-
-.publishButton {
-  min-height: var(--control-height);
-  border: var(--border-thin) solid var(--color-text);
-  border-radius: var(--radius-sm);
-  padding: var(--button-padding-block) var(--button-padding-inline);
-  background: var(--color-text);
-  color: var(--neutral-text-strong);
-  font: inherit;
-  font-size: var(--font-size-sm);
-  font-weight: 700;
-  cursor: pointer;
-}
-
-.publishButton:hover:not(:disabled) {
-  border-color: var(--color-focus);
-  background: var(--color-focus);
-}
-
-.publishButton:focus-visible {
-  outline: var(--focus-width) solid var(--color-focus);
-  outline-offset: var(--focus-offset);
-}
-
-.publishButton:disabled {
-  opacity: 0.55;
-  cursor: not-allowed;
 }
 
 .publishControls p {

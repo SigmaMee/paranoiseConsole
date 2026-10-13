@@ -167,7 +167,7 @@ export default function CalendarModule({ days, pictures, programmeCopyByDate, in
     }
   };
 
-  const publishCarousel = async (dateIso: string, dayPictures: CalendarPicture[]) => {
+  const publishToInstagram = async (dateIso: string, dayPictures: CalendarPicture[]) => {
     const caption = (editableCopyByDate[dateIso] || "").trim();
     if (!caption) {
       setMessage("Add a Today on air caption before publishing.");
@@ -257,6 +257,24 @@ export default function CalendarModule({ days, pictures, programmeCopyByDate, in
                       </svg>
                     </button>
                   ) : null}
+                  {isExpanded && dayPictures.length > 0 ? (
+                    <button
+                      type="button"
+                      className={styles.dayAction}
+                      data-tooltip={dayPictures.length === 1 ? "Publish to Instagram" : "Publish carousel to Instagram"}
+                      disabled={busy || !instagramConnected || dayPictures.length > 10 || !(editableCopyByDate[day.dateIso] || "").trim()}
+                      onClick={() => publishToInstagram(day.dateIso, dayPictures)}
+                      aria-label={dayPictures.length === 1
+                        ? `Publish picture from ${day.dateIso} to Instagram`
+                        : `Publish pictures from ${day.dateIso} as an Instagram carousel`}
+                    >
+                      <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <rect x="3" y="3" width="18" height="18" rx="5" />
+                        <circle cx="12" cy="12" r="4" />
+                        <circle cx="17.5" cy="6.5" r="1" />
+                      </svg>
+                    </button>
+                  ) : null}
                 </div>
               </header>
               <div className={isExpanded ? styles.dayContent : undefined}>
@@ -311,14 +329,6 @@ export default function CalendarModule({ days, pictures, programmeCopyByDate, in
                       }))}
                     />
                     <div className={styles.publishControls}>
-                      <button
-                        type="button"
-                        className={styles.publishButton}
-                        disabled={busy || !instagramConnected || dayPictures.length < 1 || dayPictures.length > 10 || !(editableCopyByDate[day.dateIso] || "").trim()}
-                        onClick={() => publishCarousel(day.dateIso, dayPictures)}
-                      >
-                        {busy ? "Publishing…" : dayPictures.length === 1 ? "Publish post" : "Publish carousel"}
-                      </button>
                       <p>
                         {!instagramConnected
                           ? "Connect Instagram first."
