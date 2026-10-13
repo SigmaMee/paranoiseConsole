@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { getProducerEmail } from "@/lib/producer-identity";
 
 export const runtime = "nodejs";
 
@@ -57,7 +58,7 @@ export async function GET(request: Request) {
       .from("submissions")
       .select("submitted_description,submitted_tags")
       .eq("airing_date", airingDate)
-      .ilike("producer_email", user.email.toLowerCase())
+      .ilike("producer_email", getProducerEmail(user))
       .order("created_at", { ascending: false })
       .limit(20);
 
@@ -66,7 +67,7 @@ export async function GET(request: Request) {
         .from("submissions")
         .select("submitted_tags")
         .eq("airing_date", airingDate)
-        .ilike("producer_email", user.email.toLowerCase())
+        .ilike("producer_email", getProducerEmail(user))
         .order("created_at", { ascending: false })
         .limit(20);
 

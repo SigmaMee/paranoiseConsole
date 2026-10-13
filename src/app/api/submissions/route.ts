@@ -20,6 +20,7 @@ import { sendSubmissionConfirmationEmail } from "@/lib/email";
 import { S3Client, GetObjectCommand, HeadObjectCommand } from "@aws-sdk/client-s3";
 import type { Readable } from "stream";
 import { getReferenceNow } from "@/lib/reference-time";
+import { getProducerCalendarEmails, getProducerEmail } from "@/lib/producer-identity";
 import {
   assertOwnedStagingObjectKey,
   assertStagingObjectMatchesFilename,
@@ -264,7 +265,7 @@ async function getProducerFolderNameFromProfilesTable(user: {
   user_metadata?: Record<string, unknown>;
 }) {
   const supabase = await createClient();
-  const normalizedEmail = user.email.toLowerCase();
+  const normalizedEmail = getProducerEmail(user);
 
   const fallbackFullName = getDefaultFullNameFromUser(user);
 
@@ -422,6 +423,8 @@ export async function POST(request: Request) {
     }
 
     const userEmail = user.email;
+    const producerEmail = getProducerEmail(user);
+    const producerCalendarEmails = getProducerCalendarEmails(user);
     logContext.userId = user.id;
     logContext.userEmail = userEmail;
 
@@ -545,7 +548,7 @@ export async function POST(request: Request) {
     stage = "profile:resolve-producer";
     const producerProfile = await getProducerFolderNameFromProfilesTable({
       id: user.id,
-      email: userEmail,
+      email: producerEmail,
       user_metadata: user.user_metadata,
     });
     const producerFolderName = producerProfile.folderName;
@@ -557,7 +560,7 @@ export async function POST(request: Request) {
     let uploadedAudioFilename = audioObjectKey ? audioFilename : "";
 
     stage = "calendar:fetch-upcoming";
-    const upcomingShows = await getUpcomingShowsByProducerEmail(userEmail);
+    const upcomingShows = await getUpcomingShowsByProducerEmail(producerCalendarEmails);
     const nextShow = upcomingShows[0];
     const showStart = nextShow?.startsAt || null;
     const selectedShowStart =
@@ -637,7 +640,7 @@ export async function POST(request: Request) {
       );
 
       const descriptionShowStart =
-        selectedShowStart || showStart || (await getNextUpcomingShowStartByProducerEmail(userEmail));
+        selectedShowStart || showStart || (await getNextUpcomingShowStartByProducerEmail(producerCalendarEmails));
       persistedShowStart = descriptionShowStart;
 
       if (!descriptionShowStart) {
@@ -687,7 +690,7 @@ export async function POST(request: Request) {
       let driveSuccess = true;
 
       const driveShowStart =
-        selectedShowStart || showStart || (await getNextUpcomingShowStartByProducerEmail(userEmail));
+        selectedShowStart || showStart || (await getNextUpcomingShowStartByProducerEmail(producerCalendarEmails));
       persistedShowStart = driveShowStart;
 
       if ((optionalImage || descriptionFileContent) && !driveShowStart) {
@@ -763,7 +766,7 @@ export async function POST(request: Request) {
     } else {
       stage = "route:cover";
       const coverShowStart =
-        selectedShowStart || showStart || (await getNextUpcomingShowStartByProducerEmail(userEmail));
+        selectedShowStart || showStart || (await getNextUpcomingShowStartByProducerEmail(producerCalendarEmails));
       persistedShowStart = coverShowStart;
 
       if (!coverShowStart) {
@@ -809,7 +812,7 @@ export async function POST(request: Request) {
       const airingDate = toAiringDateIso(persistedShowStart);
       await persistSubmissionStatus({
         producerProfileId: producerProfile.profileId,
-        producerEmail: userEmail,
+        producerEmail,
         audioFilename: uploadedAudioFilename,
         imageFilename: uploadedImageFilename,
         showStartAt: persistedShowStart,

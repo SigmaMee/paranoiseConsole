@@ -11,6 +11,7 @@ import {
   getMostRecentPastAndFutureShowsByProducerEmail,
   getScheduledShowCountsForMonth,
 } from "@/lib/google-calendar";
+import { getProducerCalendarEmails } from "@/lib/producer-identity";
 
 type DashboardPageProps = {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
@@ -102,7 +103,9 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
 
   if (user.email && !isAdmin) {
     try {
-      const selection = await getMostRecentPastAndFutureShowsByProducerEmail(user.email);
+      const selection = await getMostRecentPastAndFutureShowsByProducerEmail(
+        getProducerCalendarEmails(user),
+      );
       mostRecentPastShow = selection.mostRecentPastShow
         ? { title: selection.mostRecentPastShow.title, startsAt: selection.mostRecentPastShow.startsAt }
         : null;

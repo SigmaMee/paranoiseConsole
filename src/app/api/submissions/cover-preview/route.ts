@@ -3,6 +3,7 @@ import { google } from "googleapis";
 import { createClient } from "@/lib/supabase/server";
 import { getGoogleDriveOAuthClientFromStoredToken } from "@/lib/google-drive-oauth";
 import { getDriveWeekdayFolderIdForShowStart } from "@/lib/submission-routing";
+import { getProducerEmail } from "@/lib/producer-identity";
 
 export const runtime = "nodejs";
 
@@ -89,7 +90,7 @@ export async function GET(request: Request) {
       .from("submissions")
       .select("image_filename")
       .eq("airing_date", airingDate)
-      .ilike("producer_email", user.email.toLowerCase())
+      .ilike("producer_email", getProducerEmail(user))
       .eq("drive_status", "success")
       .neq("image_filename", "")
       .order("created_at", { ascending: false })

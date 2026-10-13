@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { getProducerEmail } from "@/lib/producer-identity";
 
 type ProfileDraftPayload = {
   full_name: string;
@@ -23,7 +24,7 @@ async function ensureProfileExists(user: {
   user_metadata?: Record<string, unknown>;
 }) {
   const supabase = await createClient();
-  const email = user.email?.toLowerCase();
+  const email = getProducerEmail(user);
 
   if (!email) {
     throw new Error("Authenticated user email is required.");
@@ -89,8 +90,6 @@ async function ensureProfileExists(user: {
     const { data: linkedByEmail, error: linkByEmailError } = await supabase
       .from("profiles")
       .update({
-        user_id: user.id,
-        producer_email: email,
         full_name: name,
       })
       .eq("id", existingByEmail.id)

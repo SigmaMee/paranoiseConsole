@@ -73,7 +73,7 @@ function mapCalendarEventToShow(event: calendar_v3.Schema$Event): UpcomingShow {
 }
 
 export async function getUpcomingShowsByProducerEmail(
-  producerEmail: string,
+  producerEmail: string | string[],
 ): Promise<UpcomingShow[]> {
   const serviceAccountEmail = getRequiredEnv("GOOGLE_SERVICE_ACCOUNT_EMAIL");
   const privateKey = getRequiredEnv("GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY").replace(
@@ -104,10 +104,15 @@ export async function getUpcomingShowsByProducerEmail(
 
   const items = response.data.items ?? [];
 
+  const producerEmails = new Set(
+    (Array.isArray(producerEmail) ? producerEmail : [producerEmail]).map((email) =>
+      email.toLowerCase(),
+    ),
+  );
   const filtered = items.filter((event) => {
     const attendees = event.attendees ?? [];
     return attendees.some(
-      (attendee) => attendee.email?.toLowerCase() === producerEmail.toLowerCase(),
+      (attendee) => producerEmails.has(attendee.email?.toLowerCase() || ""),
     );
   });
 
@@ -154,7 +159,7 @@ export async function findUpcomingShowStartByProducerAndTitle(
 }
 
 export async function getNextUpcomingShowStartByProducerEmail(
-  producerEmail: string,
+  producerEmail: string | string[],
 ): Promise<string | null> {
   const shows = await getUpcomingShowsByProducerEmail(producerEmail);
   return shows[0]?.startsAt || null;
@@ -303,7 +308,7 @@ export async function getScheduledShowCountsForMonth(
 }
 
 export async function getMostRecentPastAndFutureShowsByProducerEmail(
-  producerEmail: string,
+  producerEmail: string | string[],
 ): Promise<ProducerShowSelection> {
   const serviceAccountEmail = getRequiredEnv("GOOGLE_SERVICE_ACCOUNT_EMAIL");
   const privateKey = getRequiredEnv("GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY").replace(
@@ -334,11 +339,16 @@ export async function getMostRecentPastAndFutureShowsByProducerEmail(
   });
 
   const items = response.data.items ?? [];
+  const producerEmails = new Set(
+    (Array.isArray(producerEmail) ? producerEmail : [producerEmail]).map((email) =>
+      email.toLowerCase(),
+    ),
+  );
   const shows = items
     .filter((event) => {
       const attendees = event.attendees ?? [];
       return attendees.some(
-        (attendee) => attendee.email?.toLowerCase() === producerEmail.toLowerCase(),
+        (attendee) => producerEmails.has(attendee.email?.toLowerCase() || ""),
       );
     })
     .map(mapCalendarEventToShow)
