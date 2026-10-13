@@ -310,7 +310,7 @@ export default function CalendarModule({ days, pictures, programmeCopyByDate, in
                 {dayPictures.length > 0 || day.missingShows.length > 0 ? (
                   <div className={styles.pictureGrid}>
                     {dayPictures.map((picture) => (
-                      <article key={picture.id} className={`${styles.pictureCard} ${selectedPictureIdSet.has(picture.id) ? styles.pictureCardSelected : ""}`}>
+                      <article key={picture.id} className={`${styles.pictureCard} ${isExpanded && selectedPictureIdSet.has(picture.id) ? styles.pictureCardSelected : ""}`}>
                           <div className={styles.pictureFrame}>
                             {isExpanded ? (
                               <button type="button" className={styles.pictureOpen} onClick={() => setPreview(picture)} aria-label={`View ${picture.filename} enlarged`}>
