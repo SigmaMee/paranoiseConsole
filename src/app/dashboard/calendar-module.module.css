@@ -340,19 +340,14 @@
   position: absolute;
   z-index: 1;
   top: var(--space-2);
-  left: var(--space-2);
+  right: var(--space-2);
   display: flex;
   gap: var(--space-2);
-  opacity: 0;
-  transition: opacity var(--motion-fast) ease;
+  opacity: 1;
 }
 
 .pictureSelection {
   appearance: none;
-  position: absolute;
-  z-index: 2;
-  top: var(--space-2);
-  right: var(--space-2);
   display: grid;
   place-items: center;
   width: var(--icon-size);
@@ -382,11 +377,6 @@
 .pictureSelection:focus-visible {
   outline: var(--focus-width) solid var(--color-focus);
   outline-offset: var(--focus-offset);
-}
-
-.pictureFrame:hover .pictureActions,
-.pictureFrame:focus-within .pictureActions {
-  opacity: 1;
 }
 
 .pictureActions button,

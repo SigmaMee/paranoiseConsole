@@ -323,22 +323,20 @@ export default function CalendarModule({ days, pictures, programmeCopyByDate, in
                               <img className={styles.pictureImage} src={imageSource(picture)} onError={(event) => handleImageError(event, picture)} alt={`Cover uploaded by ${picture.producer}`} />
                             )}
                             {isExpanded ? (
-                              <input
-                                className={styles.pictureSelection}
-                                type="checkbox"
-                                checked={selectedPictureIdSet.has(picture.id)}
-                                onChange={() => togglePictureSelection(day.dateIso, picture.id)}
-                                onClick={(event) => event.stopPropagation()}
-                                aria-label={`${selectedPictureIdSet.has(picture.id) ? "Exclude" : "Include"} ${picture.filename} ${selectedPictureIdSet.has(picture.id) ? "from" : "in"} bulk download and Instagram publishing`}
-                              />
-                            ) : null}
-                            {isExpanded ? (
                               <div className={styles.pictureActions}>
                                 <button type="button" disabled={busy} onClick={() => downloadPictures([picture.id])} aria-label={`Download ${picture.filename}`}>
                                   <svg viewBox="0 0 24 24" aria-hidden="true">
                                     <path d="M12 3v12m0 0 5-5m-5 5-5-5M5 20h14" />
                                   </svg>
                                 </button>
+                                <input
+                                  className={styles.pictureSelection}
+                                  type="checkbox"
+                                  checked={selectedPictureIdSet.has(picture.id)}
+                                  onChange={() => togglePictureSelection(day.dateIso, picture.id)}
+                                  onClick={(event) => event.stopPropagation()}
+                                  aria-label={`${selectedPictureIdSet.has(picture.id) ? "Exclude" : "Include"} ${picture.filename} ${selectedPictureIdSet.has(picture.id) ? "from" : "in"} bulk download and Instagram publishing`}
+                                />
                               </div>
                             ) : null}
                           </div>
