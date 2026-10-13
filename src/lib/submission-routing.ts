@@ -18,6 +18,7 @@ export type PersistPayload = {
   producerEmail: string;
   audioFilename: string;
   imageFilename: string;
+  imageObjectKey?: string | null;
   showStartAt?: string | null;
   airingDate?: string | null;
   submittedDescription?: string | null;
@@ -563,6 +564,7 @@ export async function persistSubmissionStatus(payload: PersistPayload) {
     producer_email: payload.producerEmail,
     audio_filename: payload.audioFilename,
     image_filename: payload.imageFilename,
+    image_object_key: payload.imageObjectKey || null,
     show_start_at: payload.showStartAt || null,
     airing_date: payload.airingDate || null,
     submitted_description:
@@ -587,7 +589,8 @@ export async function persistSubmissionStatus(payload: PersistPayload) {
     error?.message?.toLowerCase().includes('column "show_start_at"') ||
     error?.message?.toLowerCase().includes('column "airing_date"') ||
     error?.message?.toLowerCase().includes('column "submitted_tags"') ||
-    error?.message?.toLowerCase().includes('column "submitted_description"');
+    error?.message?.toLowerCase().includes('column "submitted_description"') ||
+    error?.message?.toLowerCase().includes('column "image_object_key"');
 
   if (missingAiringColumns) {
     const legacyInsert = {

@@ -1,0 +1,584 @@
+.dayHeader {
+  display: flex;
+  align-items: center;
+}
+
+.feedback {
+  margin-bottom: var(--space-3);
+  color: var(--color-accent);
+}
+
+.grid {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  overflow-anchor: none;
+}
+
+.day {
+  position: relative;
+  flex: var(--calendar-day-grow) 1 0;
+  min-width: 0;
+  min-height: 8rem;
+  padding: var(--space-1);
+  border: var(--border-thin) solid transparent;
+  cursor: pointer;
+  transition:
+    flex-grow var(--motion-layout) var(--motion-ease-emphasized),
+    flex-basis var(--motion-layout) var(--motion-ease-emphasized),
+    padding var(--motion-standard) ease,
+    border-color var(--motion-fast) ease,
+    background-color var(--motion-fast) ease;
+}
+
+.grid:has(.day:not(.dayExpanded):hover) .day:not(.dayExpanded) {
+  flex-grow: var(--calendar-day-sibling-grow);
+}
+
+.grid .day:not(.dayExpanded):hover {
+  flex-grow: var(--calendar-day-hover-grow);
+  z-index: 2;
+  border-color: var(--neutral-border);
+  background: var(--neutral-surface);
+}
+
+.dayExpanded {
+  flex: 0 0 var(--calendar-day-selected-width);
+  border-color: var(--color-focus);
+  padding: var(--space-2);
+}
+
+.empty { min-height: var(--space-8); }
+
+.dayHeader {
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+  color: var(--color-text);
+}
+
+.dayNumber {
+  color: var(--color-text);
+  font-size: 1.5rem;
+  font-weight: 700;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.daySelect {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.daySelect:focus-visible {
+  outline: var(--focus-width) solid var(--color-focus);
+  outline-offset: var(--focus-offset);
+}
+
+.daySelect:hover .dayNumber,
+.daySelect[aria-pressed="true"] .dayNumber {
+  color: var(--color-focus);
+}
+
+.dayContent {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: var(--space-3);
+  align-items: start;
+  animation: day-content-enter var(--motion-standard) var(--motion-ease-emphasized);
+}
+
+@keyframes day-content-enter {
+  from {
+    opacity: 0;
+    transform: translateY(var(--space-2));
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.programmeCopy {
+  min-width: 0;
+  padding-left: var(--space-3);
+  border-left: var(--border-thin) solid var(--color-line);
+  animation: programme-copy-enter var(--motion-standard) ease var(--motion-content-delay) both;
+}
+
+@keyframes programme-copy-enter {
+  from {
+    opacity: 0;
+    transform: translateY(var(--space-2));
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.programmeCopy h3 {
+  margin-bottom: var(--space-2);
+  color: var(--color-focus);
+  font-size: var(--font-size-sm);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-wide);
+}
+
+.programmeCopyField {
+  field-sizing: content;
+  width: 100%;
+  min-height: var(--programme-copy-min-height);
+  overflow: hidden;
+  resize: none;
+  border: var(--border-thin) solid var(--neutral-border);
+  border-radius: 0;
+  padding: var(--space-2);
+  background: var(--color-panel);
+  color: var(--color-text);
+  font: inherit;
+  font-size: var(--font-size-sm);
+  line-height: 1.45;
+}
+
+.programmeCopyField:focus-visible {
+  border-color: var(--color-focus);
+  outline: var(--focus-width) solid var(--color-focus);
+  outline-offset: var(--focus-offset);
+}
+
+.publishControls {
+  display: grid;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+
+.publishButton {
+  min-height: var(--control-height);
+  border: var(--border-thin) solid var(--color-text);
+  border-radius: var(--radius-sm);
+  padding: var(--button-padding-block) var(--button-padding-inline);
+  background: var(--color-text);
+  color: var(--neutral-text-strong);
+  font: inherit;
+  font-size: var(--font-size-sm);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.publishButton:hover:not(:disabled) {
+  border-color: var(--color-focus);
+  background: var(--color-focus);
+}
+
+.publishButton:focus-visible {
+  outline: var(--focus-width) solid var(--color-focus);
+  outline-offset: var(--focus-offset);
+}
+
+.publishButton:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.publishControls p {
+  color: var(--neutral-text);
+  font-size: var(--font-size-xs);
+}
+
+.showDetails {
+  margin-top: var(--space-4);
+  padding-top: var(--space-3);
+  border-top: var(--border-thin) solid var(--color-line);
+}
+
+.showDetails h4 {
+  margin-bottom: var(--space-3);
+  color: var(--neutral-text);
+  font-size: var(--font-size-xs);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-wide);
+}
+
+.showDetails article + article { margin-top: var(--space-3); }
+
+.showDetails h5 {
+  margin-bottom: var(--space-1);
+  color: var(--color-text);
+  font-size: var(--font-size-sm);
+}
+
+.showDetails p {
+  color: var(--neutral-text);
+  font-size: var(--font-size-xs);
+  line-height: 1.45;
+  white-space: pre-wrap;
+}
+
+.dayHeaderActions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.dayAction {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: var(--icon-size);
+  height: var(--icon-size);
+  padding: 0;
+  border: var(--border-thin) solid var(--color-line);
+  border-radius: var(--radius-pill);
+  background: var(--color-overlay);
+  color: var(--color-text);
+  cursor: pointer;
+}
+
+.dayAction:hover,
+.dayAction:focus-visible {
+  border-color: var(--blue);
+  background: var(--blue);
+  color: var(--black);
+}
+
+.dayAction:focus-visible {
+  outline: var(--focus-width) solid var(--color-focus);
+  outline-offset: var(--focus-offset);
+}
+
+.dayAction:disabled { opacity: 0.55; }
+
+.dayAction svg {
+  width: 0.875rem;
+  height: 0.875rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.dayAction::after {
+  position: absolute;
+  z-index: 4;
+  top: calc(100% + var(--space-2));
+  right: 0;
+  width: max-content;
+  max-width: 12rem;
+  padding: var(--space-2);
+  border: var(--border-thin) solid var(--neutral-border);
+  background: var(--color-panel);
+  color: var(--color-text);
+  content: attr(data-tooltip);
+  font-size: var(--font-size-xs);
+  font-weight: 700;
+  line-height: 1;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(calc(var(--space-1) * -1));
+  transition:
+    opacity var(--motion-fast) ease,
+    transform var(--motion-fast) ease;
+  white-space: nowrap;
+}
+
+.dayAction:hover::after,
+.dayAction:focus-visible::after {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.pictureGrid {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.pictureCard { min-width: 0; }
+
+.picturePlaceholder {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  aspect-ratio: 1;
+  min-width: 0;
+  border: var(--border-thin) solid var(--neutral-border);
+  padding: var(--space-3);
+  color: var(--neutral-text);
+}
+
+.picturePlaceholder p {
+  margin-bottom: var(--space-1);
+  color: var(--color-text);
+  font-size: var(--font-size-sm);
+  font-weight: 700;
+  line-height: 1.15;
+}
+
+.picturePlaceholder span {
+  font-size: var(--font-size-xs);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-wide);
+}
+
+.pictureFrame {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1;
+  overflow: hidden;
+  border: var(--border-thin) solid transparent;
+  border-radius: var(--radius-sm);
+  background: var(--color-panel);
+}
+
+.pictureActions button:focus-visible,
+.pictureOpen:focus-visible,
+.lightboxControls button:focus-visible {
+  outline: var(--focus-width) solid var(--color-focus);
+  outline-offset: var(--focus-offset);
+}
+
+.pictureOpen {
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: zoom-in;
+}
+
+.pictureImage {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+}
+
+.pictureActions {
+  position: absolute;
+  z-index: 1;
+  top: var(--space-2);
+  right: var(--space-2);
+  display: flex;
+  gap: var(--space-2);
+  opacity: 0;
+  transition: opacity var(--motion-fast) ease;
+}
+
+.pictureFrame:hover .pictureActions,
+.pictureFrame:focus-within .pictureActions {
+  opacity: 1;
+}
+
+.pictureActions button,
+.lightboxControls button {
+  min-height: var(--control-height);
+  border: var(--border-thin) solid var(--color-text);
+  border-radius: var(--radius-sm);
+  background: var(--color-panel);
+  color: var(--color-text);
+  font: inherit;
+  font-size: var(--font-size-xs);
+  font-weight: 700;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.pictureActions button {
+  display: grid;
+  place-items: center;
+  width: var(--icon-size);
+  min-width: var(--icon-size);
+  height: var(--icon-size);
+  min-height: var(--icon-size);
+  padding: 0;
+  border-color: var(--color-line);
+  border-radius: var(--radius-pill);
+  background: var(--color-overlay);
+}
+
+.pictureActions svg {
+  width: 0.875rem;
+  height: 0.875rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.pictureActions button:hover,
+.pictureActions button:focus-visible {
+  border-color: var(--blue);
+  background: var(--blue);
+  color: var(--black);
+}
+
+.pictureActions button:disabled { opacity: 0.55; }
+
+.lightbox {
+  position: fixed;
+  z-index: 10;
+  inset: 0;
+  display: grid;
+  background: var(--black);
+  color: var(--color-text);
+}
+
+.lightboxContent {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+.lightboxLayout {
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) minmax(18rem, 1fr);
+  width: 100%;
+  height: 100%;
+}
+
+.lightboxImage {
+  display: grid;
+  place-items: center;
+  min-width: 0;
+  padding: var(--space-8) 4rem;
+  background: var(--black);
+}
+
+.lightboxImage img {
+  display: block;
+  width: auto;
+  max-width: 100%;
+  max-height: calc(100vh - 4rem);
+  object-fit: contain;
+}
+
+.lightboxMetadata {
+  position: relative;
+  overflow-y: auto;
+  padding: 6rem var(--space-8) var(--space-8);
+  border-left: var(--border-thin) solid var(--color-line);
+  background: var(--color-panel);
+}
+
+.lightboxMetadata h3 {
+  margin-bottom: var(--space-2);
+  font-size: clamp(1.75rem, 3vw, 3rem);
+  line-height: 1;
+}
+
+.metadataDate,
+.metadataProducer {
+  color: var(--color-accent);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-wide);
+}
+
+.metadataDate { margin-bottom: var(--space-3); }
+.metadataProducer { margin-bottom: var(--space-3); }
+.metadataDescription {
+  margin-bottom: var(--space-8);
+  overflow: hidden;
+}
+
+.metadataDescription p {
+  max-height: min(18rem, 35vh);
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding-right: var(--space-2);
+  overscroll-behavior: contain;
+  white-space: pre-wrap;
+}
+.metadataTags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-bottom: var(--space-8);
+  padding: 0;
+  list-style: none;
+}
+
+.lightboxControls {
+  position: absolute;
+  z-index: 1;
+  top: var(--space-4);
+  right: var(--space-4);
+  display: flex;
+  gap: var(--space-2);
+}
+
+.lightboxControls button {
+  display: grid;
+  place-items: center;
+  width: var(--control-height);
+  min-width: var(--control-height);
+  padding: 0;
+  border-radius: var(--radius-pill);
+}
+
+.lightboxControls svg {
+  width: var(--icon-size);
+  height: var(--icon-size);
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.noPictures {
+  color: var(--color-muted);
+  font-size: var(--font-size-xs);
+}
+
+@media (max-width: 48rem) {
+  .grid { overflow-x: auto; }
+  .day { flex: 0 0 var(--calendar-day-min-width); }
+  .dayExpanded { flex-basis: var(--calendar-day-expanded-min-width); }
+  .empty { display: none; }
+
+  .pictureActions { opacity: 1; }
+
+  .lightboxLayout {
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(50vh, 2fr) minmax(0, 1fr);
+    overflow-y: auto;
+  }
+
+  .lightboxImage { padding: 4rem var(--space-8) var(--space-8); }
+  .lightboxImage img { max-height: 60vh; }
+  .lightboxMetadata { padding: var(--space-8); border-top: var(--border-thin) solid var(--color-line); border-left: 0; }
+
+  .lightboxControls {
+    left: var(--space-4);
+    overflow-x: auto;
+  }
+
+  .lightboxControls button { flex: 0 0 auto; }
+}
+
+@media (hover: none) {
+  .pictureActions { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .day,
+  .dayAction::after,
+  .pictureActions { transition: none; }
+
+  .dayContent,
+  .programmeCopy { animation: none; }
+}
+
+@media (max-width: 30rem) {
+  .dayContent { grid-template-columns: 1fr; }
+  .programmeCopy { padding-top: var(--space-3); padding-left: 0; border-top: var(--border-thin) solid var(--color-line); border-left: 0; }
+}
