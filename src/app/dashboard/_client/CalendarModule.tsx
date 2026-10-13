@@ -10,6 +10,8 @@ export type CalendarPicture = {
   title: string;
   producer: string;
   imageUrl: string | null;
+  showStartAt: string | null;
+  createdAt: string | null;
   description: string;
   tags: string[];
 };
@@ -66,6 +68,12 @@ export default function CalendarModule({ days, pictures, programmeCopyByDate, in
   const [editableCopyByDate, setEditableCopyByDate] = React.useState<Record<string, string>>(
     () => ({ ...programmeCopyByDate }),
   );
+  const [selectedPictureIdsByDate, setSelectedPictureIdsByDate] = React.useState<Record<string, string[]>>(
+    () => pictures.reduce<Record<string, string[]>>((selected, picture) => {
+      (selected[picture.dateIso] ||= []).push(picture.id);
+      return selected;
+    }, {}),
+  );
   const todayIso = getTodayIso();
   const [expandedDate, setExpandedDate] = React.useState(
     () => days.find((day) => day.dateIso === todayIso)?.dateIso || days[0]?.dateIso || "",
@@ -92,8 +100,24 @@ export default function CalendarModule({ days, pictures, programmeCopyByDate, in
   const selectDay = React.useCallback((dateIso: string) => {
     if (dateIso === expandedDate) return;
     calendarTopRef.current = calendarRef.current?.getBoundingClientRect().top ?? null;
+    setSelectedPictureIdsByDate((current) => ({
+      ...current,
+      [dateIso]: pictures.filter((picture) => picture.dateIso === dateIso).map((picture) => picture.id),
+    }));
     setExpandedDate(dateIso);
-  }, [expandedDate]);
+  }, [expandedDate, pictures]);
+
+  const togglePictureSelection = (dateIso: string, pictureId: string) => {
+    setSelectedPictureIdsByDate((current) => {
+      const selectedIds = current[dateIso] || [];
+      return {
+        ...current,
+        [dateIso]: selectedIds.includes(pictureId)
+          ? selectedIds.filter((id) => id !== pictureId)
+          : [...selectedIds, pictureId],
+      };
+    });
+  };
 
   const showAdjacentPicture = React.useCallback((offset: number) => {
     setPreview((current) => {
@@ -208,6 +232,9 @@ export default function CalendarModule({ days, pictures, programmeCopyByDate, in
       <div ref={calendarRef} className={`${styles.grid} dashboard-calendar-grid`} aria-label="Upload calendar">
         {days.map((day) => {
           const dayPictures = picturesByDate[day.dateIso] || [];
+          const selectedPictureIds = selectedPictureIdsByDate[day.dateIso] || [];
+          const selectedPictureIdSet = new Set(selectedPictureIds);
+          const selectedPictures = dayPictures.filter((picture) => selectedPictureIdSet.has(picture.id));
           const showDetails = Array.from(new Map(
             dayPictures
               .filter((picture) => picture.description.trim())
@@ -250,9 +277,9 @@ export default function CalendarModule({ days, pictures, programmeCopyByDate, in
                       type="button"
                       className={styles.dayAction}
                       data-tooltip="Download pictures"
-                      disabled={busy}
-                      onClick={() => downloadPictures(dayPictures.map((picture) => picture.id))}
-                      aria-label={`Download all pictures from ${day.dateIso}`}
+                      disabled={busy || selectedPictures.length === 0}
+                      onClick={() => downloadPictures(selectedPictures.map((picture) => picture.id))}
+                      aria-label={`Download ${selectedPictures.length} selected picture${selectedPictures.length === 1 ? "" : "s"} from ${day.dateIso}`}
                     >
                       <svg viewBox="0 0 24 24" aria-hidden="true">
                         <path d="M12 3v12m0 0 5-5m-5 5-5-5M5 20h14" />
@@ -263,12 +290,12 @@ export default function CalendarModule({ days, pictures, programmeCopyByDate, in
                     <button
                       type="button"
                       className={styles.dayAction}
-                      data-tooltip={dayPictures.length === 1 ? "Publish to Instagram" : "Publish carousel to Instagram"}
-                      disabled={busy || !instagramConnected || dayPictures.length > 10 || !(editableCopyByDate[day.dateIso] || "").trim()}
-                      onClick={() => publishToInstagram(day.dateIso, dayPictures)}
-                      aria-label={dayPictures.length === 1
+                      data-tooltip={selectedPictures.length === 1 ? "Publish to Instagram" : "Publish carousel to Instagram"}
+                      disabled={busy || !instagramConnected || selectedPictures.length < 1 || selectedPictures.length > 10 || !(editableCopyByDate[day.dateIso] || "").trim()}
+                      onClick={() => publishToInstagram(day.dateIso, selectedPictures)}
+                      aria-label={selectedPictures.length === 1
                         ? `Publish picture from ${day.dateIso} to Instagram`
-                        : `Publish pictures from ${day.dateIso} as an Instagram carousel`}
+                        : `Publish ${selectedPictures.length} selected pictures from ${day.dateIso} as an Instagram carousel`}
                     >
                       <svg viewBox="0 0 24 24" aria-hidden="true">
                         <rect x="3" y="3" width="18" height="18" rx="5" />
@@ -283,7 +310,7 @@ export default function CalendarModule({ days, pictures, programmeCopyByDate, in
                 {dayPictures.length > 0 || day.missingShows.length > 0 ? (
                   <div className={styles.pictureGrid}>
                     {dayPictures.map((picture) => (
-                      <article key={picture.id} className={styles.pictureCard}>
+                      <article key={picture.id} className={`${styles.pictureCard} ${selectedPictureIdSet.has(picture.id) ? styles.pictureCardSelected : ""}`}>
                           <div className={styles.pictureFrame}>
                             {isExpanded ? (
                               <button type="button" className={styles.pictureOpen} onClick={() => setPreview(picture)} aria-label={`View ${picture.filename} enlarged`}>
@@ -295,6 +322,16 @@ export default function CalendarModule({ days, pictures, programmeCopyByDate, in
                               // eslint-disable-next-line @next/next/no-img-element
                               <img className={styles.pictureImage} src={imageSource(picture)} onError={(event) => handleImageError(event, picture)} alt={`Cover uploaded by ${picture.producer}`} />
                             )}
+                            {isExpanded ? (
+                              <input
+                                className={styles.pictureSelection}
+                                type="checkbox"
+                                checked={selectedPictureIdSet.has(picture.id)}
+                                onChange={() => togglePictureSelection(day.dateIso, picture.id)}
+                                onClick={(event) => event.stopPropagation()}
+                                aria-label={`${selectedPictureIdSet.has(picture.id) ? "Exclude" : "Include"} ${picture.filename} ${selectedPictureIdSet.has(picture.id) ? "from" : "in"} bulk download and Instagram publishing`}
+                              />
+                            ) : null}
                             {isExpanded ? (
                               <div className={styles.pictureActions}>
                                 <button type="button" disabled={busy} onClick={() => downloadPictures([picture.id])} aria-label={`Download ${picture.filename}`}>
@@ -335,8 +372,8 @@ export default function CalendarModule({ days, pictures, programmeCopyByDate, in
                       <p>
                         {!instagramConnected
                           ? "Connect Instagram first."
-                          : dayPictures.length < 1 || dayPictures.length > 10
-                            ? "Select a day with 1–10 pictures."
+                          : selectedPictures.length < 1 || selectedPictures.length > 10
+                            ? "Select 1–10 pictures to publish."
                             : `${INSTAGRAM_CAPTION_HEADING_LENGTH + (editableCopyByDate[day.dateIso] || "").trim().length}/2200 caption characters, including heading`}
                       </p>
                     </div>

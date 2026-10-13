@@ -273,6 +273,11 @@
 
 .pictureCard { min-width: 0; }
 
+.pictureCardSelected .pictureFrame {
+  border-color: var(--blue);
+  box-shadow: 0 0 0 0.125rem color-mix(in srgb, var(--blue) 35%, transparent);
+}
+
 .picturePlaceholder {
   display: flex;
   flex-direction: column;
@@ -335,11 +340,48 @@
   position: absolute;
   z-index: 1;
   top: var(--space-2);
-  right: var(--space-2);
+  left: var(--space-2);
   display: flex;
   gap: var(--space-2);
   opacity: 0;
   transition: opacity var(--motion-fast) ease;
+}
+
+.pictureSelection {
+  appearance: none;
+  position: absolute;
+  z-index: 2;
+  top: var(--space-2);
+  right: var(--space-2);
+  display: grid;
+  place-items: center;
+  width: var(--icon-size);
+  height: var(--icon-size);
+  margin: 0;
+  border: var(--border-thin) solid var(--color-text);
+  border-radius: var(--radius-pill);
+  background: var(--color-overlay);
+  color: var(--black);
+  cursor: pointer;
+}
+
+.pictureSelection::after {
+  content: "✓";
+  font-size: var(--font-size-sm);
+  font-weight: 700;
+  opacity: 0;
+}
+
+.pictureSelection:checked {
+  border-color: var(--blue);
+  background: var(--blue);
+}
+
+.pictureSelection:checked::after { opacity: 1; }
+
+.pictureSelection:focus-visible {
+  outline: var(--focus-width) solid var(--color-focus);
+  outline-offset: var(--focus-offset);
 }
 
 .pictureFrame:hover .pictureActions,

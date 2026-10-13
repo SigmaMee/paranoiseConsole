@@ -225,7 +225,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
 
       const { data } = await adminSupabase
         .from("submissions")
-        .select("id,airing_date,producer_email,image_filename,image_object_key,submitted_description,submitted_tags")
+        .select("id,airing_date,producer_email,image_filename,image_object_key,submitted_description,submitted_tags,show_start_at,created_at")
         .gte("airing_date", selectedWeekStart)
         .lte("airing_date", selectedWeekEnd);
 
@@ -272,14 +272,21 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
         const metadata = submissionMetadataByShow[`${email}|${dateIso}`] || { description: "", tags: [] };
         const title = calendarShowTitleByKey[`${email}|${dateIso}`] || titleFromArtworkFilename(filename, producer);
         const objectKey = typeof row.image_object_key === "string" ? row.image_object_key.trim() : "";
+        const showStartAt = typeof row.show_start_at === "string" ? row.show_start_at : null;
+        const createdAt = typeof row.created_at === "string" ? row.created_at : null;
         const imageUrl = objectKey
           ? await getSignedR2Url(objectKey).catch(() => null)
           : null;
-        return { id: row.id, dateIso, filename, title, producer, imageUrl, ...metadata };
+        return { id: row.id, dateIso, filename, title, producer, imageUrl, showStartAt, createdAt, ...metadata };
       }));
       calendarPictures = pictureRows
         .filter((picture): picture is CalendarPicture => picture !== null)
-        .sort((a, b) => a.dateIso.localeCompare(b.dateIso) || a.producer.localeCompare(b.producer));
+        .sort((a, b) =>
+          a.dateIso.localeCompare(b.dateIso)
+          || (a.showStartAt || "9999").localeCompare(b.showStartAt || "9999")
+          || (a.createdAt || "").localeCompare(b.createdAt || "")
+          || a.id.localeCompare(b.id),
+        );
 
       // Group by producer_email + airing_date to count unique shows, not individual submissions
       const showKeys = new Set<string>();
