@@ -366,15 +366,15 @@ export default function CalendarModule({ days, pictures, programmeCopyByDate, in
                         [day.dateIso]: event.target.value,
                       }))}
                     />
-                    <div className={styles.publishControls}>
-                      <p>
-                        {!instagramConnected
-                          ? "Connect Instagram first."
-                          : selectedPictures.length < 1 || selectedPictures.length > 10
-                            ? "Select 1–10 pictures to publish."
-                            : `${INSTAGRAM_CAPTION_HEADING_LENGTH + (editableCopyByDate[day.dateIso] || "").trim().length}/2200 caption characters, including heading`}
-                      </p>
-                    </div>
+                    {!instagramConnected || selectedPictures.length < 1 || selectedPictures.length > 10 ? (
+                      <div className={styles.publishControls}>
+                        <p>
+                          {!instagramConnected
+                            ? "Connect Instagram first."
+                            : "Select 1–10 pictures to publish."}
+                        </p>
+                      </div>
+                    ) : null}
                     {showDetails.length > 0 ? (
                       <section className={styles.showDetails} aria-labelledby={`show-details-${day.dateIso}`}>
                         <h4 id={`show-details-${day.dateIso}`}>Show details</h4>
