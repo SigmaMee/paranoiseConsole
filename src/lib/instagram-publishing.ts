@@ -6,6 +6,7 @@ import { getInstagramGraphUrl, getInstagramPublishingCredentials } from "@/lib/i
 const MIN_PUBLICATION_ITEMS = 1;
 const MAX_PUBLICATION_ITEMS = 10;
 const MAX_CAPTION_LENGTH = 2_200;
+const CAPTION_HEADING = "Today on air";
 
 type MetaResponse = {
   id?: string;
@@ -68,10 +69,11 @@ export async function publishInstagramCarousel(input: {
   publishedByUserId: string;
   publishedByEmail: string | null;
 }) {
-  const caption = input.caption.trim();
+  const programmeCopy = input.caption.trim();
+  const caption = `${CAPTION_HEADING}\n\n${programmeCopy}`;
   const submissionIds = Array.from(new Set(input.submissionIds));
   if (!/^\d{4}-\d{2}-\d{2}$/.test(input.dateIso)) throw new Error("Select a valid calendar day.");
-  if (caption.length === 0) throw new Error("The Today on air caption cannot be empty.");
+  if (programmeCopy.length === 0) throw new Error("The Today on air caption cannot be empty.");
   if (caption.length > MAX_CAPTION_LENGTH) throw new Error(`The Instagram caption cannot exceed ${MAX_CAPTION_LENGTH} characters.`);
   if (submissionIds.length < MIN_PUBLICATION_ITEMS || submissionIds.length > MAX_PUBLICATION_ITEMS) {
     throw new Error(`Instagram posts require ${MIN_PUBLICATION_ITEMS}–${MAX_PUBLICATION_ITEMS} pictures.`);

@@ -32,6 +32,8 @@ type Props = {
 };
 
 const BROADCAST_TIME_ZONE = "Europe/Athens";
+const INSTAGRAM_CAPTION_HEADING_LENGTH = "Today on air\n\n".length;
+const INSTAGRAM_COPY_MAX_LENGTH = 2_200 - INSTAGRAM_CAPTION_HEADING_LENGTH;
 
 function getTodayIso() {
   const parts = new Intl.DateTimeFormat("en-GB", {
@@ -321,6 +323,7 @@ export default function CalendarModule({ days, pictures, programmeCopyByDate, in
                     <textarea
                       className={styles.programmeCopyField}
                       aria-label={`Editable programme copy for ${day.dateIso}`}
+                      maxLength={INSTAGRAM_COPY_MAX_LENGTH}
                       value={editableCopyByDate[day.dateIso] || ""}
                       placeholder="Programme copy is not available for this day yet."
                       onChange={(event) => setEditableCopyByDate((current) => ({
@@ -334,7 +337,7 @@ export default function CalendarModule({ days, pictures, programmeCopyByDate, in
                           ? "Connect Instagram first."
                           : dayPictures.length < 1 || dayPictures.length > 10
                             ? "Select a day with 1–10 pictures."
-                            : `${(editableCopyByDate[day.dateIso] || "").length}/2200 caption characters`}
+                            : `${INSTAGRAM_CAPTION_HEADING_LENGTH + (editableCopyByDate[day.dateIso] || "").trim().length}/2200 caption characters, including heading`}
                       </p>
                     </div>
                     {showDetails.length > 0 ? (
