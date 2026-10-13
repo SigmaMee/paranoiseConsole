@@ -20,8 +20,16 @@ type ParsedProgrammeShow = ProgrammeShow & {
 const CALENDAR_TITLE_SEPARATOR = /\s+[-–—]\s+/;
 
 export function parseProgrammeCalendarTitle(calendarTitle: string) {
+  const trimmedTitle = calendarTitle.trim();
+  if (!trimmedTitle) {
+    throw new Error("Calendar title cannot be empty.");
+  }
+
   const separatorMatch = CALENDAR_TITLE_SEPARATOR.exec(calendarTitle);
-  if (!separatorMatch || separatorMatch.index === 0) {
+  if (!separatorMatch) {
+    return { producer: trimmedTitle, showTitle: trimmedTitle };
+  }
+  if (separatorMatch.index === 0) {
     throw new Error(`Calendar title must use the format "Producer name - Radio Show": ${calendarTitle}`);
   }
 
