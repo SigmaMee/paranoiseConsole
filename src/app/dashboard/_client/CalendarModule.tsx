@@ -211,13 +211,14 @@ export default function CalendarModule({ days, pictures, programmeCopyByDate, in
           submissionIds: dayPictures.map((picture) => picture.id),
         }),
       });
-      const result = (await response.json()) as { error?: string; permalink?: string | null; alreadyPublished?: boolean };
+      const result = (await response.json()) as { error?: string; permalink?: string | null; facebookPostId?: string | null; alreadyPublished?: boolean };
       if (!response.ok) throw new Error(result.error || "The Instagram carousel could not be published.");
       const publicationLabel = dayPictures.length === 1 ? "post" : "carousel";
       const prefix = result.alreadyPublished
         ? `This Instagram ${publicationLabel} was already published.`
         : `Instagram ${publicationLabel} published.`;
-      setMessage(result.permalink ? `${prefix} ${result.permalink}` : prefix);
+      const facebookSuffix = result.facebookPostId ? " Facebook Page post published." : "";
+      setMessage(result.permalink ? `${prefix}${facebookSuffix} ${result.permalink}` : `${prefix}${facebookSuffix}`);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "The Instagram carousel could not be published.");
     } finally {

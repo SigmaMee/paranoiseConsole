@@ -50,6 +50,10 @@ export type InstagramConnection = {
   tokenExpiresAt: string | null;
 };
 
+export function isFacebookCrosspostEnabled() {
+  return process.env.FACEBOOK_CROSSPOST_ENABLED?.trim().toLowerCase() !== "false";
+}
+
 function requiredEnv(name: string) {
   const value = process.env[name]?.trim();
   if (!value) throw new Error(`Missing required environment variable: ${name}`);
@@ -177,6 +181,9 @@ export async function connectInstagram(code: string, connectedByUserId: string, 
   const grantedScopes = (permissions.data || [])
     .filter((permission) => permission.status === "granted" && permission.permission)
     .map((permission) => permission.permission as string);
+  if (isFacebookCrosspostEnabled() && !grantedScopes.includes("pages_manage_posts")) {
+    throw new Error("Facebook publishing requires pages_manage_posts. Add it to the Meta login configuration, then reconnect.");
+  }
 
   const expiresAt = typeof userToken.expires_in === "number"
     ? new Date(Date.now() + userToken.expires_in * 1000).toISOString()
@@ -229,7 +236,7 @@ export async function getInstagramConnection(): Promise<InstagramConnection | nu
 export async function getInstagramPublishingCredentials() {
   const { data, error } = await adminSupabase()
     .from("integration_connections")
-    .select("account_id,encrypted_access_token,status")
+    .select("account_id,page_id,encrypted_access_token,status")
     .eq("provider", PROVIDER)
     .maybeSingle();
   if (error) throw new Error(`Could not read the Instagram connection: ${error.message}`);
@@ -238,6 +245,7 @@ export async function getInstagramPublishingCredentials() {
   }
   return {
     accountId: data.account_id as string,
+    pageId: data.page_id as string,
     accessToken: decryptInstagramToken(data.encrypted_access_token as string),
   };
 }

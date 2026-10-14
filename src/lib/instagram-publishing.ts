@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
 import { getSignedR2Url } from "@/lib/r2-utils";
-import { getInstagramGraphUrl, getInstagramPublishingCredentials } from "@/lib/instagram-oauth";
+import { getInstagramGraphUrl, getInstagramPublishingCredentials, isFacebookCrosspostEnabled } from "@/lib/instagram-oauth";
 
 const MIN_PUBLICATION_ITEMS = 1;
 const MAX_PUBLICATION_ITEMS = 10;
@@ -12,6 +12,7 @@ type MetaResponse = {
   id?: string;
   status_code?: string;
   permalink?: string;
+  permalink_url?: string;
   error?: { message?: string };
 };
 
@@ -62,6 +63,58 @@ function idempotencyKey(dateIso: string, caption: string, submissionIds: string[
   return createHash("sha256").update(JSON.stringify({ dateIso, caption, submissionIds })).digest("hex");
 }
 
+async function publishInstagram(imageUrls: string[], caption: string, accountId: string, accessToken: string) {
+  if (imageUrls.length === 1) {
+    const container = await metaRequest(`${accountId}/media`, accessToken, { image_url: imageUrls[0], caption });
+    if (!container.id) throw new Error("Instagram did not return a media container ID.");
+    await waitForContainer(container.id, accessToken);
+    const published = await metaRequest(`${accountId}/media_publish`, accessToken, { creation_id: container.id });
+    if (!published.id) throw new Error("Instagram did not return the published media ID.");
+    const media = await metaGet(published.id, accessToken, "permalink");
+    return { mediaId: published.id, permalink: media.permalink || null };
+  }
+
+  const childIds: string[] = [];
+  for (const imageUrl of imageUrls) {
+    const child = await metaRequest(`${accountId}/media`, accessToken, { image_url: imageUrl, is_carousel_item: "true" });
+    if (!child.id) throw new Error("Instagram did not return a media container ID.");
+    await waitForContainer(child.id, accessToken);
+    childIds.push(child.id);
+  }
+  const parent = await metaRequest(`${accountId}/media`, accessToken, {
+    media_type: "CAROUSEL",
+    caption,
+    children: childIds.join(","),
+  });
+  if (!parent.id) throw new Error("Instagram did not return a carousel container ID.");
+  await waitForContainer(parent.id, accessToken);
+  const published = await metaRequest(`${accountId}/media_publish`, accessToken, { creation_id: parent.id });
+  if (!published.id) throw new Error("Instagram did not return the published media ID.");
+  const media = await metaGet(published.id, accessToken, "permalink");
+  return { mediaId: published.id, permalink: media.permalink || null };
+}
+
+async function publishFacebook(imageUrls: string[], caption: string, pageId: string, accessToken: string) {
+  if (imageUrls.length === 1) {
+    const photo = await metaRequest(`${pageId}/photos`, accessToken, { url: imageUrls[0], message: caption });
+    if (!photo.id) throw new Error("Facebook did not return a photo post ID.");
+    return photo.id;
+  }
+
+  const photoIds: string[] = [];
+  for (const imageUrl of imageUrls) {
+    const photo = await metaRequest(`${pageId}/photos`, accessToken, { url: imageUrl, published: "false" });
+    if (!photo.id) throw new Error("Facebook did not return an unpublished photo ID.");
+    photoIds.push(photo.id);
+  }
+  const attachedMedia = Object.fromEntries(
+    photoIds.map((id, index) => [`attached_media[${index}]`, JSON.stringify({ media_fbid: id })]),
+  );
+  const post = await metaRequest(`${pageId}/feed`, accessToken, { message: caption, ...attachedMedia });
+  if (!post.id) throw new Error("Facebook did not return a Page post ID.");
+  return post.id;
+}
+
 export async function publishInstagramCarousel(input: {
   dateIso: string;
   caption: string;
@@ -95,106 +148,110 @@ export async function publishInstagramCarousel(input: {
   }
 
   const key = idempotencyKey(input.dateIso, caption, submissionIds);
+  const facebookEnabled = isFacebookCrosspostEnabled();
   const { data: existing } = await supabase
     .from("instagram_publications")
-    .select("id,status,instagram_media_id,permalink")
+    .select("id,status,instagram_media_id,permalink,facebook_status,facebook_post_id")
     .eq("idempotency_key", key)
     .maybeSingle();
-  if (existing?.status === "published") {
-    return { mediaId: existing.instagram_media_id as string, permalink: existing.permalink as string | null, alreadyPublished: true };
+  if (existing?.status === "published" && (!facebookEnabled || existing.facebook_status === "published")) {
+    return {
+      mediaId: existing.instagram_media_id as string,
+      permalink: existing.permalink as string | null,
+      facebookPostId: existing.facebook_post_id as string | null,
+      alreadyPublished: true,
+    };
   }
   if (existing?.status === "publishing") throw new Error("This exact carousel is already being published.");
 
   const publicationId = existing?.id || crypto.randomUUID();
   const now = new Date().toISOString();
-  const { error: publicationError } = await supabase.from("instagram_publications").upsert({
-    id: publicationId,
-    date_iso: input.dateIso,
-    caption,
-    idempotency_key: key,
-    status: "publishing",
-    instagram_media_id: null,
-    permalink: null,
-    error_message: null,
-    published_by_user_id: input.publishedByUserId,
-    published_by_email: input.publishedByEmail,
-    published_at: null,
-    updated_at: now,
-  }, { onConflict: "idempotency_key" });
-  if (publicationError) throw new Error(`Could not start the publication record: ${publicationError.message}`);
+  if (!existing) {
+    const { error: publicationError } = await supabase.from("instagram_publications").insert({
+      id: publicationId,
+      date_iso: input.dateIso,
+      caption,
+      idempotency_key: key,
+      status: "publishing",
+      facebook_status: facebookEnabled ? "pending" : "not_requested",
+      published_by_user_id: input.publishedByUserId,
+      published_by_email: input.publishedByEmail,
+      updated_at: now,
+    });
+    if (publicationError) throw new Error(`Could not start the publication record: ${publicationError.message}`);
 
-  await supabase.from("instagram_publication_items").delete().eq("publication_id", publicationId);
-  const { error: itemError } = await supabase.from("instagram_publication_items").insert(
-    orderedRows.map((row, position) => ({
-      publication_id: publicationId,
-      submission_id: row.id,
-      position,
-      image_object_key: row.image_object_key,
-      image_filename: row.image_filename,
-    })),
-  );
-  if (itemError) throw new Error(`Could not record publication pictures: ${itemError.message}`);
+    const { error: itemError } = await supabase.from("instagram_publication_items").insert(
+      orderedRows.map((row, position) => ({
+        publication_id: publicationId,
+        submission_id: row.id,
+        position,
+        image_object_key: row.image_object_key,
+        image_filename: row.image_filename,
+      })),
+    );
+    if (itemError) throw new Error(`Could not record publication pictures: ${itemError.message}`);
+  }
 
-  try {
-    const { accountId, accessToken } = await getInstagramPublishingCredentials();
-    const imageUrls = await Promise.all(orderedRows.map((row) => getSignedR2Url(row.image_object_key as string)));
-    if (imageUrls.length === 1) {
-      const container = await metaRequest(`${accountId}/media`, accessToken, {
-        image_url: imageUrls[0],
-        caption,
-      });
-      if (!container.id) throw new Error("Instagram did not return a media container ID.");
-      await waitForContainer(container.id, accessToken);
-      const published = await metaRequest(`${accountId}/media_publish`, accessToken, { creation_id: container.id });
-      if (!published.id) throw new Error("Instagram did not return the published media ID.");
-      const publishedMedia = await metaGet(published.id, accessToken, "permalink");
+  const { accountId, pageId, accessToken } = await getInstagramPublishingCredentials();
+  const imageUrls = await Promise.all(orderedRows.map((row) => getSignedR2Url(row.image_object_key as string)));
+  let mediaId = existing?.instagram_media_id as string | null;
+  let permalink = existing?.permalink as string | null;
+
+  if (existing?.status !== "published") {
+    await supabase.from("instagram_publications").update({
+      status: "publishing",
+      error_message: null,
+      updated_at: new Date().toISOString(),
+    }).eq("id", publicationId);
+    try {
+      const instagram = await publishInstagram(imageUrls, caption, accountId, accessToken);
+      mediaId = instagram.mediaId;
+      permalink = instagram.permalink;
       const publishedAt = new Date().toISOString();
       await supabase.from("instagram_publications").update({
         status: "published",
-        instagram_media_id: published.id,
-        permalink: publishedMedia.permalink || null,
+        instagram_media_id: mediaId,
+        permalink,
         published_at: publishedAt,
         updated_at: publishedAt,
       }).eq("id", publicationId);
-      return { mediaId: published.id, permalink: publishedMedia.permalink || null, alreadyPublished: false };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Instagram publishing failed.";
+      await supabase.from("instagram_publications").update({
+        status: "failed",
+        error_message: message.slice(0, 2_000),
+        updated_at: new Date().toISOString(),
+      }).eq("id", publicationId);
+      throw error;
     }
+  }
 
-    const childIds: string[] = [];
-    for (const imageUrl of imageUrls) {
-      const child = await metaRequest(`${accountId}/media`, accessToken, {
-        image_url: imageUrl,
-        is_carousel_item: "true",
-      });
-      if (!child.id) throw new Error("Instagram did not return a media container ID.");
-      await waitForContainer(child.id, accessToken);
-      childIds.push(child.id);
-    }
-    const parent = await metaRequest(`${accountId}/media`, accessToken, {
-      media_type: "CAROUSEL",
-      caption,
-      children: childIds.join(","),
-    });
-    if (!parent.id) throw new Error("Instagram did not return a carousel container ID.");
-    await waitForContainer(parent.id, accessToken);
-    const published = await metaRequest(`${accountId}/media_publish`, accessToken, { creation_id: parent.id });
-    if (!published.id) throw new Error("Instagram did not return the published media ID.");
-    const publishedMedia = await metaGet(published.id, accessToken, "permalink");
-    const publishedAt = new Date().toISOString();
+  let facebookPostId = existing?.facebook_post_id as string | null;
+  if (facebookEnabled && existing?.facebook_status !== "published") {
     await supabase.from("instagram_publications").update({
-      status: "published",
-      instagram_media_id: published.id,
-      permalink: publishedMedia.permalink || null,
-      published_at: publishedAt,
-      updated_at: publishedAt,
-    }).eq("id", publicationId);
-    return { mediaId: published.id, permalink: publishedMedia.permalink || null, alreadyPublished: false };
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Instagram publishing failed.";
-    await supabase.from("instagram_publications").update({
-      status: "failed",
-      error_message: message.slice(0, 2_000),
+      facebook_status: "publishing",
+      facebook_error_message: null,
       updated_at: new Date().toISOString(),
     }).eq("id", publicationId);
-    throw error;
+    try {
+      facebookPostId = await publishFacebook(imageUrls, caption, pageId, accessToken);
+      const facebookPublishedAt = new Date().toISOString();
+      await supabase.from("instagram_publications").update({
+        facebook_status: "published",
+        facebook_post_id: facebookPostId,
+        facebook_published_at: facebookPublishedAt,
+        updated_at: facebookPublishedAt,
+      }).eq("id", publicationId);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Facebook publishing failed.";
+      await supabase.from("instagram_publications").update({
+        facebook_status: "failed",
+        facebook_error_message: message.slice(0, 2_000),
+        updated_at: new Date().toISOString(),
+      }).eq("id", publicationId);
+      throw new Error(`Instagram was published, but Facebook failed: ${message}`);
+    }
   }
+
+  return { mediaId, permalink, facebookPostId, alreadyPublished: existing?.status === "published" };
 }

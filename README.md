@@ -223,6 +223,16 @@ Mixcloud and email:
 - `MIXCLOUD_OAUTH_REDIRECT_URI`
 - `RESEND_API_KEY`
 
+Instagram and Facebook publishing:
+
+- `INSTAGRAM_APP_ID`
+- `INSTAGRAM_APP_SECRET`
+- `INSTAGRAM_LOGIN_CONFIG_ID`
+- `INSTAGRAM_OAUTH_REDIRECT_URI`
+- `INSTAGRAM_TOKEN_ENCRYPTION_KEY`
+- `INSTAGRAM_GRAPH_API_VERSION`
+- `FACEBOOK_CROSSPOST_ENABLED` — enabled by default; set to `false` to publish only to Instagram
+
 Ops and cron:
 
 - `ADMIN_EMAIL`
