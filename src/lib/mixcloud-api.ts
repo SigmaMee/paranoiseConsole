@@ -35,6 +35,43 @@ export type MixcloudUploadResponse = {
   [field: string]: unknown;
 };
 
+function stringField(value: unknown, field: string) {
+  if (!value || typeof value !== "object" || !(field in value)) return null;
+  const candidate = (value as Record<string, unknown>)[field];
+  return typeof candidate === "string" && candidate.trim() ? candidate : null;
+}
+
+function mixcloudErrorMessage(value: unknown) {
+  if (!value || typeof value !== "object") return null;
+  const error = (value as Record<string, unknown>).error;
+  if (typeof error === "string" && error.trim()) return error;
+  return stringField(error, "message") || stringField(value, "message");
+}
+
+function normalizeUploadResponse(value: unknown): MixcloudUploadResponse | null {
+  const directKey = stringField(value, "key");
+  if (directKey) return { ...(value as Record<string, unknown>), key: directKey };
+
+  if (!value || typeof value !== "object") return null;
+  const nested = (value as Record<string, unknown>).result;
+  const nestedKey = stringField(nested, "key");
+  if (nestedKey) return { ...(nested as Record<string, unknown>), key: nestedKey };
+
+  const directUrl = stringField(value, "url");
+  const nestedUrl = stringField(nested, "url");
+  const url = directUrl || nestedUrl;
+  if (!url) return null;
+
+  try {
+    const parsed = new URL(url);
+    if (parsed.hostname !== "www.mixcloud.com" && parsed.hostname !== "mixcloud.com") return null;
+    const key = parsed.pathname.endsWith("/") ? parsed.pathname : `${parsed.pathname}/`;
+    return { ...(nested && typeof nested === "object" ? nested as Record<string, unknown> : {}), key, url };
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Download file from URL and convert to Buffer
  */
@@ -101,10 +138,6 @@ export async function uploadToMixcloud({
       });
   }
   
-  // Upload as unlisted (private) - upload will not appear in public profile
-  // Only accessible via direct link
-  formData.append("unlisted", "1");
-  
   // Get picture (either from buffer or download from URL)
   let pictureData: Buffer | null = null;
   if (pictureBuffer) {
@@ -136,10 +169,18 @@ export async function uploadToMixcloud({
     throw new Error(`Mixcloud upload failed: ${error}`);
   }
 
-  const result: unknown = await response.json();
-  if (!result || typeof result !== "object" || !("key" in result) || typeof result.key !== "string") {
-    throw new Error("Mixcloud upload returned an invalid response.");
+  const responseBody = await response.text();
+  let result: unknown;
+  try {
+    result = JSON.parse(responseBody);
+  } catch {
+    throw new Error("Mixcloud upload returned a non-JSON response.");
   }
 
-  return result as MixcloudUploadResponse;
+  const normalized = normalizeUploadResponse(result);
+  if (normalized) return normalized;
+
+  const message = mixcloudErrorMessage(result);
+  if (message) throw new Error(`Mixcloud rejected the upload: ${message}`);
+  throw new Error("Mixcloud upload returned an unrecognized response.");
 }

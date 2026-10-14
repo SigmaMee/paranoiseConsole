@@ -1,395 +1,367 @@
 "use client";
+
 import React from "react";
-import styles from "../status-chips.module.css";
-import bulkStyles from "../bulk-action.module.css";
-import logStyles from "../activity-log.module.css";
+import { useRouter } from "next/navigation";
+import boardStyles from "../publish-board.module.css";
+import IconActionButton from "./IconActionButton";
 
 export type ActivityLogRow = {
   id: string;
   producer: string;
+  calendarTitle: string;
+  showStartAt: string | null;
   airingDate: string | null;
   hasAudio: boolean;
   hasCoverImage: boolean;
   hasDescription: boolean;
   hasTags: boolean;
   mixcloud: string;
+  mixcloudUrl: string | null;
+  mixcloudError: string | null;
   webflow: string;
   webflowItemId: string | null;
   webflowError: string | null;
 };
 
-type ErrorResponse = { error?: string };
-type PublishResult = { status?: string };
-type PublishResponse = ErrorResponse & { results?: PublishResult[] };
+type PublishResult = {
+  submissionId?: string;
+  status?: string;
+  error?: string;
+  mixcloudUrl?: string;
+};
 
-function formatAiringDate(airingDateIso: string | null) {
-  if (!airingDateIso) return "-";
-  const match = airingDateIso.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (!match) return airingDateIso;
-  return `${match[3]}/${match[2]}/${match[1]}`;
+type PublishResponse = { error?: string; results?: PublishResult[] };
+type LogEntry = { id: string; type: "success" | "error" | "info"; text: string };
+type Column = "aired" | "mixcloud" | "website";
+
+function formatShowDate(row: ActivityLogRow) {
+  const value = row.showStartAt || (row.airingDate ? `${row.airingDate}T12:00:00Z` : "");
+  if (!value) return "Date unavailable";
+  return new Intl.DateTimeFormat("en-GB", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: row.showStartAt ? "2-digit" : undefined,
+    minute: row.showStartAt ? "2-digit" : undefined,
+    timeZone: "Europe/Brussels",
+  }).format(new Date(value));
 }
 
-export default function DashboardActivityLog({ rows }: { rows: ActivityLogRow[] }) {
-  const [selected, setSelected] = React.useState<number[]>([]);
-  const [loading, setLoading] = React.useState(false);
-  const [message, setMessage] = React.useState<{ type: "success" | "error"; text: string } | null>(null);
-  const [progress, setProgress] = React.useState(0);
-  const [activeAction, setActiveAction] = React.useState<"publish" | "webflow" | "download" | null>(null);
+function rowColumn(row: ActivityLogRow): Column {
+  if (row.webflow === "published") return "website";
+  if (row.mixcloud === "published") return "mixcloud";
+  return "aired";
+}
 
-  const selectedRows = selected.map((idx) => rows[idx]);
-  const canPublishToWebflow = selectedRows.length > 0 && selectedRows.every(
-    (row) => row.mixcloud === "published" && row.hasCoverImage && ["ready", "failed"].includes(row.webflow),
-  );
+export default function DashboardActivityLog({ rows: initialRows }: { rows: ActivityLogRow[] }) {
+  const router = useRouter();
+  const [rows, setRows] = React.useState(initialRows);
+  const [selected, setSelected] = React.useState<Record<Column, string[]>>({ aired: [], mixcloud: [], website: [] });
+  const [processing, setProcessing] = React.useState<string[]>([]);
+  const [progress, setProgress] = React.useState<Record<string, number>>({});
+  const [dragging, setDragging] = React.useState<{ source: Column; ids: string[] } | null>(null);
+  const [dragTarget, setDragTarget] = React.useState<Column | null>(null);
+  const [log, setLog] = React.useState<LogEntry[]>([]);
+  const selectionAnchor = React.useRef<{ column: Column; id: string } | null>(null);
+  const processingIds = React.useRef(new Set<string>());
 
-  const isSelectableRow = (row: ActivityLogRow) => row.hasAudio;
+  React.useEffect(() => {
+    let active = true;
+    void fetch("/api/submissions/reconcile-mixcloud", { method: "POST" })
+      .then(async (response) => {
+        const data = await response.json() as { error?: string; reconciled?: number; results?: Array<{ producer?: string; status?: string }> };
+        if (!active) return;
+        if (!response.ok) throw new Error(data.error || "Manual Mixcloud upload check failed.");
+        if ((data.reconciled || 0) > 0) {
+          setLog((current) => [
+            ...(data.results || []).map((result, index) => ({
+              id: `reconcile-${index}`,
+              type: "info" as const,
+              text: `${result.producer || "Show"} — ${result.status === "website-reconciled" ? "detected existing website publication" : "detected existing manual Mixcloud upload"}.`,
+            })),
+            ...current,
+          ]);
+          router.refresh();
+        }
+      })
+      .catch((error: unknown) => {
+        if (active) setLog((current) => [{ id: "reconcile-error", type: "error", text: error instanceof Error ? error.message : "Manual Mixcloud upload check failed." }, ...current]);
+      });
+    return () => { active = false; };
+  }, [router]);
 
-  const handleSelect = (idx: number) => {
-    setSelected((prev) =>
-      prev.includes(idx) ? prev.filter((i) => i !== idx) : [...prev, idx]
-    );
+  React.useEffect(() => {
+    setRows((current) => {
+      const currentById = new Map(current.map((row) => [row.id, row]));
+      return initialRows.map((incoming) => processingIds.current.has(incoming.id)
+        ? currentById.get(incoming.id) || incoming
+        : incoming);
+    });
+  }, [initialRows]);
+
+  const columns: Array<{ id: Column; title: string }> = [
+    { id: "aired", title: "Aired" },
+    { id: "mixcloud", title: "Published to Mixcloud" },
+    { id: "website", title: "Published to website" },
+  ];
+
+  const byColumn = (column: Column) => rows.filter((row) => rowColumn(row) === column);
+  const eligible = (row: ActivityLogRow, column: Column) => column !== "mixcloud" || (row.hasCoverImage && ["ready", "failed", "not ready"].includes(row.webflow));
+  const nextColumn = (column: Column): Column | null => column === "aired" ? "mixcloud" : column === "mixcloud" ? "website" : null;
+
+  const selectCard = (event: React.MouseEvent | React.KeyboardEvent, column: Column, row: ActivityLogRow) => {
+    if (processing.includes(row.id) || !eligible(row, column)) return;
+    const visibleIds = byColumn(column).filter((item) => eligible(item, column) && !processing.includes(item.id)).map((item) => item.id);
+    const additive = event.metaKey || event.ctrlKey;
+    const anchor = selectionAnchor.current;
+    setSelected((current) => {
+      let ids: string[];
+      if (event.shiftKey && anchor?.column === column) {
+        const start = visibleIds.indexOf(anchor.id);
+        const end = visibleIds.indexOf(row.id);
+        const range = start >= 0 && end >= 0 ? visibleIds.slice(Math.min(start, end), Math.max(start, end) + 1) : [row.id];
+        ids = additive ? Array.from(new Set([...current[column], ...range])) : range;
+      } else if (additive) {
+        ids = current[column].includes(row.id) ? current[column].filter((id) => id !== row.id) : [...current[column], row.id];
+      } else {
+        ids = [row.id];
+      }
+      return { aired: [], mixcloud: [], website: [], [column]: ids };
+    });
+    if (!event.shiftKey) selectionAnchor.current = { column, id: row.id };
   };
-  
-  const handleRowClick = (idx: number, row: ActivityLogRow) => {
-    const isSelectable = isSelectableRow(row);
-    if (isSelectable) handleSelect(idx);
+
+  const selectAll = (column: Column) => {
+    const ids = byColumn(column).filter((row) => eligible(row, column) && !processing.includes(row.id)).map((row) => row.id);
+    setSelected({ aired: [], mixcloud: [], website: [], [column]: ids });
   };
 
-  const handleBulkPublish = async () => {
-    if (selected.length === 0) return;
-    const readyToPublishIds = selected
-      .map((idx) => rows[idx])
-      .filter((row) => row.mixcloud === "ready")
-      .map((row) => row.id);
-
-    if (readyToPublishIds.length === 0) {
-      setMessage({ type: "error", text: "Selected shows are already published or not ready for Mixcloud." });
-      return;
-    }
-
-    setLoading(true);
-    setActiveAction("publish");
-    setMessage(null);
-    setProgress(0);
-
-    let progressInterval: NodeJS.Timeout | null = null;
-
+  const advanceCards = async (column: Column, requestedIds: string[]) => {
+    const destination = nextColumn(column);
+    const ids = requestedIds.filter((id) => {
+      const row = rows.find((item) => item.id === id);
+      return row && rowColumn(row) === column && eligible(row, column) && !processing.includes(id);
+    });
+    if (!destination || ids.length === 0) return;
+    const endpoint = column === "aired" ? "/api/submissions/mixcloud-publish" : "/api/submissions/webflow-publish";
+    const originals = new Map(rows.filter((row) => ids.includes(row.id)).map((row) => [row.id, row]));
+    ids.forEach((id) => processingIds.current.add(id));
+    setProcessing((current) => [...current, ...ids]);
+    setProgress((current) => ({ ...current, ...Object.fromEntries(ids.map((id) => [id, 8])) }));
+    setRows((current) => current.map((row) => ids.includes(row.id)
+      ? column === "aired"
+        ? { ...row, mixcloud: "published", webflow: row.hasCoverImage ? "ready" : "not ready" }
+        : { ...row, webflow: "published" }
+      : row));
+    setSelected({ aired: [], mixcloud: [], website: [] });
+    const progressTimer = window.setInterval(() => {
+      setProgress((current) => Object.fromEntries(Object.entries(current).map(([id, value]) => [id, ids.includes(id) ? Math.min(92, value + Math.max(1, (92 - value) * 0.1)) : value])));
+    }, 500);
     try {
-      const submissionIds = readyToPublishIds;
-      
-      // Simulate progress during upload with logarithmic slowdown
-      progressInterval = setInterval(() => {
-        setProgress((prev) => {
-          if (prev >= 90) return 90; // Cap at 90% until complete
-          // Slow down as we get closer to 90% (logarithmic approach)
-          const remaining = 90 - prev;
-          const increment = Math.max(0.5, remaining * 0.08);
-          return Math.min(prev + increment, 90);
-        });
-      }, 800);
-      
-      const response = await fetch("/api/submissions/mixcloud-publish", {
+      const response = await fetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ submissionIds }),
+        body: JSON.stringify({ submissionIds: ids }),
       });
+      const data = await response.json() as PublishResponse;
+      if (!response.ok) throw new Error(data.error || "Publishing failed.");
 
-      if (progressInterval) clearInterval(progressInterval);
-
-      const data: PublishResponse = await response.json();
-
-      if (!response.ok) {
-        setMessage({ type: "error", text: data.error || "Failed to publish submissions." });
-        setProgress(0);
-        return;
-      }
-
-      // Count successes
-      const successCount = (data.results || []).filter((result) => result.status === "published").length;
-      const failureCount = (data.results || []).filter((result) => result.status === "error").length;
-
-      let feedbackText = `Published ${successCount} submission${successCount !== 1 ? "s" : ""}`;
-      if (failureCount > 0) {
-        feedbackText += ` (${failureCount} failed).`;
-      } else {
-        feedbackText += ".";
-      }
-
-      setMessage({ type: "success", text: feedbackText });
-      setProgress(100);
-      setSelected([]);
-
-      // Reload page after 2 seconds to show updated status
-      setTimeout(() => window.location.reload(), 2000);
-    } catch (err) {
-      if (progressInterval) clearInterval(progressInterval);
-      setMessage({
-        type: "error",
-        text: err instanceof Error ? err.message : "Network error. Please try again.",
-      });
-      setProgress(0);
+      const results = data.results || [];
+      setRows((current) => current.map((row) => {
+        const result = results.find((item) => item.submissionId === row.id);
+        if (!ids.includes(row.id)) return row;
+        if (result?.status !== "published") return originals.get(row.id) || row;
+        return column === "aired" ? { ...row, mixcloudUrl: result.mixcloudUrl || row.mixcloudUrl, mixcloudError: null } : { ...row, webflowError: null };
+      }));
+      const successfulIds = results.filter((result) => result.status === "published" && result.submissionId).map((result) => result.submissionId as string);
+      setProgress((current) => ({ ...current, ...Object.fromEntries(successfulIds.map((id) => [id, 100])) }));
+      setLog((current) => [
+        ...results.map((result, index) => {
+          const row = rows.find((item) => item.id === result.submissionId);
+          const success = result.status === "published";
+          return {
+            id: `${Date.now()}-${index}`,
+            type: success ? "success" as const : "error" as const,
+            text: `${row?.producer || "Show"} — ${success ? `${column === "aired" ? "published to Mixcloud" : "published to website"}.` : `failed: ${(result.error || "unknown error").replace(/[.!?]+$/, "")}.`}`,
+          };
+        }),
+        ...current,
+      ]);
+    } catch (error) {
+      setRows((current) => current.map((row) => originals.get(row.id) || row));
+      setLog((current) => [{ id: `${Date.now()}-request`, type: "error", text: error instanceof Error ? error.message : "Publishing failed." }, ...current]);
     } finally {
-      setLoading(false);
-      setActiveAction(null);
+      window.clearInterval(progressTimer);
+      window.setTimeout(() => {
+        ids.forEach((id) => processingIds.current.delete(id));
+        setProcessing((current) => current.filter((id) => !ids.includes(id)));
+        setProgress((current) => Object.fromEntries(Object.entries(current).filter(([id]) => !ids.includes(id))));
+      }, 500);
     }
   };
 
-  const handleBulkDownload = async () => {
-    if (selected.length === 0) return;
-
-    const audioShowIds = selected
-      .map((idx) => rows[idx])
-      .filter((row) => row.hasAudio)
-      .map((row) => row.id);
-
-    if (audioShowIds.length === 0) {
-      setMessage({ type: "error", text: "Selected shows do not have audio for download." });
-      return;
-    }
-
-    setLoading(true);
-    setActiveAction("download");
-    setMessage(null);
-    setProgress(0);
-
+  const downloadSelected = async () => {
+    const ids = selected.aired;
+    if (ids.length === 0) return;
+    ids.forEach((id) => processingIds.current.add(id));
+    setProcessing((current) => [...current, ...ids]);
     try {
-      const submissionIds = audioShowIds;
-      
-      setProgress(30);
-      
       const response = await fetch("/api/submissions/download-shows", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "same-origin",
-        body: JSON.stringify({ submissionIds }),
+        body: JSON.stringify({ submissionIds: ids }),
       });
-
-      setProgress(60);
-
       if (!response.ok) {
-        const data: ErrorResponse = await response.json();
-        setMessage({ type: "error", text: data.error || "Failed to download show package." });
-        setProgress(0);
-        return;
+        const data = await response.json() as { error?: string };
+        throw new Error(data.error || "Download failed.");
       }
-
-      const contentType = response.headers.get("content-type") || "";
-      if (contentType.includes("application/json")) {
-        const data: ErrorResponse = await response.json();
-        setMessage({ type: "error", text: data.error || "Download endpoint returned JSON instead of ZIP." });
-        setProgress(0);
-        return;
-      }
-
-      // Download the ZIP file
       const blob = await response.blob();
-      if (blob.size === 0) {
-        setMessage({ type: "error", text: "Downloaded file is empty. Please try again." });
-        setProgress(0);
-        return;
-      }
-
+      if (blob.size === 0) throw new Error("The downloaded archive is empty.");
       const url = window.URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `paranoise-shows-${Date.now()}.zip`;
-      document.body.appendChild(a);
-      a.click();
-      setTimeout(() => {
-        window.URL.revokeObjectURL(url);
-        document.body.removeChild(a);
-      }, 1000);
-
-      setProgress(100);
-      setMessage({ type: "success", text: `Downloaded ${audioShowIds.length} show package${audioShowIds.length !== 1 ? "s" : ""}.` });
-      setSelected([]);
-
-      // Clear message after 3 seconds
-      setTimeout(() => {
-        setMessage(null);
-        setProgress(0);
-      }, 3000);
-    } catch (err) {
-      setMessage({
-        type: "error",
-        text: err instanceof Error ? err.message : "Network error. Please try again.",
-      });
-      setProgress(0);
-    } finally {
-      setLoading(false);
-      setActiveAction(null);
-    }
-  };
-
-  const handleWebflowPublish = async () => {
-    if (!canPublishToWebflow) return;
-    setLoading(true);
-    setActiveAction("webflow");
-    setMessage(null);
-    setProgress(25);
-
-    try {
-      const response = await fetch("/api/submissions/webflow-publish", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ submissionIds: selectedRows.map((row) => row.id) }),
-      });
-      const data: PublishResponse = await response.json();
-      if (!response.ok) throw new Error(data.error || "Failed to publish to the website.");
-      const successes = (data.results || []).filter((result) => result.status === "published").length;
-      const failures = (data.results || []).filter((result) => result.status === "error").length;
-      setProgress(100);
-      setMessage({
-        type: failures ? "error" : "success",
-        text: `Published ${successes} show${successes === 1 ? "" : "s"} to the website${failures ? `; ${failures} failed.` : "."}`,
-      });
-      setSelected([]);
-      setTimeout(() => window.location.reload(), 2000);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = `paranoise-shows-${Date.now()}.zip`;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      window.URL.revokeObjectURL(url);
+      setLog((current) => [{ id: `${Date.now()}-download`, type: "success", text: `Downloaded ${ids.length} show package${ids.length === 1 ? "" : "s"}.` }, ...current]);
     } catch (error) {
-      setMessage({ type: "error", text: error instanceof Error ? error.message : "Network error." });
-      setProgress(0);
+      setLog((current) => [{ id: `${Date.now()}-download-error`, type: "error", text: error instanceof Error ? error.message : "Download failed." }, ...current]);
     } finally {
-      setLoading(false);
-      setActiveAction(null);
+      ids.forEach((id) => processingIds.current.delete(id));
+      setProcessing((current) => current.filter((id) => !ids.includes(id)));
     }
   };
 
   return (
-    <>
-      <div className={bulkStyles["dashboard-bulk-action-bar"]}>
-        <button
-          type="button"
-          className="btn-neutral"
-          disabled={selected.length === 0 || loading}
-          onClick={handleBulkDownload}
-        >
-          {loading && activeAction === "download" ? "Downloading..." : "Download"}
-        </button>
-        <button
-          type="button"
-          className="btn-neutral"
-          disabled={selected.length === 0 || loading}
-          onClick={handleBulkPublish}
-        >
-          {loading && activeAction === "publish" ? "Publishing..." : "Publish to Mixcloud"}
-        </button>
-        <button
-          type="button"
-          className="btn-neutral"
-          disabled={!canPublishToWebflow || loading}
-          onClick={handleWebflowPublish}
-          title={selected.length > 0 && !canPublishToWebflow ? "All selected shows must be published on Mixcloud, have a cover, and be ready for website publishing." : undefined}
-        >
-          {loading && activeAction === "webflow" ? "Publishing..." : "Publish to website"}
-        </button>
-        {message && (
-          <p
-            className={`${message.type === "success" ? "success" : "error"} ${bulkStyles["dashboard-bulk-feedback"]}`}
-          >
-            {message.text}
-          </p>
+    <div className={boardStyles["publish-workspace"]}>
+      <div className={boardStyles["publish-board"]} aria-label="Publishing workflow">
+        {columns.map((column) => {
+          const columnRows = byColumn(column.id);
+          const selectableRows = columnRows.filter((row) => eligible(row, column.id));
+          const selectedIds = selected[column.id];
+          const acceptsDrag = Boolean(dragging && nextColumn(dragging.source) === column.id);
+          return (
+            <section
+              className={`${boardStyles["publish-column"]} ${dragTarget === column.id ? boardStyles["publish-column-drag-target"] : ""}`}
+              key={column.id}
+              aria-labelledby={`${column.id}-heading`}
+              onDragOver={(event) => {
+                if (!acceptsDrag) return;
+                event.preventDefault();
+                event.dataTransfer.dropEffect = "move";
+                setDragTarget(column.id);
+              }}
+              onDragLeave={(event) => {
+                if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDragTarget(null);
+              }}
+              onDrop={(event) => {
+                event.preventDefault();
+                if (acceptsDrag && dragging) void advanceCards(dragging.source, dragging.ids);
+                setDragTarget(null);
+                setDragging(null);
+              }}
+            >
+              <header className={boardStyles["column-header"]}>
+                <div>
+                  <h3 id={`${column.id}-heading`}>{column.title}</h3>
+                  <span className={boardStyles["column-count"]}>{columnRows.length}</span>
+                </div>
+                {column.id === "aired" ? (
+                  <div className={boardStyles["column-actions"]}>
+                    <IconActionButton
+                      className={boardStyles["archive-action"]}
+                      label="Download selected shows"
+                      disabled={selected.aired.length === 0}
+                      onClick={() => void downloadSelected()}
+                      icon={<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0 0 5-5m-5 5-5-5M5 20h14" /></svg>}
+                    />
+                  </div>
+                ) : null}
+              </header>
+              <div className={boardStyles["selection-row"]}>
+                <button
+                  type="button"
+                  className={`btn-tertiary ${selectedIds.length === 0 ? boardStyles["selection-action-hidden"] : ""}`}
+                  disabled={selectedIds.length === 0 || selectedIds.length === selectableRows.length}
+                  onClick={() => selectAll(column.id)}
+                  tabIndex={selectedIds.length === 0 ? -1 : 0}
+                  aria-hidden={selectedIds.length === 0}
+                >
+                  Select all
+                </button>
+              </div>
+              <div className={boardStyles["card-list"]} role="listbox" aria-multiselectable="true" aria-label={`${column.title} shows`}>
+                {columnRows.length === 0 ? <p className={boardStyles["empty-column"]}>No shows in this stage.</p> : null}
+                {columnRows.map((row) => {
+                  const isEligible = eligible(row, column.id);
+                  const isProcessing = processing.includes(row.id);
+                  const isSelected = selectedIds.includes(row.id);
+                  const canAdvance = Boolean(nextColumn(column.id) && isEligible && !isProcessing);
+                  return (
+                    <article
+                      className={`${boardStyles["show-card"]} ${isSelected ? boardStyles["show-card-selected"] : ""} ${isProcessing && progress[row.id] !== undefined ? boardStyles["show-card-processing"] : ""}`}
+                      key={row.id}
+                      role="option"
+                      aria-selected={isSelected}
+                      aria-label={`${row.calendarTitle}, aired ${formatShowDate(row)}${canAdvance ? ". Drag to the next column or press the right arrow to publish." : ""}`}
+                      tabIndex={isEligible && !isProcessing ? 0 : -1}
+                      draggable={canAdvance}
+                      onClick={(event) => {
+                        if ((event.target as HTMLElement).closest("a, button")) return;
+                        selectCard(event, column.id, row);
+                      }}
+                      onKeyDown={(event) => {
+                        if (event.key === " " || event.key === "Enter") {
+                          event.preventDefault();
+                          selectCard(event, column.id, row);
+                        }
+                        if (event.key === "ArrowRight" && canAdvance) {
+                          event.preventDefault();
+                          void advanceCards(column.id, isSelected ? selectedIds : [row.id]);
+                        }
+                      }}
+                      onDragStart={(event) => {
+                        if (!canAdvance) return event.preventDefault();
+                        const ids = isSelected ? selectedIds : [row.id];
+                        if (!isSelected) setSelected({ aired: [], mixcloud: [], website: [], [column.id]: ids });
+                        setDragging({ source: column.id, ids });
+                        event.dataTransfer.effectAllowed = "move";
+                        event.dataTransfer.setData("text/plain", ids.join(","));
+                      }}
+                      onDragEnd={() => { setDragging(null); setDragTarget(null); }}
+                    >
+                      <div className={boardStyles["card-copy"]}>
+                        <h4>{row.calendarTitle}</h4>
+                        <p>{formatShowDate(row)}</p>
+                        <div className={boardStyles["flags"]} aria-label="Missing submission details">
+                          {!row.hasCoverImage ? <span>Image missing</span> : null}
+                          {!row.hasTags ? <span>Tags missing</span> : null}
+                          {!row.hasDescription ? <span>Description missing</span> : null}
+                        </div>
+                        {column.id !== "aired" && row.mixcloudUrl ? <a href={row.mixcloudUrl} target="_blank" rel="noreferrer">Open on Mixcloud</a> : null}
+                        {column.id === "mixcloud" && !row.hasCoverImage ? <p className={boardStyles["blocking-note"]}>Add an image before website publishing.</p> : null}
+                        {column.id === "aired" && row.mixcloudError ? <p className={boardStyles["blocking-note"]}>{row.mixcloudError}</p> : null}
+                        {row.webflowError && column.id === "mixcloud" ? <p className={boardStyles["blocking-note"]}>{row.webflowError}</p> : null}
+                        {isProcessing && progress[row.id] !== undefined ? <p className={boardStyles["processing-label"]} role="status">Publishing…</p> : null}
+                      </div>
+                      {progress[row.id] !== undefined ? <progress className={boardStyles["card-progress"]} max={100} value={progress[row.id]} aria-label={`Publishing ${row.calendarTitle}`} /> : null}
+                    </article>
+                  );
+                })}
+              </div>
+            </section>
+          );
+        })}
+      </div>
+      <section className={boardStyles["publish-log"]} aria-labelledby="publish-log-heading" aria-live="polite">
+        <h3 id="publish-log-heading">Publishing log</h3>
+        {log.length === 0 ? <p>No actions in this session.</p> : (
+          <ol>{log.map((entry) => <li className={boardStyles[`log-${entry.type}`]} key={entry.id}>{entry.text}</li>)}</ol>
         )}
-      </div>
-      {loading && (
-        <div className={bulkStyles["progress-bar-container"]}>
-          <progress
-            className={bulkStyles["progress-bar"]}
-            max={100}
-            value={progress}
-          />
-        </div>
-      )}
-      <div className="dashboard-activity-table-wrap">
-        <table className="dashboard-activity-table">
-          <thead>
-            <tr>
-              <th></th>
-              <th>Producer</th>
-              <th>Airing date</th>
-              <th>Audio</th>
-              <th>Cover image</th>
-              <th>Description</th>
-              <th>Tags</th>
-              <th>Mixcloud</th>
-              <th>Website</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((row, idx) => (
-              <tr
-                key={`${row.producer}-${row.airingDate || "none"}-${idx}`}
-                className={
-                  logStyles["activity-log-row"] +
-                  (selected.includes(idx) ? " " + logStyles["selected"] : "")
-                }
-                onClick={() => handleRowClick(idx, row)}
-              >
-                <td>
-                  <input
-                    type="checkbox"
-                    className={logStyles["activity-log-checkbox"]}
-                    aria-label={`Select ${row.producer} show airing ${formatAiringDate(row.airingDate)}`}
-                    checked={selected.includes(idx)}
-                    disabled={!isSelectableRow(row)}
-                    onChange={(e) => {
-                      e.stopPropagation();
-                      handleSelect(idx);
-                    }}
-                  />
-                </td>
-                <td>{row.producer}</td>
-                <td>{formatAiringDate(row.airingDate)}</td>
-                <td>
-                  <span className={row.hasAudio ? "status-check" : "status-missing"}>
-                    {row.hasAudio ? "✓" : "-"}
-                  </span>
-                </td>
-                <td>
-                  <span className={row.hasCoverImage ? "status-check" : "status-missing"}>
-                    {row.hasCoverImage ? "✓" : "-"}
-                  </span>
-                </td>
-                <td>
-                  <span className={row.hasDescription ? "status-check" : "status-missing"}>
-                    {row.hasDescription ? "✓" : "-"}
-                  </span>
-                </td>
-                <td>
-                  <span className={row.hasTags ? "status-check" : "status-missing"}>
-                    {row.hasTags ? "✓" : "-"}
-                  </span>
-                </td>
-                <td>
-                  <span
-                    className={
-                      `${styles["mixcloud-chip"]} ` +
-                      (row.mixcloud === "ready"
-                        ? styles["mixcloud-chip-ready"]
-                        : row.mixcloud === "published"
-                        ? styles["mixcloud-chip-published"]
-                        : styles["mixcloud-chip-not-ready"])
-                    }
-                  >
-                    {row.mixcloud}
-                  </span>
-                </td>
-                <td title={row.webflowError || undefined}>
-                  <span
-                    className={`${styles["mixcloud-chip"]} ${
-                      row.webflow === "published"
-                        ? styles["mixcloud-chip-published"]
-                        : row.webflow === "ready"
-                          ? styles["mixcloud-chip-ready"]
-                          : styles["mixcloud-chip-not-ready"]
-                    }`}
-                  >
-                    {row.webflow}
-                  </span>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </>
+      </section>
+    </div>
   );
 }

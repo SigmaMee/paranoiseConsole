@@ -1,61 +1,72 @@
 import { redirect } from "next/navigation";
 import Image from "next/image";
+import Link from "next/link";
 import { createClient as createAdminClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
 import { isAdminUser } from "@/lib/admin-access";
 import { signOut } from "@/app/actions";
 import { ShowSubmissionToggle } from "@/components/show-submission-toggle";
 import CalendarUserSync from "./_client/CalendarUserSync";
+import CalendarModule, { type CalendarDay, type CalendarPicture } from "./_client/CalendarModule";
 import ActivityLogWrapper from "./ActivityLogWrapper";
 import {
   getMostRecentPastAndFutureShowsByProducerEmail,
-  getScheduledShowCountsForMonth,
+  getShowsForDate,
 } from "@/lib/google-calendar";
+import { buildDailyProgrammeCopy } from "@/lib/programme-copy";
+import { getSignedR2Url } from "@/lib/r2-utils";
+import { audioExistsOnFtp } from "@/lib/ftp-media";
+import { getInstagramConnection, type InstagramConnection } from "@/lib/instagram-oauth";
+import { formatInTimeZone, fromZonedTime } from "date-fns-tz";
 import { getProducerCalendarEmails } from "@/lib/producer-identity";
 
 type DashboardPageProps = {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 };
 
-const ACTIVITY_PAGE_SIZE = 12;
+const ADMIN_TIME_ZONE = "Europe/Brussels";
+const PUBLISH_MONITORING_START = "2026-10-01";
 
-function getCurrentMonthIso() {
-  return new Date().toISOString().slice(0, 7);
+function toIsoDate(date: Date) {
+  return date.toISOString().slice(0, 10);
 }
 
-function normalizeMonthIso(value: string | undefined) {
-  if (!value || !/^\d{4}-\d{2}$/.test(value)) {
-    return getCurrentMonthIso();
-  }
-
-  return value > getCurrentMonthIso() ? getCurrentMonthIso() : value;
+function getMondayIso(value = new Date()) {
+  const date = new Date(Date.UTC(value.getUTCFullYear(), value.getUTCMonth(), value.getUTCDate()));
+  const daysFromMonday = (date.getUTCDay() + 6) % 7;
+  date.setUTCDate(date.getUTCDate() - daysFromMonday);
+  return toIsoDate(date);
 }
 
-function shiftMonthIso(monthIso: string, offset: number) {
-  const [yearStr, monthStr] = monthIso.split("-");
-  const year = Number(yearStr);
-  const month = Number(monthStr);
-  const shifted = new Date(Date.UTC(year, month - 1 + offset, 1));
-  return `${shifted.getUTCFullYear()}-${String(shifted.getUTCMonth() + 1).padStart(2, "0")}`;
+function normalizeWeekIso(value: string | undefined) {
+  if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return getMondayIso();
+  const parsed = new Date(`${value}T00:00:00Z`);
+  return Number.isNaN(parsed.getTime()) ? getMondayIso() : getMondayIso(parsed);
 }
 
-function getMonthBounds(monthIso: string) {
-  const [yearStr, monthStr] = monthIso.split("-");
-  const year = Number(yearStr);
-  const month = Number(monthStr);
-
-  const monthStart = `${monthIso}-01`;
-  const monthEnd = `${yearStr}-${monthStr}-${String(
-    new Date(Date.UTC(year, month, 0)).getUTCDate(),
-  ).padStart(2, "0")}`;
-
-  return { monthStart, monthEnd, year, month };
+function shiftDateIso(dateIso: string, days: number) {
+  const date = new Date(`${dateIso}T00:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return toIsoDate(date);
 }
 
-function formatMonthLabel(monthIso: string) {
-  const [yearStr, monthStr] = monthIso.split("-");
-  const date = new Date(Date.UTC(Number(yearStr), Number(monthStr) - 1, 1));
-  return new Intl.DateTimeFormat("en-GB", { month: "long", year: "numeric" }).format(date);
+function formatWeekLabel(startIso: string, endIso: string) {
+  const formatter = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" });
+  return `${formatter.format(new Date(`${startIso}T00:00:00Z`))} – ${formatter.format(new Date(`${endIso}T00:00:00Z`))}`;
+}
+
+function titleFromArtworkFilename(filename: string, producerName: string) {
+  const producerSlug = producerName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
+  const withoutExtension = filename.replace(/\.[^.]+$/, "");
+  const withoutArtworkSuffix = withoutExtension.replace(/-artwork-?\d*$/i, "");
+  const withoutProducer = withoutArtworkSuffix.toLowerCase().startsWith(`${producerSlug}-`)
+    ? withoutArtworkSuffix.slice(producerSlug.length + 1)
+    : withoutArtworkSuffix;
+  return withoutProducer
+    .split(/[-_]+/)
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ") || "Untitled show";
 }
 
 export default async function DashboardPage({ searchParams }: DashboardPageProps) {
@@ -69,19 +80,19 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
   const mixcloudOauthState = typeof params.mixcloud_oauth === "string" ? params.mixcloud_oauth : "";
   const mixcloudOauthMessage =
     typeof params.mixcloud_oauth_message === "string" ? params.mixcloud_oauth_message : "";
-  const metricMonthParam = typeof params.metric_month === "string" ? params.metric_month : "";
-  const activityPageParam = getParam("activity_page");
-  const parsedActivityPage = Number.parseInt(activityPageParam || "1", 10);
-  const activityPage = Number.isNaN(parsedActivityPage) || parsedActivityPage < 1
-    ? 1
-    : parsedActivityPage;
-  const selectedMetricMonth = normalizeMonthIso(metricMonthParam);
-  const previousMetricMonth = shiftMonthIso(selectedMetricMonth, -1);
-  const nextMetricMonth = shiftMonthIso(selectedMetricMonth, 1);
-  const canNavigateNext = selectedMetricMonth < getCurrentMonthIso();
-  const { monthStart, monthEnd, year: metricYear, month: metricMonth } =
-    getMonthBounds(selectedMetricMonth);
-  const metricMonthLabel = formatMonthLabel(selectedMetricMonth);
+  const instagramOauthState = typeof params.instagram_oauth === "string" ? params.instagram_oauth : "";
+  const instagramOauthMessage =
+    typeof params.instagram_oauth_message === "string" ? params.instagram_oauth_message : "";
+  const weekParam = getParam("week");
+  const requestedModule = getParam("module");
+  const adminModule = ["calendar", "activity", "connections"].includes(requestedModule)
+    ? requestedModule
+    : "calendar";
+  const selectedWeekStart = normalizeWeekIso(weekParam);
+  const selectedWeekEnd = shiftDateIso(selectedWeekStart, 6);
+  const previousWeek = shiftDateIso(selectedWeekStart, -7);
+  const nextWeek = shiftDateIso(selectedWeekStart, 7);
+  const weekLabel = formatWeekLabel(selectedWeekStart, selectedWeekEnd);
 
   const supabase = await createClient();
   const {
@@ -121,18 +132,33 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
   let mixcloudConnected = false;
   let mixcloudConnectedAt: string | null = null;
   let mixcloudConnectedBy: string | null = null;
-  let scheduledShowsByDate: Record<string, number> = {};
+  let instagramConnection: InstagramConnection | null = null;
+  const scheduledShowsByDate: Record<string, number> = {};
+  const calendarShowTitleByKey: Record<string, string> = {};
+  const scheduledShowsForWeek: Record<string, Array<{
+    title: string;
+    startsAt: string;
+    endsAt?: string;
+    attendeeEmails: string[];
+  }>> = {};
+  const uploadedShowKeys = new Set<string>();
+  let submissionMetadataByShow: Record<string, { description: string; tags: string[] }> = {};
+  let calendarProducerNames: Record<string, string> = {};
   let uploadsByDate: Record<string, number> = {};
-  let allTimeTagCounts: Array<{ tag: string; count: number }> = [];
+  let calendarPictures: CalendarPicture[] = [];
   let activityLogRows: Array<{
     id: string;
     producer: string;
+    calendarTitle: string;
+    showStartAt: string | null;
     airingDate: string | null;
     hasAudio: boolean;
     hasCoverImage: boolean;
     hasDescription: boolean;
     hasTags: boolean;
     mixcloud: string;
+    mixcloudUrl: string | null;
+    mixcloudError: string | null;
     webflow: string;
     webflowItemId: string | null;
     webflowError: string | null;
@@ -140,6 +166,10 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
 
   if (isAdmin && process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY) {
     try {
+      instagramConnection = await getInstagramConnection();
+    } catch {}
+
+    if (adminModule === "connections") try {
       const adminSupabase = createAdminClient(
         process.env.NEXT_PUBLIC_SUPABASE_URL,
         process.env.SUPABASE_SERVICE_ROLE_KEY,
@@ -170,11 +200,29 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
       }
     } catch {}
 
-    try {
-      scheduledShowsByDate = await getScheduledShowCountsForMonth(selectedMetricMonth);
+    if (adminModule === "calendar") try {
+      const weekDates = Array.from({ length: 7 }, (_, index) => shiftDateIso(selectedWeekStart, index));
+      const showsByDay = await Promise.all(weekDates.map(async (dateIso) => ({
+        dateIso,
+        shows: await getShowsForDate(dateIso),
+      })));
+      for (const { dateIso, shows } of showsByDay) {
+        scheduledShowsByDate[dateIso] = shows.length;
+        scheduledShowsForWeek[dateIso] = shows.map((show) => ({
+          title: show.title,
+          startsAt: show.startsAt,
+          endsAt: show.endsAt,
+          attendeeEmails: show.attendeeEmails || [],
+        }));
+        for (const show of shows) {
+          for (const email of show.attendeeEmails || []) {
+            calendarShowTitleByKey[`${email.toLowerCase()}|${dateIso}`] = show.title;
+          }
+        }
+      }
     } catch {}
 
-    try {
+    if (adminModule === "calendar") try {
       const adminSupabase = createAdminClient(
         process.env.NEXT_PUBLIC_SUPABASE_URL,
         process.env.SUPABASE_SERVICE_ROLE_KEY,
@@ -182,9 +230,68 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
 
       const { data } = await adminSupabase
         .from("submissions")
-        .select("airing_date, producer_email")
-        .gte("airing_date", monthStart)
-        .lte("airing_date", monthEnd);
+        .select("id,airing_date,producer_email,image_filename,image_object_key,submitted_description,submitted_tags,show_start_at,created_at")
+        .gte("airing_date", selectedWeekStart)
+        .lte("airing_date", selectedWeekEnd);
+
+      const scheduledEmails = Object.values(scheduledShowsForWeek).flatMap((shows) => shows.flatMap((show) => show.attendeeEmails));
+      const calendarEmails = Array.from(new Set([
+        ...(data || []).map((row) => String(row.producer_email || "").toLowerCase()),
+        ...scheduledEmails.map((email) => email.toLowerCase()),
+      ].filter(Boolean)));
+      if (calendarEmails.length > 0) {
+        const { data: profiles } = await adminSupabase
+          .from("profiles")
+          .select("producer_email,full_name")
+          .in("producer_email", calendarEmails);
+        calendarProducerNames = (profiles || []).reduce<Record<string, string>>((names, profile) => {
+          const email = String(profile.producer_email || "").toLowerCase();
+          names[email] = String(profile.full_name || profile.producer_email || "Unknown producer");
+          return names;
+        }, {});
+      }
+
+      submissionMetadataByShow = (data || []).reduce<Record<string, { description: string; tags: string[] }>>((metadata, row) => {
+        const email = String(row.producer_email || "").toLowerCase();
+        const dateIso = typeof row.airing_date === "string" ? row.airing_date : "";
+        if (!email || !dateIso) return metadata;
+        const key = `${email}|${dateIso}`;
+        const existing = metadata[key] || { description: "", tags: [] };
+        const description = typeof row.submitted_description === "string" ? row.submitted_description.trim() : "";
+        const tags = Array.isArray(row.submitted_tags)
+          ? row.submitted_tags.filter((tag): tag is string => typeof tag === "string" && Boolean(tag.trim())).map((tag) => tag.trim())
+          : [];
+        metadata[key] = {
+          description: existing.description || description,
+          tags: Array.from(new Set([...existing.tags, ...tags])),
+        };
+        return metadata;
+      }, {});
+
+      const pictureRows = await Promise.all((data || []).map(async (row): Promise<CalendarPicture | null> => {
+        const filename = typeof row.image_filename === "string" ? row.image_filename.trim() : "";
+        const dateIso = typeof row.airing_date === "string" ? row.airing_date : "";
+        if (!filename || !dateIso || typeof row.id !== "string") return null;
+        const email = String(row.producer_email || "").toLowerCase();
+        const producer = calendarProducerNames[email] || email || "Unknown producer";
+        const metadata = submissionMetadataByShow[`${email}|${dateIso}`] || { description: "", tags: [] };
+        const title = calendarShowTitleByKey[`${email}|${dateIso}`] || titleFromArtworkFilename(filename, producer);
+        const objectKey = typeof row.image_object_key === "string" ? row.image_object_key.trim() : "";
+        const showStartAt = typeof row.show_start_at === "string" ? row.show_start_at : null;
+        const createdAt = typeof row.created_at === "string" ? row.created_at : null;
+        const imageUrl = objectKey
+          ? await getSignedR2Url(objectKey).catch(() => null)
+          : null;
+        return { id: row.id, dateIso, filename, title, producer, imageUrl, showStartAt, createdAt, ...metadata };
+      }));
+      calendarPictures = pictureRows
+        .filter((picture): picture is CalendarPicture => picture !== null)
+        .sort((a, b) =>
+          a.dateIso.localeCompare(b.dateIso)
+          || (a.showStartAt || "9999").localeCompare(b.showStartAt || "9999")
+          || (a.createdAt || "").localeCompare(b.createdAt || "")
+          || a.id.localeCompare(b.id),
+        );
 
       // Group by producer_email + airing_date to count unique shows, not individual submissions
       const showKeys = new Set<string>();
@@ -195,6 +302,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
           continue;
         }
         showKeys.add(`${airingDate}|${producerEmail}`);
+        uploadedShowKeys.add(`${producerEmail.toLowerCase()}|${airingDate}`);
       }
 
       // Count shows per date
@@ -205,55 +313,67 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
       }
     } catch {}
 
-    try {
+    if (adminModule === "activity") try {
       const adminSupabase = createAdminClient(
         process.env.NEXT_PUBLIC_SUPABASE_URL,
         process.env.SUPABASE_SERVICE_ROLE_KEY,
       );
 
-      const { data } = await adminSupabase.from("submissions").select("submitted_tags");
+      const todayInBrussels = formatInTimeZone(new Date(), ADMIN_TIME_ZONE, "yyyy-MM-dd");
+      const currentMonth = todayInBrussels.slice(0, 7);
+      const currentMonthStart = fromZonedTime(`${currentMonth}-01T00:00:00`, ADMIN_TIME_ZONE).toISOString();
 
-      const counts = (data || []).reduce<Record<string, number>>((acc, row) => {
-        const tags = Array.isArray(row.submitted_tags) ? row.submitted_tags : [];
-
-        for (const rawTag of tags) {
-          if (typeof rawTag !== "string") {
-            continue;
-          }
-
-          const normalizedTag = rawTag.trim().toLowerCase();
-          if (!normalizedTag) {
-            continue;
-          }
-
-          acc[normalizedTag] = (acc[normalizedTag] || 0) + 1;
-        }
-
-        return acc;
-      }, {});
-
-      allTimeTagCounts = Object.entries(counts)
-        .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
-        .slice(0, 120)
-        .map(([tag, count]) => ({ tag, count }));
-    } catch {}
-
-    try {
-      const adminSupabase = createAdminClient(
-        process.env.NEXT_PUBLIC_SUPABASE_URL,
-        process.env.SUPABASE_SERVICE_ROLE_KEY,
-      );
-
-      const activityFrom = (activityPage - 1) * ACTIVITY_PAGE_SIZE;
-      const activityTo = activityFrom + ACTIVITY_PAGE_SIZE - 1;
+      // Completed cards are intentionally ephemeral: clear them at the first admin visit
+      // after the Brussels calendar month changes. External Mixcloud/Webflow items remain.
+      const { error: expiredPublishedError } = await adminSupabase
+        .from("submissions")
+        .delete()
+        .eq("webflow_status", "published")
+        .lt("webflow_published_at", currentMonthStart);
+      if (expiredPublishedError) throw expiredPublishedError;
+      const { error: undatedPublishedError } = await adminSupabase
+        .from("submissions")
+        .delete()
+        .eq("webflow_status", "published")
+        .is("webflow_published_at", null);
+      if (undatedPublishedError) throw undatedPublishedError;
 
       const { data: submissions } = await adminSupabase
           .from("submissions")
           .select(
-            "id,producer_email,airing_date,audio_filename,image_filename,submitted_tags,ftp_message,created_at,mixcloud,mixcloud_url,webflow_status,webflow_item_id,webflow_error",
+            "id,producer_email,show_start_at,airing_date,audio_filename,image_filename,submitted_description,submitted_tags,created_at,mixcloud,mixcloud_url,webflow_status,webflow_item_id,webflow_error,webflow_published_at",
           )
-          .order("created_at", { ascending: false })
-          .range(activityFrom, activityTo);
+          .gte("airing_date", PUBLISH_MONITORING_START)
+          .order("airing_date", { ascending: true });
+
+      const activityDates = Array.from(new Set(
+        (submissions || []).map((row) => String(row.airing_date || "")).filter(Boolean),
+      ));
+      try {
+        const calendarDays = await Promise.all(activityDates.map(async (dateIso) => ({
+          dateIso,
+          shows: await getShowsForDate(dateIso),
+        })));
+        for (const { dateIso, shows } of calendarDays) {
+          for (const show of shows) {
+            for (const email of show.attendeeEmails || []) {
+              calendarShowTitleByKey[`${email.toLowerCase()}|${dateIso}`] = show.title;
+            }
+          }
+        }
+      } catch (error) {
+        console.error("Could not load calendar titles for Archive cards:", error);
+      }
+
+      // The error column is additive. Keep the board functional while the migration
+      // is being rolled out, then hydrate durable errors once it exists.
+      const submissionIds = (submissions || []).map((row) => String(row.id || "")).filter(Boolean);
+      const { data: mixcloudErrorRows } = submissionIds.length > 0
+        ? await adminSupabase.from("submissions").select("id,mixcloud_error").in("id", submissionIds)
+        : { data: [] };
+      const mixcloudErrorById = new Map(
+        (mixcloudErrorRows || []).map((row) => [String(row.id), typeof row.mixcloud_error === "string" ? row.mixcloud_error : null]),
+      );
 
       const producerEmails = Array.from(
         new Set(
@@ -285,8 +405,10 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
       const groupedSubmissions = new Map<string, {
         ids: string[];
         producer: string;
+        producerEmail: string;
+        showStartAt: string | null;
         airingDate: string | null;
-        hasAudio: boolean;
+        audioFilename: string | null;
         hasCoverImage: boolean;
         hasDescription: boolean;
         hasTags: boolean;
@@ -295,7 +417,8 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
         webflowStatuses: string[];
         webflowItemId: string | null;
         webflowError: string | null;
-        latestCreatedAt: string;
+        mixcloudUrl: string | null;
+        mixcloudError: string | null;
       }>();
 
       for (const row of submissions || []) {
@@ -303,63 +426,63 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
         const producer =
           producerNameByEmail[producerEmail] || producerEmail || "Unknown producer";
         const airingDate = typeof row.airing_date === "string" ? row.airing_date : null;
+        const showStartAt = typeof row.show_start_at === "string" ? row.show_start_at : null;
         const audioFilename = typeof row.audio_filename === "string" ? row.audio_filename.trim() : "";
         const imageFilename = typeof row.image_filename === "string" ? row.image_filename.trim() : "";
-        const ftpMessage = typeof row.ftp_message === "string" ? row.ftp_message.toLowerCase() : "";
+        const submittedDescription = typeof row.submitted_description === "string" ? row.submitted_description.trim() : "";
         const submittedTags = Array.isArray(row.submitted_tags) ? row.submitted_tags : [];
         const submissionId = typeof row.id === "string" ? row.id : "";
-        const createdAt = typeof row.created_at === "string" ? row.created_at : "";
         const mixcloudStatus = typeof row.mixcloud === "string" ? row.mixcloud : "not ready";
 
-        const groupKey = `${producerEmail}|${airingDate || "no-date"}`;
+        const groupKey = `${producerEmail}|${showStartAt || airingDate || "no-date"}`;
 
         const existing = groupedSubmissions.get(groupKey);
         if (existing) {
           // Aggregate flags across all submissions for this group
           existing.ids.push(submissionId);
-          existing.hasAudio = existing.hasAudio || Boolean(audioFilename);
+          existing.audioFilename ||= audioFilename || null;
           existing.hasCoverImage = existing.hasCoverImage || Boolean(imageFilename);
-          existing.hasDescription = existing.hasDescription || 
-            ftpMessage.includes("description uploaded") ||
-            ftpMessage.includes("description upload failed");
-          existing.hasTags = existing.hasTags || submittedTags.length > 0;
+          existing.hasDescription ||= Boolean(submittedDescription);
+          existing.hasTags ||= submittedTags.some((tag) => typeof tag === "string" && tag.trim());
           existing.mixcloudStatuses.push(mixcloudStatus);
           existing.hasMixcloudUrl = existing.hasMixcloudUrl || Boolean(row.mixcloud_url);
+          existing.mixcloudUrl ||= typeof row.mixcloud_url === "string" ? row.mixcloud_url : null;
+          existing.mixcloudError ||= mixcloudErrorById.get(submissionId) || null;
           existing.webflowStatuses.push(typeof row.webflow_status === "string" ? row.webflow_status : "not ready");
           existing.webflowItemId ||= typeof row.webflow_item_id === "string" ? row.webflow_item_id : null;
           existing.webflowError ||= typeof row.webflow_error === "string" ? row.webflow_error : null;
-          // Keep track of the latest submission
-          if (createdAt > existing.latestCreatedAt) {
-            existing.latestCreatedAt = createdAt;
-          }
         } else {
           groupedSubmissions.set(groupKey, {
             ids: [submissionId],
             producer,
+            producerEmail,
+            showStartAt,
             airingDate,
-            hasAudio: Boolean(audioFilename),
+            audioFilename: audioFilename || null,
             hasCoverImage: Boolean(imageFilename),
-            hasDescription:
-              ftpMessage.includes("description uploaded") ||
-              ftpMessage.includes("description upload failed"),
-            hasTags: submittedTags.length > 0,
+            hasDescription: Boolean(submittedDescription),
+            hasTags: submittedTags.some((tag) => typeof tag === "string" && tag.trim()),
             mixcloudStatuses: [mixcloudStatus],
             hasMixcloudUrl: Boolean(row.mixcloud_url),
+            mixcloudUrl: typeof row.mixcloud_url === "string" ? row.mixcloud_url : null,
+            mixcloudError: mixcloudErrorById.get(submissionId) || null,
             webflowStatuses: [typeof row.webflow_status === "string" ? row.webflow_status : "not ready"],
             webflowItemId: typeof row.webflow_item_id === "string" ? row.webflow_item_id : null,
             webflowError: typeof row.webflow_error === "string" ? row.webflow_error : null,
-            latestCreatedAt: createdAt,
           });
         }
       }
 
       // Convert grouped submissions to activity log rows
-      activityLogRows = Array.from(groupedSubmissions.values())
-        .sort((a, b) => {
-          // Sort by latest created_at descending
-          return b.latestCreatedAt.localeCompare(a.latestCreatedAt);
-        })
-        .map((group) => {
+      const eligibleGroups = Array.from(groupedSubmissions.values()).filter((group) => {
+        const websitePublished = group.webflowStatuses.includes("published");
+        const mixcloudPublished = group.mixcloudStatuses.includes("published") && group.hasMixcloudUrl;
+        if (websitePublished || mixcloudPublished) return true;
+        return Boolean(group.airingDate && group.airingDate < todayInBrussels && group.audioFilename);
+      });
+
+      const resolvedActivityRows: typeof activityLogRows = [];
+      for (const group of eligibleGroups) {
           // Determine overall mixcloud status for the group
           let mixcloudStatus = "not ready";
           
@@ -368,19 +491,26 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
             mixcloudStatus = "published";
           }
           // Otherwise, if audio is present, mark as ready
-          else if (group.hasAudio) {
+          else if (group.audioFilename && await audioExistsOnFtp(group.audioFilename, group.producer)) {
             mixcloudStatus = "ready";
           }
 
-          return {
+          // Do not display unpublished shows unless their audio is verifiably present on FTP.
+          if (mixcloudStatus !== "published" && mixcloudStatus !== "ready") continue;
+
+          resolvedActivityRows.push({
             id: group.ids[0], // Use the first ID for bulk actions
             producer: group.producer,
+            calendarTitle: calendarShowTitleByKey[`${group.producerEmail}|${group.airingDate || ""}`] || group.producer,
+            showStartAt: group.showStartAt,
             airingDate: group.airingDate,
-            hasAudio: group.hasAudio,
+            hasAudio: true,
             hasCoverImage: group.hasCoverImage,
             hasDescription: group.hasDescription,
             hasTags: group.hasTags,
             mixcloud: mixcloudStatus,
+            mixcloudUrl: group.mixcloudUrl,
+            mixcloudError: group.mixcloudError,
             webflow: group.webflowStatuses.includes("published")
               ? "published"
               : group.webflowStatuses.includes("publishing")
@@ -392,24 +522,41 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
                     : "not ready",
             webflowItemId: group.webflowItemId,
             webflowError: group.webflowError,
-          };
-        });
+          });
+        }
+      activityLogRows = resolvedActivityRows;
     } catch {}
   }
 
-  const daysInMonth = new Date(Date.UTC(metricYear, metricMonth, 0)).getUTCDate();
-  const firstDayWeekday = new Date(Date.UTC(metricYear, metricMonth - 1, 1)).getUTCDay();
-  const leadingEmptyDays = (firstDayWeekday + 6) % 7;
   const todayIsoDate = new Date().toISOString().slice(0, 10);
+  const programmeCopyByDate = Object.entries(scheduledShowsForWeek).reduce<Record<string, string>>(
+    (copies, [dateIso, shows]) => {
+      if (shows.length === 0 || shows.some((show) => !show.endsAt)) return copies;
 
-  const coverageDays = Array.from({ length: daysInMonth }, (_, index) => {
-    const dayNumber = index + 1;
-    const dateIso = `${selectedMetricMonth}-${String(dayNumber).padStart(2, "0")}`;
+      try {
+        const copy = buildDailyProgrammeCopy(shows.map((show) => ({
+          calendarTitle: show.title,
+          startsAt: show.startsAt,
+          endsAt: show.endsAt as string,
+          tags: show.attendeeEmails.flatMap((email) =>
+            submissionMetadataByShow[`${email.toLowerCase()}|${dateIso}`]?.tags || [],
+          ),
+        })));
+        if (copy) copies[dateIso] = copy;
+      } catch {}
+      return copies;
+    },
+    {},
+  );
+
+  const coverageDays: CalendarDay[] = Array.from({ length: 7 }, (_, index) => {
+    const dateIso = shiftDateIso(selectedWeekStart, index);
+    const dayNumber = Number(dateIso.slice(-2));
     const scheduledCount = scheduledShowsByDate[dateIso] || 0;
     const uploadCount = uploadsByDate[dateIso] || 0;
     const isFutureDay = dateIso > todayIsoDate;
 
-    const status = isFutureDay
+    const status: CalendarDay["status"] = isFutureDay
       ? "future"
       : scheduledCount === 0
         ? "none"
@@ -422,40 +569,25 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
     return {
       dateIso,
       dayNumber,
+      dayLabel: new Intl.DateTimeFormat("en-GB", { weekday: "short", day: "numeric", timeZone: "UTC" }).format(new Date(`${dateIso}T00:00:00Z`)),
       scheduledCount,
       uploadCount,
       status,
-    };
-  });
-
-  const maxTagCount = allTimeTagCounts[0]?.count || 1;
-  const minTagCount = allTimeTagCounts[allTimeTagCounts.length - 1]?.count || 1;
-
-  function tagWeight(count: number) {
-    if (maxTagCount === minTagCount) {
-      return 0.5;
-    }
-
-    return (count - minTagCount) / (maxTagCount - minTagCount);
-  }
-
-  const totalTags = allTimeTagCounts.length;
-
-  const positionedCloudTags = allTimeTagCounts.map((entry, index) => {
-    const weight = tagWeight(entry.count);
-    const fontSize = 0.9 + weight * 1.9;
-    const opacity = 0.7 + weight * 0.3;
-    const angle = index * 2.399963229728653;
-    const radius = Math.sqrt((index + 1) / Math.max(totalTags, 1)) * 43;
-    const x = 50 + Math.cos(angle) * radius;
-    const y = 50 + Math.sin(angle) * radius;
-
-    return {
-      ...entry,
-      fontSize,
-      opacity,
-      x,
-      y,
+      missingShows: (scheduledShowsForWeek[dateIso] || []).flatMap((show) => {
+        const uploadedEmail = show.attendeeEmails.find((email) => uploadedShowKeys.has(`${email.toLowerCase()}|${dateIso}`));
+        if (uploadedEmail) return [];
+        const producerEmail = show.attendeeEmails.find((email) =>
+          calendarProducerNames[email.toLowerCase()] && email.toLowerCase() !== user.email?.toLowerCase(),
+        );
+        return [{
+          title: show.title,
+          producer: producerEmail
+            ? calendarProducerNames[producerEmail.toLowerCase()]
+            : show.title.trim().toLowerCase().startsWith("guest mix")
+              ? ""
+              : "Unassigned producer",
+        }];
+      }),
     };
   });
 
@@ -475,14 +607,12 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
               />
               <p className="dashboard-overline">Console</p>
             </div>
-            <form action={signOut}>
-              <button className="btn-neutral" type="submit">
-                Sign out
-              </button>
-            </form>
-          </div>
-          <div className="dashboard-greeting-row">
-            <h1 className="dashboard-greeting">Hello {producerName}!</h1>
+            <div className="dashboard-account">
+              <span>{producerName}</span>
+              <form action={signOut}>
+                <button className="btn-neutral" type="submit">Sign out</button>
+              </form>
+            </div>
           </div>
         </section>
 
@@ -494,142 +624,106 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
         ) : null}
 
         {isAdmin ? (
-          <section className="dashboard-panel">
-            <h2 className="dashboard-section-title">Submissions overview</h2>
-            <form method="get" className="dashboard-header-row">
-              <input type="hidden" name="activity_page" value="1" />
-              <button className="btn-neutral" type="submit" name="metric_month" value={previousMetricMonth}>
-                Prev month
-              </button>
-              <div className="dashboard-month-group">
-                <p className="muted dashboard-month-label">{metricMonthLabel}</p>
-                <button className="dashboard-month-reset" type="submit">
-                Go to current month
-                </button>
-              </div>
-              <button
-                className="btn-neutral"
-                type="submit"
-                name="metric_month"
-                value={nextMetricMonth}
-                disabled={!canNavigateNext}
-              >
-                Next month
-              </button>
-            </form>
-            <div className="dashboard-coverage-legend">
-              <span className="dashboard-coverage-pill dashboard-coverage-pill-full">Alls shows there!</span>
-              <span className="dashboard-coverage-pill dashboard-coverage-pill-partial">Some shows are missing</span>
-              <span className="dashboard-coverage-pill dashboard-coverage-pill-zero">No shows uploaded</span>
-              <span className="dashboard-coverage-pill">Future</span>
-            </div>
-
-            <div className="dashboard-coverage-weekdays">
-              <span>Mon</span>
-              <span>Tue</span>
-              <span>Wed</span>
-              <span>Thu</span>
-              <span>Fri</span>
-              <span>Sat</span>
-              <span>Sun</span>
-            </div>
-
-            <div className="dashboard-coverage-grid">
-              {Array.from({ length: leadingEmptyDays }).map((_, index) => (
-                <div key={`empty-${index}`} className="dashboard-coverage-day dashboard-coverage-day-empty" />
-              ))}
-              {coverageDays.map((day) => (
-                <div
-                  key={day.dateIso}
-                  className={`dashboard-coverage-day dashboard-coverage-day-${day.status}`}
-                  title={`${day.dateIso}: ${day.uploadCount}/${day.scheduledCount}`}
+          <>
+            <nav className="dashboard-module-nav" aria-label="Admin modules">
+              {[
+                ["calendar", "ON AIR"],
+                ["activity", "ARCHIVE"],
+                ["connections", "Connections"],
+              ].map(([key, label]) => (
+                <Link
+                  key={key}
+                  href={`/dashboard?module=${key}${key === "calendar" ? `&week=${selectedWeekStart}` : ""}`}
+                  className={adminModule === key ? "dashboard-module-link dashboard-module-link-active" : "dashboard-module-link"}
+                  aria-current={adminModule === key ? "page" : undefined}
                 >
-                  <span className="dashboard-coverage-day-number">{day.dayNumber}</span>
-                  <span className="dashboard-coverage-day-ratio">
-                    {day.scheduledCount > 0 ? `${day.uploadCount}/${day.scheduledCount}` : "-"}
-                  </span>
-                </div>
+                  {label}
+                </Link>
               ))}
-            </div>
+            </nav>
 
-            <h2 className="dashboard-section-title">Genres and styles</h2>
-            {positionedCloudTags.length > 0 ? (
-              <div className="dashboard-tag-cloud-scroll">
-                <div className="dashboard-tag-cloud-canvas">
-                  {positionedCloudTags.map((entry) => (
-                    <span
-                      key={entry.tag}
-                      className="dashboard-tag-cloud-word"
-                      style={{
-                        fontSize: `${entry.fontSize}rem`,
-                        opacity: entry.opacity,
-                        left: `${entry.x}%`,
-                        top: `${entry.y}%`,
-                      }}
-                      data-count={`${entry.count} shows`}
-                    >
-                      {entry.tag}
-                    </span>
-                  ))}
+            <section
+              className={`dashboard-panel ${adminModule === "calendar" ? "dashboard-calendar-panel" : ""}`}
+              aria-label={adminModule === "calendar" ? "Upload calendar" : undefined}
+            >
+              {adminModule === "calendar" ? (
+                <>
+                  <div className="dashboard-module-heading">
+                    <form method="get" className="dashboard-month-navigation">
+                      <input type="hidden" name="module" value="calendar" />
+                      <button className="btn-tertiary dashboard-week-button" type="submit" name="week" value={previousWeek} aria-label="Previous week">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 18-6-6 6-6" /></svg>
+                      </button>
+                      <div className="dashboard-month-group">
+                        <p className="muted dashboard-month-label">{weekLabel}</p>
+                        <button className="dashboard-month-reset" type="submit">Current week</button>
+                      </div>
+                      <button className="btn-tertiary dashboard-week-button" type="submit" name="week" value={nextWeek} aria-label="Next week">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6" /></svg>
+                      </button>
+                    </form>
+                  </div>
+                  <CalendarModule
+                    days={coverageDays}
+                    pictures={calendarPictures}
+                    programmeCopyByDate={programmeCopyByDate}
+                    instagramConnected={instagramConnection?.status === "connected"}
+                  />
+                </>
+              ) : null}
+
+              {adminModule === "activity" ? (
+                <ActivityLogWrapper rows={activityLogRows} />
+              ) : null}
+
+              {adminModule === "connections" ? (
+                <div className="dashboard-connections">
+                  <section>
+                    <h2 className="dashboard-section-title">Google Drive</h2>
+                    <p className="muted">Reconnect Google Drive here if submissions stop syncing.</p>
+                    <a className="dashboard-connect" href="/api/google-drive/oauth/start">Connect Google Drive</a>
+                    {driveConnected ? <p className="dashboard-connection-status">Connected {driveConnectedAt ? `on ${new Date(driveConnectedAt).toLocaleString("en-GB")}` : ""}{driveConnectedBy ? ` by ${driveConnectedBy}` : ""}.</p> : null}
+                    {driveOauthState ? <p className={driveOauthState === "ok" ? "success" : "error"}>{driveOauthMessage || (driveOauthState === "ok" ? "Google Drive connected successfully." : "Google Drive connection failed.")}</p> : null}
+                  </section>
+                  <section>
+                    <h2 className="dashboard-section-title">Mixcloud</h2>
+                    <p className="muted">Connect Mixcloud for publishing from the activity module.</p>
+                    <a className="dashboard-connect" href="/api/mixcloud/oauth/start">Connect Mixcloud</a>
+                    {mixcloudConnected ? <p className="dashboard-connection-status">Connected {mixcloudConnectedAt ? `on ${new Date(mixcloudConnectedAt).toLocaleString("en-GB")}` : ""}{mixcloudConnectedBy ? ` by ${mixcloudConnectedBy}` : ""}.</p> : null}
+                    {mixcloudOauthState ? <p className={mixcloudOauthState === "ok" ? "success" : "error"}>{mixcloudOauthMessage || (mixcloudOauthState === "ok" ? "Mixcloud connected successfully." : "Mixcloud connection failed.")}</p> : null}
+                  </section>
+                  <section>
+                    <h2 className="dashboard-section-title">Instagram</h2>
+                    <p className="muted">Connect the Paranoise professional account to publish calendar carousels.</p>
+                    <a className="dashboard-connect" href="/api/instagram/oauth/start">
+                      {instagramConnection?.status === "connected" ? "Reconnect Instagram" : "Connect Instagram"}
+                    </a>
+                    {instagramConnection?.status === "connected" ? (
+                      <>
+                        <p className="dashboard-connection-status">
+                          Connected to @{instagramConnection.accountUsername || instagramConnection.accountId}
+                          {instagramConnection.pageName ? ` through ${instagramConnection.pageName}` : ""}
+                          {instagramConnection.connectedAt ? ` on ${new Date(instagramConnection.connectedAt).toLocaleString("en-GB")}` : ""}
+                          {instagramConnection.connectedByEmail ? ` by ${instagramConnection.connectedByEmail}` : ""}.
+                        </p>
+                        <form action="/api/instagram/disconnect" method="post">
+                          <button className="btn-neutral" type="submit">Disconnect Instagram</button>
+                        </form>
+                      </>
+                    ) : instagramConnection ? (
+                      <p className="dashboard-connection-status">Instagram is {instagramConnection.status.replace("_", " ")}.</p>
+                    ) : null}
+                    {instagramOauthState ? (
+                      <p className={instagramOauthState === "ok" ? "success" : "error"} role="status">
+                        {instagramOauthMessage || (instagramOauthState === "ok" ? "Instagram connected successfully." : "Instagram connection failed.")}
+                      </p>
+                    ) : null}
+                  </section>
+                  <CalendarUserSync />
                 </div>
-              </div>
-            ) : (
-              <p className="muted">No tags available yet.</p>
-            )}
-
-            <h2 className="dashboard-section-title">Activity Log</h2>
-            {activityLogRows.length > 0 ? (
-              <ActivityLogWrapper rows={activityLogRows} />
-            ) : (
-              <p className="muted">No activity rows yet.</p>
-            )}
-
-            <h2 className="dashboard-section-title">Google Drive Connection</h2>
-            <p className="muted">
-              If there is an issue with the connection to google drive, you can reconnect here. If problems persist, please contact Stefanos.
-            </p>
-            <a className="dashboard-connect" href="/api/google-drive/oauth/start">
-              Connect Google Drive
-            </a>
-            {driveConnected ? (
-              <p className="muted" style={{ marginTop: "0.5rem" }}>
-                Connected {driveConnectedAt ? `on ${new Date(driveConnectedAt).toLocaleString("en-GB")}` : ""}
-                {driveConnectedBy ? ` by ${driveConnectedBy}` : ""}.
-              </p>
-            ) : null}
-            {driveOauthState ? (
-              <p className={driveOauthState === "ok" ? "success" : "error"}>
-                {driveOauthMessage || (driveOauthState === "ok"
-                  ? "Google Drive connected successfully."
-                  : "Google Drive connection failed.")}
-              </p>
-            ) : null}
-
-            <h2 className="dashboard-section-title">Mixcloud Connection</h2>
-            <p className="muted">
-              Connect Mixcloud once so bulk publishing can upload directly from the dashboard.
-            </p>
-            <a className="dashboard-connect" href="/api/mixcloud/oauth/start">
-              Connect Mixcloud
-            </a>
-            {mixcloudConnected ? (
-              <p className="muted" style={{ marginTop: "0.5rem" }}>
-                Connected {mixcloudConnectedAt
-                  ? `on ${new Date(mixcloudConnectedAt).toLocaleString("en-GB")}`
-                  : ""}
-                {mixcloudConnectedBy ? ` by ${mixcloudConnectedBy}` : ""}.
-              </p>
-            ) : null}
-            {mixcloudOauthState ? (
-              <p className={mixcloudOauthState === "ok" ? "success" : "error"}>
-                {mixcloudOauthMessage || (mixcloudOauthState === "ok"
-                  ? "Mixcloud connected successfully."
-                  : "Mixcloud connection failed.")}
-              </p>
-            ) : null}
-
-            <CalendarUserSync />
-          </section>
+              ) : null}
+            </section>
+          </>
         ) : null}
       </div>
     </main>

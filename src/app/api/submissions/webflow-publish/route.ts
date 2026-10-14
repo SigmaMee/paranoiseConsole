@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient as createAdminClient } from "@supabase/supabase-js";
 import { requireAdminUser } from "@/lib/admin-access";
-import { deleteFromR2, fileExistsInR2, getSignedR2Url } from "@/lib/r2-utils";
+import { fileExistsInR2, getSignedR2Url } from "@/lib/r2-utils";
 import { createPublishedShow, findResidentItemId, toWebflowSlug } from "@/lib/webflow-api";
 
 export const runtime = "nodejs";
@@ -34,7 +34,7 @@ export async function POST(request: Request) {
     );
     const { data: selected, error: selectedError } = await supabase
       .from("submissions")
-      .select("producer_email,airing_date")
+      .select("id,producer_email,airing_date")
       .in("id", submissionIds);
     if (selectedError) throw selectedError;
 
@@ -46,7 +46,7 @@ export async function POST(request: Request) {
       try {
         const { data: rows, error } = await supabase
           .from("submissions")
-          .select("audio_filename,image_filename,mixcloud,mixcloud_url,webflow_status,webflow_item_id")
+          .select("audio_filename,image_filename,image_object_key,mixcloud,mixcloud_url,webflow_status,webflow_item_id")
           .eq("producer_email", producerEmail)
           .eq("airing_date", airingDate);
         if (error) throw error;
@@ -57,17 +57,18 @@ export async function POST(request: Request) {
 
         const existingItemId = rows.find((row) => row.webflow_item_id)?.webflow_item_id;
         if (existingItemId) {
-          results.push({ producer: producerEmail, airingDate, status: "published", webflowItemId: existingItemId });
+          results.push({ submissionId: selectedShow.id, producer: producerEmail, airingDate, status: "published", webflowItemId: existingItemId });
           continue;
         }
 
         const imageFilename = rows.find((row) => row.image_filename)?.image_filename;
+        const retainedImageKey = rows.find((row) => row.image_object_key)?.image_object_key;
         const audioFilename = rows.find((row) => row.audio_filename)?.audio_filename;
         const mixcloudUrl = rows.find((row) => row.mixcloud_url)?.mixcloud_url;
         if (!imageFilename) throw new Error("Show has no cover image.");
         if (!audioFilename) throw new Error("Show has no audio filename.");
         if (!mixcloudUrl) throw new Error("Stored Mixcloud link is missing; republish or repair this show first.");
-        const imageKey = await resolveR2ImageKey(imageFilename);
+        const imageKey = retainedImageKey || await resolveR2ImageKey(imageFilename);
         if (!imageKey) {
           throw new Error("Cover image is no longer available in temporary storage.");
         }
@@ -111,10 +112,7 @@ export async function POST(request: Request) {
           .eq("producer_email", producerEmail)
           .eq("airing_date", airingDate);
 
-        await deleteFromR2(imageKey).catch((cleanupError) => {
-          console.warn(`Failed to delete published cover ${imageKey}:`, cleanupError);
-        });
-        results.push({ producer: producerEmail, airingDate, status: "published", webflowItemId });
+        results.push({ submissionId: selectedShow.id, producer: producerEmail, airingDate, status: "published", webflowItemId });
       } catch (error) {
         const message = error instanceof Error ? error.message : "Unknown Webflow publishing error";
         await supabase
@@ -122,7 +120,7 @@ export async function POST(request: Request) {
           .update({ webflow_status: "failed", webflow_error: message })
           .eq("producer_email", producerEmail)
           .eq("airing_date", airingDate);
-        results.push({ producer: producerEmail, airingDate, status: "error", error: message });
+        results.push({ submissionId: selectedShow.id, producer: producerEmail, airingDate, status: "error", error: message });
       }
     }
 

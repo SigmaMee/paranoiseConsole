@@ -11,7 +11,8 @@
     "start": "next start",
     "lint": "eslint",
     "import:profiles": "node scripts/import-webflow-profiles.mjs",
-    "auth:ensure-producers": "node scripts/ensure-producer-auth-users.mjs"
+    "auth:ensure-producers": "node scripts/ensure-producer-auth-users.mjs",
+    "auth:link-producer-login": "node scripts/link-producer-login.mjs"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.998.0",

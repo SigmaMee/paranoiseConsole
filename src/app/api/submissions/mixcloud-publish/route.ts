@@ -1,13 +1,15 @@
 import { NextResponse } from "next/server";
 import { createClient as createAdminClient } from "@supabase/supabase-js";
 import { uploadToMixcloud } from "@/lib/mixcloud-api";
-import { getSignedR2Url, deleteFromR2, fileExistsInR2 } from "@/lib/r2-utils";
+import { getSignedR2Url, fileExistsInR2 } from "@/lib/r2-utils";
 import { getDriveWeekdayFolderIdForShowStart } from "@/lib/submission-routing";
 import { getGoogleDriveOAuthClientFromStoredToken } from "@/lib/google-drive-oauth";
 import { google } from "googleapis";
 import { Client } from "basic-ftp";
 import { Writable } from "stream";
 import { requireAdminUser } from "@/lib/admin-access";
+import { downloadAudioFromFtp } from "@/lib/ftp-media";
+import { formatInTimeZone } from "date-fns-tz";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -16,6 +18,14 @@ function getRequiredEnv(name: string) {
   const value = process.env[name];
   if (!value) throw new Error(`Missing required environment variable: ${name}`);
   return value;
+}
+
+function isMissingMixcloudErrorColumn(error: { code?: string; message?: string } | null) {
+  return Boolean(error && (
+    error.code === "42703" ||
+    error.code === "PGRST204" ||
+    error.message?.includes("mixcloud_error")
+  ));
 }
 
 async function getDriveAuth() {
@@ -188,7 +198,7 @@ export async function POST(request: Request) {
     // Fetch the initial submissions to get producer_email + airing_date combinations
     const { data: initialSubmissions, error: initialError } = await adminSupabase
       .from("submissions")
-      .select("producer_email, airing_date")
+      .select("id, producer_email, airing_date")
       .in("id", submissionIds);
 
     console.log("Initial submissions:", initialSubmissions);
@@ -216,6 +226,7 @@ export async function POST(request: Request) {
       mixcloud: string | null;
       audio_filename: string | null;
       image_filename: string | null;
+      image_object_key: string | null;
       airing_date: string;
       submitted_tags: string[] | null;
       ftp_status: string | null;
@@ -227,7 +238,7 @@ export async function POST(request: Request) {
       const [producerEmail, airingDate] = key.split("|");
       const { data: showSubs, error: showError } = await adminSupabase
         .from("submissions")
-        .select("id, producer_email, mixcloud, audio_filename, image_filename, airing_date, submitted_tags, ftp_status, drive_status, ftp_message")
+        .select("id, producer_email, mixcloud, audio_filename, image_filename, image_object_key, airing_date, submitted_tags, ftp_status, drive_status, ftp_message")
         .eq("producer_email", producerEmail)
         .eq("airing_date", airingDate);
 
@@ -246,9 +257,11 @@ export async function POST(request: Request) {
     // Group submissions by producer_email + airing_date and aggregate
     const aggregatedShows = new Map<string, {
       producerEmail: string;
+      submissionId: string;
       airingDate: string;
       audioFilename: string | null;
       imageFilename: string | null;
+      imageObjectKey: string | null;
       submittedTags: string[];
       hasDescription: boolean;
       mixcloudStatuses: string[];
@@ -270,6 +283,9 @@ export async function POST(request: Request) {
         if (!existing.imageFilename && sub.image_filename) {
           existing.imageFilename = sub.image_filename;
         }
+        if (!existing.imageObjectKey && sub.image_object_key) {
+          existing.imageObjectKey = sub.image_object_key;
+        }
         if (Array.isArray(sub.submitted_tags) && sub.submitted_tags.length > 0) {
           existing.submittedTags = [...new Set([...existing.submittedTags, ...sub.submitted_tags])];
         }
@@ -282,9 +298,11 @@ export async function POST(request: Request) {
       } else {
         aggregatedShows.set(key, {
           producerEmail: sub.producer_email,
+          submissionId: initialSubmissions.find((selected) => selected.producer_email === sub.producer_email && selected.airing_date === sub.airing_date)?.id || sub.id,
           airingDate: sub.airing_date,
           audioFilename: sub.audio_filename || null,
           imageFilename: sub.image_filename || null,
+          imageObjectKey: sub.image_object_key || null,
           submittedTags: Array.isArray(sub.submitted_tags) ? sub.submitted_tags : [],
           hasDescription,
           mixcloudStatuses: sub.mixcloud ? [sub.mixcloud] : [],
@@ -298,8 +316,8 @@ export async function POST(request: Request) {
     const readyShows = Array.from(aggregatedShows.values()).filter((show) => {
       const hasAudio = Boolean(show.audioFilename);
       const notPublished = !show.mixcloudStatuses.includes("published");
-      
-      return hasAudio && notPublished;
+      const isEligibleDay = show.airingDate < formatInTimeZone(new Date(), "Europe/Brussels", "yyyy-MM-dd");
+      return hasAudio && notPublished && isEligibleDay;
     });
 
     console.log("Ready shows:", readyShows);
@@ -352,28 +370,20 @@ export async function POST(request: Request) {
         let audioUrl: string | undefined;
         let pictureUrl: string | undefined;
 
-        // Check if files are in R2 (new workflow)
-        const audioR2Key = show.audioFilename
-          ? await resolveR2KeyWithFallback(show.audioFilename)
-          : null;
-        const imageR2Key = show.imageFilename
+        // Images may still use retained R2 storage. Audio is always verified and read from FTP.
+        const imageR2Key = show.imageObjectKey || (show.imageFilename
           ? await resolveR2KeyWithFallback(show.imageFilename)
-          : null;
-        const audioInR2 = Boolean(audioR2Key);
+          : null);
         const imageInR2 = Boolean(imageR2Key);
 
-        console.log(`[${name}] Audio in R2: ${audioInR2}, Image in R2: ${imageInR2}`);
+        console.log(`[${name}] Image in R2: ${imageInR2}`);
         console.log(`[${name}] FTP status: ${show.ftpStatus}, Drive status: ${show.driveStatus}`);
 
-        // Audio: R2 (new) or FTP (legacy)
-        if (audioInR2 && audioR2Key) {
-          console.log(`[${name}] Getting signed URL for audio from R2`);
-          audioUrl = await getSignedR2Url(audioR2Key);
-        } else if (show.audioFilename) {
+        if (show.audioFilename) {
           console.log(`[${name}] Downloading audio from FTP...`);
-          audioBuffer = (await downloadFromFtpWithFallback(show.audioFilename, producerFolderName)) || undefined;
+          audioBuffer = (await downloadAudioFromFtp(show.audioFilename, producerFolderName)) || undefined;
           if (!audioBuffer) {
-            throw new Error(`Failed to download audio file from FTP/R2: ${show.audioFilename}`);
+            throw new Error(`Audio file is not available on FTP: ${show.audioFilename}`);
           }
           console.log(`[${name}] Audio downloaded, size: ${audioBuffer.length} bytes`);
         } else {
@@ -403,6 +413,19 @@ export async function POST(request: Request) {
         }
 
         console.log(`[${name}] Uploading to Mixcloud...`);
+        let { error: publishingStateError } = await adminSupabase
+          .from("submissions")
+          .update({ mixcloud: "publishing", mixcloud_error: null })
+          .eq("producer_email", show.producerEmail)
+          .eq("airing_date", show.airingDate);
+        if (isMissingMixcloudErrorColumn(publishingStateError)) {
+          ({ error: publishingStateError } = await adminSupabase
+            .from("submissions")
+            .update({ mixcloud: "publishing" })
+            .eq("producer_email", show.producerEmail)
+            .eq("airing_date", show.airingDate));
+        }
+        if (publishingStateError) throw publishingStateError;
         const mixcloudRes = await uploadToMixcloud({
           audioUrl,
           audioBuffer,
@@ -416,49 +439,67 @@ export async function POST(request: Request) {
         const mixcloudUrl = new URL(mixcloudRes.key, "https://www.mixcloud.com").toString();
 
         // Mark ALL submissions for this show as published
-        const { error: updateError } = await adminSupabase
+        let { error: updateError } = await adminSupabase
           .from("submissions")
           .update({
             mixcloud: "published",
             mixcloud_key: mixcloudRes.key,
             mixcloud_url: mixcloudUrl,
+            mixcloud_error: null,
             webflow_status: "ready",
             webflow_error: null,
           })
           .eq("producer_email", show.producerEmail)
           .eq("airing_date", show.airingDate);
-        
-        if (updateError) {
-          console.warn(`[${name}] Failed to update submissions to published:`, updateError);
-        } else {
-          console.log(`[${name}] All submissions for this show updated to published`);
+        if (isMissingMixcloudErrorColumn(updateError)) {
+          ({ error: updateError } = await adminSupabase
+            .from("submissions")
+            .update({
+              mixcloud: "published",
+              mixcloud_key: mixcloudRes.key,
+              mixcloud_url: mixcloudUrl,
+              webflow_status: "ready",
+              webflow_error: null,
+            })
+            .eq("producer_email", show.producerEmail)
+            .eq("airing_date", show.airingDate));
         }
+        
+        if (updateError) throw new Error(`Mixcloud upload succeeded but its URL could not be saved: ${updateError.message}`);
+        console.log(`[${name}] All submissions for this show updated to published`);
 
-        // Delete files from R2 after successful upload (only if they were in R2)
-        if (audioInR2 && audioR2Key) {
-          try {
-            await deleteFromR2(audioR2Key);
-            console.log(`[${name}] Deleted audio from R2: ${audioR2Key}`);
-          } catch (err) {
-            console.warn(`[${name}] Failed to delete audio from R2:`, err);
-          }
-        }
-        
         // Keep the cover in R2 until the Webflow CMS publication succeeds.
 
         results.push({ 
+          submissionId: show.submissionId,
           producer: show.producerEmail, 
           airingDate: show.airingDate,
           status: "published", 
+          mixcloudUrl,
           mixcloud: mixcloudRes 
         });
       } catch (err) {
         console.error(`Error processing show for ${show.producerEmail} on ${show.airingDate}:`, err);
+        const message = err instanceof Error ? err.message : "Unknown publishing error";
+        const failedUpdate = adminSupabase
+          .from("submissions")
+          .update({ mixcloud: "failed", mixcloud_error: message })
+          .eq("producer_email", show.producerEmail)
+          .eq("airing_date", show.airingDate);
+        const { error: failedUpdateError } = await failedUpdate;
+        if (isMissingMixcloudErrorColumn(failedUpdateError)) {
+          await adminSupabase
+            .from("submissions")
+            .update({ mixcloud: "failed" })
+            .eq("producer_email", show.producerEmail)
+            .eq("airing_date", show.airingDate);
+        }
         results.push({ 
+          submissionId: show.submissionId,
           producer: show.producerEmail, 
           airingDate: show.airingDate,
           status: "error", 
-          error: err instanceof Error ? err.message : "Unknown publishing error",
+          error: message,
         });
       } finally {
         // Explicitly free memory

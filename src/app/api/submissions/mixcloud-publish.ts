@@ -17,7 +17,7 @@ export async function POST(request: Request) {
     // Fetch submissions
     const { data: submissions, error } = await supabase
       .from("submissions")
-      .select("id, mixcloud, audio_filename, image_filename, airing_date, submitted_tags")
+      .select("id, mixcloud, audio_filename, image_filename, image_object_key, airing_date, submitted_tags")
       .in("id", submissionIds);
 
     if (error) {
@@ -38,8 +38,8 @@ export async function POST(request: Request) {
         const audioUrl = sub.audio_filename 
           ? await getSignedR2Url(sub.audio_filename)
           : undefined;
-        const pictureUrl = sub.image_filename
-          ? await getSignedR2Url(sub.image_filename)
+        const pictureUrl = sub.image_object_key
+          ? await getSignedR2Url(sub.image_object_key)
           : undefined;
         
         const name = sub.airing_date ? `Show ${sub.airing_date}` : "Show";
@@ -69,14 +69,6 @@ export async function POST(request: Request) {
           }
         }
         
-        if (sub.image_filename) {
-          try {
-            await deleteFromR2(sub.image_filename);
-          } catch (err) {
-            console.warn(`Failed to delete image file ${sub.image_filename} from R2:`, err);
-          }
-        }
-
         results.push({ id: sub.id, status: "published", mixcloud: mixcloudRes });
       } catch (err) {
         results.push({

@@ -77,6 +77,53 @@ export function toWebflowSlug(value: string) {
     .slice(0, 240) || "radio-show";
 }
 
+export type PublishedWebflowShow = {
+  id: string;
+  name: string;
+  slug: string;
+  residentItemId: string;
+  mixcloudUrl: string;
+  publishedAt: string | null;
+};
+
+export async function listPublishedShowsWithMixcloud(): Promise<PublishedWebflowShow[]> {
+  const shows: PublishedWebflowShow[] = [];
+  let offset = 0;
+
+  while (true) {
+    const data = (await webflowRequest(
+      `/collections/${WEBFLOW_SHOWS_COLLECTION_ID}/items/live?limit=100&offset=${offset}`,
+    )) as {
+      items?: Array<{
+        id?: string;
+        lastPublished?: string;
+        lastUpdated?: string;
+        fieldData?: { name?: string; slug?: string; resident?: string; mixcloud?: string };
+      }>;
+    };
+    const items = data.items || [];
+
+    for (const item of items) {
+      const fields = item.fieldData;
+      if (item.id && fields?.resident && fields.mixcloud) {
+        shows.push({
+          id: item.id,
+          name: fields.name || "Untitled show",
+          slug: fields.slug || "",
+          residentItemId: fields.resident,
+          mixcloudUrl: fields.mixcloud,
+          publishedAt: item.lastPublished || item.lastUpdated || null,
+        });
+      }
+    }
+
+    if (items.length < 100) break;
+    offset += items.length;
+  }
+
+  return shows;
+}
+
 export async function createPublishedShow(params: {
   name: string;
   slug: string;

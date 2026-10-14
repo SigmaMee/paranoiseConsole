@@ -5,6 +5,7 @@ create table if not exists public.submissions (
   producer_email text not null,
   audio_filename text not null,
   image_filename text not null,
+  image_object_key text,
   show_start_at timestamptz,
   airing_date date,
   submitted_description text,
@@ -31,7 +32,13 @@ alter table if exists public.submissions
   add column if not exists submitted_tags text[];
 
 alter table if exists public.submissions
+  add column if not exists image_object_key text;
+
+alter table if exists public.submissions
   add column if not exists mixcloud text default 'not ready';
+
+alter table if exists public.submissions
+  add column if not exists mixcloud_error text;
 
 create index if not exists submissions_created_at_idx
   on public.submissions (created_at desc);

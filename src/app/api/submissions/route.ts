@@ -17,7 +17,13 @@ import {
 } from "@/lib/google-calendar";
 import { updateShowPlaylist } from "@/lib/centova-api";
 import { sendSubmissionConfirmationEmail } from "@/lib/email";
-import { S3Client, GetObjectCommand, HeadObjectCommand } from "@aws-sdk/client-s3";
+import {
+  DeleteObjectCommand,
+  GetObjectCommand,
+  HeadObjectCommand,
+  PutObjectCommand,
+  S3Client,
+} from "@aws-sdk/client-s3";
 import type { Readable } from "stream";
 import { getReferenceNow } from "@/lib/reference-time";
 import { getProducerCalendarEmails, getProducerEmail } from "@/lib/producer-identity";
@@ -80,6 +86,30 @@ async function getR2ObjectStream(objectKey: string): Promise<Readable> {
     throw new Error(`R2 object not found: ${objectKey}`);
   }
   return response.Body as Readable;
+}
+
+async function retainCoverInR2(
+  stagedObjectKey: string,
+  userId: string,
+  airingDate: string | null,
+  image: File,
+) {
+  const objectName = stagedObjectKey.split("/").pop();
+  if (!objectName) throw new Error("Staged cover key has no object name.");
+
+  const retainedObjectKey = `covers/${userId}/${airingDate || "undated"}/${objectName}`;
+  await r2.send(new PutObjectCommand({
+    Bucket: process.env.R2_BUCKET_NAME!,
+    Key: retainedObjectKey,
+    Body: Buffer.from(await image.arrayBuffer()),
+    ContentType: image.type || "application/octet-stream",
+    CacheControl: "private, max-age=31536000, immutable",
+  }));
+  await r2.send(new DeleteObjectCommand({
+    Bucket: process.env.R2_BUCKET_NAME!,
+    Key: stagedObjectKey,
+  }));
+  return retainedObjectKey;
 }
 
 async function validateStagedObject(
@@ -810,11 +840,15 @@ export async function POST(request: Request) {
     try {
       stage = "persist:submission-status";
       const airingDate = toAiringDateIso(persistedShowStart);
+      const retainedImageObjectKey = imageObjectKey && optionalImage
+        ? await retainCoverInR2(imageObjectKey, user.id, airingDate, optionalImage)
+        : null;
       await persistSubmissionStatus({
         producerProfileId: producerProfile.profileId,
         producerEmail,
         audioFilename: uploadedAudioFilename,
         imageFilename: uploadedImageFilename,
+        imageObjectKey: retainedImageObjectKey,
         showStartAt: persistedShowStart,
         airingDate,
         submittedDescription: description,
