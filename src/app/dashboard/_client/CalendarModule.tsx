@@ -37,6 +37,18 @@ type Props = {
 const BROADCAST_TIME_ZONE = "Europe/Athens";
 const INSTAGRAM_CAPTION_HEADING_LENGTH = "Today on air\n\n".length;
 const INSTAGRAM_COPY_MAX_LENGTH = 2_200 - INSTAGRAM_CAPTION_HEADING_LENGTH;
+const EMOJI_OPTIONS = [
+  "😀", "😃", "😄", "😁", "😂", "😊", "😍", "🥰",
+  "😘", "🤩", "🥳", "😎", "🤓", "🤯", "🥹", "😭",
+  "😅", "😇", "😉", "🙃", "🫠", "🤗", "🫶", "🙏",
+  "👏", "🙌", "🤝", "💪", "✌️", "🤘", "👌", "👀",
+  "🔥", "✨", "💥", "⚡", "🌈", "🌟", "💫", "☀️",
+  "❤️", "🧡", "💛", "💚", "💙", "💜", "🖤", "🤍",
+  "🎧", "🎵", "🎶", "🎙️", "📻", "💿", "🪩", "🔊",
+  "🎹", "🎸", "🥁", "🎷", "🎺", "🎤", "🎛️", "🎚️",
+  "🚀", "🌍", "🌙", "🛸", "🌀", "💎", "🕺", "💃",
+  "🍾", "🥂", "🍻", "☕", "🌶️", "🍄", "🌊", "🌴",
+] as const;
 
 function getTodayIso() {
   const parts = new Intl.DateTimeFormat("en-GB", {
@@ -63,10 +75,13 @@ function triggerDownload(blob: Blob, filename: string) {
 export default function CalendarModule({ days, pictures, programmeCopyByDate, instagramConnected }: Props) {
   const calendarRef = React.useRef<HTMLDivElement>(null);
   const calendarTopRef = React.useRef<number | null>(null);
+  const programmeCopyFieldRef = React.useRef<HTMLTextAreaElement>(null);
+  const emojiPickerRef = React.useRef<HTMLDivElement>(null);
   const [busy, setBusy] = React.useState(false);
   const [message, setMessage] = React.useState("");
   const [messageTone, setMessageTone] = React.useState<"default" | "success">("default");
   const [preview, setPreview] = React.useState<CalendarPicture | null>(null);
+  const [emojiPickerOpen, setEmojiPickerOpen] = React.useState(false);
   const [editableCopyByDate, setEditableCopyByDate] = React.useState<Record<string, string>>(
     () => ({ ...programmeCopyByDate }),
   );
@@ -86,6 +101,27 @@ export default function CalendarModule({ days, pictures, programmeCopyByDate, in
       setExpandedDate(days.find((day) => day.dateIso === todayIso)?.dateIso || days[0]?.dateIso || "");
     }
   }, [days, expandedDate, todayIso]);
+
+  React.useEffect(() => {
+    setEmojiPickerOpen(false);
+  }, [expandedDate]);
+
+  React.useEffect(() => {
+    if (!emojiPickerOpen) return;
+
+    const closePicker = (event: MouseEvent) => {
+      if (!emojiPickerRef.current?.contains(event.target as Node)) setEmojiPickerOpen(false);
+    };
+    const closePickerWithKeyboard = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setEmojiPickerOpen(false);
+    };
+    document.addEventListener("mousedown", closePicker);
+    document.addEventListener("keydown", closePickerWithKeyboard);
+    return () => {
+      document.removeEventListener("mousedown", closePicker);
+      document.removeEventListener("keydown", closePickerWithKeyboard);
+    };
+  }, [emojiPickerOpen]);
 
   React.useEffect(() => {
     setEditableCopyByDate((current) => ({ ...programmeCopyByDate, ...current }));
@@ -193,6 +229,23 @@ export default function CalendarModule({ days, pictures, programmeCopyByDate, in
     } catch {
       setMessage("The programme copy could not be copied.");
     }
+  };
+
+  const insertEmoji = (dateIso: string, emoji: string) => {
+    const field = programmeCopyFieldRef.current;
+    const currentCopy = editableCopyByDate[dateIso] || "";
+    const selectionStart = field?.selectionStart ?? currentCopy.length;
+    const selectionEnd = field?.selectionEnd ?? selectionStart;
+    const nextCopy = `${currentCopy.slice(0, selectionStart)}${emoji}${currentCopy.slice(selectionEnd)}`;
+    if (nextCopy.length > INSTAGRAM_COPY_MAX_LENGTH) return;
+
+    setEditableCopyByDate((current) => ({ ...current, [dateIso]: nextCopy }));
+    setEmojiPickerOpen(false);
+    window.requestAnimationFrame(() => {
+      field?.focus();
+      const nextCursorPosition = selectionStart + emoji.length;
+      field?.setSelectionRange(nextCursorPosition, nextCursorPosition);
+    });
   };
 
   const publishToInstagram = async (dateIso: string, dayPictures: CalendarPicture[]) => {
@@ -361,17 +414,52 @@ export default function CalendarModule({ days, pictures, programmeCopyByDate, in
                 {isExpanded ? (
                   <aside className={styles.programmeCopy} aria-live="polite">
                     <h3>Today on air</h3>
-                    <textarea
-                      className={styles.programmeCopyField}
-                      aria-label={`Editable programme copy for ${day.dateIso}`}
-                      maxLength={INSTAGRAM_COPY_MAX_LENGTH}
-                      value={editableCopyByDate[day.dateIso] || ""}
-                      placeholder="Programme copy is not available for this day yet."
-                      onChange={(event) => setEditableCopyByDate((current) => ({
-                        ...current,
-                        [day.dateIso]: event.target.value,
-                      }))}
-                    />
+                    <div className={styles.programmeCopyEditor}>
+                      <textarea
+                        ref={programmeCopyFieldRef}
+                        className={styles.programmeCopyField}
+                        aria-label={`Editable programme copy for ${day.dateIso}`}
+                        maxLength={INSTAGRAM_COPY_MAX_LENGTH}
+                        value={editableCopyByDate[day.dateIso] || ""}
+                        placeholder="Programme copy is not available for this day yet."
+                        onChange={(event) => setEditableCopyByDate((current) => ({
+                          ...current,
+                          [day.dateIso]: event.target.value,
+                        }))}
+                      />
+                      <div ref={emojiPickerRef} className={styles.emojiPicker}>
+                        <button
+                          className={styles.emojiPickerToggle}
+                          type="button"
+                          aria-label="Choose an emoji"
+                          aria-expanded={emojiPickerOpen}
+                          aria-controls={`emoji-picker-${day.dateIso}`}
+                          onClick={() => setEmojiPickerOpen((open) => !open)}
+                        >
+                          <span aria-hidden="true">☺</span>
+                        </button>
+                        {emojiPickerOpen ? (
+                          <div
+                            id={`emoji-picker-${day.dateIso}`}
+                            className={styles.emojiPickerMenu}
+                            role="group"
+                            aria-label="Emoji choices"
+                          >
+                            {EMOJI_OPTIONS.map((emoji) => (
+                              <button
+                                key={emoji}
+                                className={styles.emojiOption}
+                                type="button"
+                                aria-label={`Insert ${emoji}`}
+                                onClick={() => insertEmoji(day.dateIso, emoji)}
+                              >
+                                {emoji}
+                              </button>
+                            ))}
+                          </div>
+                        ) : null}
+                      </div>
+                    </div>
                     {!instagramConnected || selectedPictures.length < 1 || selectedPictures.length > 10 ? (
                       <div className={styles.publishControls}>
                         <p>
