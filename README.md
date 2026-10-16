@@ -46,7 +46,7 @@ Once upload staging completes, the app:
 - downloads staged files from R2
 - pushes audio to FTP
 - pushes cover art to Google Drive
-- optionally publishes to Mixcloud
+- retains the audio object in R2 until durable Mixcloud publishing completes
 - persists submission metadata and delivery status in Supabase
 - sends a confirmation email
 
@@ -71,12 +71,14 @@ Producer UI
   -> direct upload to Cloudflare R2 via presigned URLs
   -> metadata POST to Next.js API
   -> validation + routing layer
-  -> FTP / Google Drive / Mixcloud
+  -> FTP / Google Drive
   -> Supabase persistence + Resend notifications
 
 Admin UI
   -> Supabase + Google Calendar aggregation
   -> activity, sync, and reporting tools
+  -> Vercel Workflow
+  -> R2 audio -> Mixcloud -> R2 cleanup
 ```
 
 ## Notable Engineering Decisions
@@ -110,6 +112,17 @@ Why it matters:
 - better operator visibility
 - clearer recovery paths
 - more honest UX for production operations
+
+### Durable Mixcloud publishing
+
+Mixcloud publishing starts a Vercel Workflow and returns to the admin immediately. Each run reconciles the expected show against Mixcloud before uploading, reads new submissions from their retained R2 object, persists the Mixcloud URL, and deletes the R2 audio in a separate retryable cleanup step. Legacy submissions without an R2 object key can temporarily fall back to FTP.
+
+Why it matters:
+
+- browser navigation does not interrupt publishing
+- retries do not blindly create duplicate Mixcloud shows
+- FTP availability is no longer on the primary Mixcloud path
+- cleanup failures cannot turn a successful publication into a failed publication
 
 ### Calendar-driven onboarding
 
@@ -273,6 +286,10 @@ Routes that manage other producers' data or use service-role access require an e
 
 Apply [`supabase/upload_security_events.sql`](supabase/upload_security_events.sql) before deploying the corresponding application version. Console fails closed before external media delivery if it cannot persist the audit event.
 
+### Mixcloud workflow migration
+
+Apply [`supabase/migrations/20261016090050_add_mixcloud_workflow_state.sql`](supabase/migrations/20261016090050_add_mixcloud_workflow_state.sql) before deploying the R2-first publishing workflow. It stores retained audio object keys, workflow run IDs, publication timestamps, and R2 cleanup timestamps.
+
 
 
 ## Deployment Notes
@@ -280,8 +297,8 @@ Apply [`supabase/upload_security_events.sql`](supabase/upload_security_events.sq
 - Deploy target: Vercel
 - Build command: `npm run build`
 - Start command: `npm run start`
-- The submissions API runs on the Node.js runtime and is configured for long-running processing.
-- Direct-to-R2 uploads reduce pressure on Vercel limits, but downstream processing time still needs to fit the deployment plan and runtime budget.
+- Vercel Workflow handles Mixcloud publishing after the initiating API request returns.
+- The individual R2-to-Mixcloud transfer step still needs to fit the deployment plan's function-duration and memory limits.
 
 ## Routes
 

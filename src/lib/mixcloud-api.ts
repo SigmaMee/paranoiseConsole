@@ -35,6 +35,49 @@ export type MixcloudUploadResponse = {
   [field: string]: unknown;
 };
 
+export class MixcloudApiError extends Error {
+  constructor(
+    message: string,
+    public readonly status: number | null = null,
+  ) {
+    super(message);
+    this.name = "MixcloudApiError";
+  }
+}
+
+function mixcloudSlug(value: string, preserveUnderscores = false) {
+  return value
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(preserveUnderscores ? /[^a-z0-9_-]+/g : /[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+export async function findMixcloudUploadByName(name: string): Promise<MixcloudUploadResponse | null> {
+  const username = process.env.MIXCLOUD_USERNAME || "ParanoiseRadio";
+  const slugs = Array.from(new Set([
+    mixcloudSlug(name),
+    mixcloudSlug(name, true),
+  ].filter(Boolean)));
+
+  for (const slug of slugs) {
+    const response = await globalThis.fetch(
+      `https://api.mixcloud.com/${encodeURIComponent(username)}/${encodeURIComponent(slug)}/`,
+      { cache: "no-store" },
+    );
+    if (response.status === 404) continue;
+    if (!response.ok) {
+      throw new MixcloudApiError(`Mixcloud lookup failed with status ${response.status}.`, response.status);
+    }
+
+    const normalized = normalizeUploadResponse(await response.json());
+    if (normalized) return normalized;
+  }
+
+  return null;
+}
+
 function stringField(value: unknown, field: string) {
   if (!value || typeof value !== "object" || !(field in value)) return null;
   const candidate = (value as Record<string, unknown>)[field];
@@ -166,7 +209,10 @@ export async function uploadToMixcloud({
 
   if (!response.ok) {
     const error = await response.text();
-    throw new Error(`Mixcloud upload failed: ${error}`);
+    throw new MixcloudApiError(
+      `Mixcloud upload failed: ${error || response.statusText || `HTTP ${response.status}`}`,
+      response.status,
+    );
   }
 
   const responseBody = await response.text();
@@ -174,13 +220,13 @@ export async function uploadToMixcloud({
   try {
     result = JSON.parse(responseBody);
   } catch {
-    throw new Error("Mixcloud upload returned a non-JSON response.");
+    throw new MixcloudApiError("Mixcloud upload returned a non-JSON response.", response.status);
   }
 
   const normalized = normalizeUploadResponse(result);
   if (normalized) return normalized;
 
   const message = mixcloudErrorMessage(result);
-  if (message) throw new Error(`Mixcloud rejected the upload: ${message}`);
-  throw new Error("Mixcloud upload returned an unrecognized response.");
+  if (message) throw new MixcloudApiError(`Mixcloud rejected the upload: ${message}`, response.status);
+  throw new MixcloudApiError("Mixcloud upload returned an unrecognized response.", response.status);
 }

@@ -3,22 +3,25 @@ import Image from "next/image";
 import Link from "next/link";
 import { createClient as createAdminClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
-import { isAdminUser } from "@/lib/admin-access";
+import { isAdminUser, PRIMARY_ADMIN_EMAIL } from "@/lib/admin-access";
 import { signOut } from "@/app/actions";
 import { ShowSubmissionToggle } from "@/components/show-submission-toggle";
 import CalendarUserSync from "./_client/CalendarUserSync";
 import CalendarModule, { type CalendarDay, type CalendarPicture } from "./_client/CalendarModule";
 import ActivityLogWrapper from "./ActivityLogWrapper";
+import ResidentsModule, { type ResidentRow } from "./_client/ResidentsModule";
 import {
   getMostRecentPastAndFutureShowsByProducerEmail,
   getShowsForDate,
+  getUpcomingShowsForAllProducers,
 } from "@/lib/google-calendar";
 import { buildDailyProgrammeCopy } from "@/lib/programme-copy";
-import { getSignedR2Url } from "@/lib/r2-utils";
+import { fileExistsInR2, getSignedR2Url } from "@/lib/r2-utils";
 import { audioExistsOnFtp } from "@/lib/ftp-media";
 import { getInstagramConnection, type InstagramConnection } from "@/lib/instagram-oauth";
 import { formatInTimeZone, fromZonedTime } from "date-fns-tz";
 import { getProducerCalendarEmails } from "@/lib/producer-identity";
+import { listWebflowResidentProfiles } from "@/lib/webflow-api";
 
 type DashboardPageProps = {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
@@ -69,6 +72,25 @@ function titleFromArtworkFilename(filename: string, producerName: string) {
     .join(" ") || "Untitled show";
 }
 
+function parseCalendarResidentTitle(title: string | undefined) {
+  const trimmedTitle = title?.trim();
+  if (!trimmedTitle || /^guest mix\b/i.test(trimmedTitle)) return null;
+  const separatorMatch = /\s+[-–—]\s+/.exec(trimmedTitle);
+  if (!separatorMatch) return { producerName: trimmedTitle, showName: null };
+  const producerName = trimmedTitle.slice(0, separatorMatch.index).trim();
+  const showName = trimmedTitle.slice(separatorMatch.index + separatorMatch[0].length).trim();
+  return producerName && showName ? { producerName, showName } : null;
+}
+
+function normalizeResidentGroupingValue(value: string) {
+  return value
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
 export default async function DashboardPage({ searchParams }: DashboardPageProps) {
   const params = await searchParams;
   const getParam = (key: string) =>
@@ -85,7 +107,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
     typeof params.instagram_oauth_message === "string" ? params.instagram_oauth_message : "";
   const weekParam = getParam("week");
   const requestedModule = getParam("module");
-  const adminModule = ["calendar", "activity", "connections"].includes(requestedModule)
+  const adminModule = ["calendar", "activity", "residents", "connections"].includes(requestedModule)
     ? requestedModule
     : "calendar";
   const selectedWeekStart = normalizeWeekIso(weekParam);
@@ -146,6 +168,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
   let calendarProducerNames: Record<string, string> = {};
   let uploadsByDate: Record<string, number> = {};
   let calendarPictures: CalendarPicture[] = [];
+  let residentRows: ResidentRow[] = [];
   let activityLogRows: Array<{
     id: string;
     producer: string;
@@ -341,7 +364,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
       const { data: submissions } = await adminSupabase
           .from("submissions")
           .select(
-            "id,producer_email,show_start_at,airing_date,audio_filename,image_filename,submitted_description,submitted_tags,created_at,mixcloud,mixcloud_url,webflow_status,webflow_item_id,webflow_error,webflow_published_at",
+            "id,producer_email,show_start_at,airing_date,audio_filename,audio_object_key,image_filename,submitted_description,submitted_tags,ftp_status,created_at,mixcloud,mixcloud_url,webflow_status,webflow_item_id,webflow_error,webflow_published_at",
           )
           .gte("airing_date", PUBLISH_MONITORING_START)
           .order("airing_date", { ascending: true });
@@ -409,6 +432,8 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
         showStartAt: string | null;
         airingDate: string | null;
         audioFilename: string | null;
+        audioObjectKey: string | null;
+        audioDeliverySucceeded: boolean;
         hasCoverImage: boolean;
         hasDescription: boolean;
         hasTags: boolean;
@@ -441,6 +466,8 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
           // Aggregate flags across all submissions for this group
           existing.ids.push(submissionId);
           existing.audioFilename ||= audioFilename || null;
+          existing.audioObjectKey ||= typeof row.audio_object_key === "string" ? row.audio_object_key : null;
+          existing.audioDeliverySucceeded ||= row.ftp_status === "success" && Boolean(audioFilename);
           existing.hasCoverImage = existing.hasCoverImage || Boolean(imageFilename);
           existing.hasDescription ||= Boolean(submittedDescription);
           existing.hasTags ||= submittedTags.some((tag) => typeof tag === "string" && tag.trim());
@@ -459,6 +486,8 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
             showStartAt,
             airingDate,
             audioFilename: audioFilename || null,
+            audioObjectKey: typeof row.audio_object_key === "string" ? row.audio_object_key : null,
+            audioDeliverySucceeded: row.ftp_status === "success" && Boolean(audioFilename),
             hasCoverImage: Boolean(imageFilename),
             hasDescription: Boolean(submittedDescription),
             hasTags: submittedTags.some((tag) => typeof tag === "string" && tag.trim()),
@@ -490,13 +519,21 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
           if (group.mixcloudStatuses.includes("published")) {
             mixcloudStatus = "published";
           }
-          // Otherwise, if audio is present, mark as ready
-          else if (group.audioFilename && await audioExistsOnFtp(group.audioFilename, group.producer)) {
+          else if (group.mixcloudStatuses.includes("publishing")) {
+            mixcloudStatus = "publishing";
+          }
+          // A completed delivery is recorded at submission time. Do not hide a
+          // past show merely because a later storage presence check is delayed
+          // or temporarily unavailable.
+          else if (group.audioFilename && (
+            group.audioDeliverySucceeded
+            || (group.audioObjectKey && await fileExistsInR2(group.audioObjectKey))
+            || await audioExistsOnFtp(group.audioFilename, group.producer)
+          )) {
             mixcloudStatus = "ready";
           }
 
-          // Do not display unpublished shows unless their audio is verifiably present on FTP.
-          if (mixcloudStatus !== "published" && mixcloudStatus !== "ready") continue;
+          if (!["published", "publishing", "ready"].includes(mixcloudStatus)) continue;
 
           resolvedActivityRows.push({
             id: group.ids[0], // Use the first ID for bulk actions
@@ -526,6 +563,112 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
         }
       activityLogRows = resolvedActivityRows;
     } catch {}
+
+    if (adminModule === "residents") try {
+      const adminSupabase = createAdminClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL,
+        process.env.SUPABASE_SERVICE_ROLE_KEY,
+      );
+      const { data: profiles, error: profilesError } = await adminSupabase
+        .from("profiles")
+        .select("id,producer_email,full_name")
+        .order("full_name");
+      if (profilesError) throw profilesError;
+
+      const authUsers = [];
+      for (let page = 1; ; page += 1) {
+        const { data, error } = await adminSupabase.auth.admin.listUsers({ page, perPage: 1000 });
+        if (error) throw error;
+        authUsers.push(...data.users);
+        if (data.users.length < 1000) break;
+      }
+
+      const emailsByCanonical = new Map<string, Set<string>>();
+      for (const authUser of authUsers) {
+        const email = authUser.email?.trim().toLowerCase();
+        const canonical = typeof authUser.app_metadata?.producer_email === "string"
+          ? authUser.app_metadata.producer_email.trim().toLowerCase()
+          : email;
+        if (!canonical || !email) continue;
+        const emails = emailsByCanonical.get(canonical) || new Set<string>();
+        emails.add(canonical);
+        emails.add(email);
+        emailsByCanonical.set(canonical, emails);
+      }
+
+      let upcomingShows: Awaited<ReturnType<typeof getUpcomingShowsForAllProducers>> = [];
+      let webflowResidents: Awaited<ReturnType<typeof listWebflowResidentProfiles>> = [];
+      const [calendarResult, webflowResult] = await Promise.allSettled([
+        getUpcomingShowsForAllProducers(),
+        listWebflowResidentProfiles(),
+      ]);
+      if (calendarResult.status === "fulfilled") upcomingShows = calendarResult.value;
+      else console.error("Could not load Calendar profiles for Residents:", calendarResult.reason);
+      if (webflowResult.status === "fulfilled") webflowResidents = webflowResult.value;
+      else console.error("Could not load Webflow profiles for Residents:", webflowResult.reason);
+      const webflowResidentByName = new Map(
+        webflowResidents.map((profile) => [normalizeResidentGroupingValue(profile.name), profile]),
+      );
+
+      const mappedResidents = (profiles || []).filter((profile) =>
+        String(profile.producer_email || "").trim().toLowerCase() !== PRIMARY_ADMIN_EMAIL,
+      ).map((profile) => {
+        const canonicalEmail = String(profile.producer_email || "").trim().toLowerCase();
+        const emails = Array.from(emailsByCanonical.get(canonicalEmail) || new Set([canonicalEmail]))
+          .filter((email) => Boolean(email) && email !== PRIMARY_ADMIN_EMAIL)
+          .sort();
+        const knownEmails = new Set(emails);
+        const nextShow = upcomingShows.find((show) =>
+          (show.attendeeEmails || []).some((email) => knownEmails.has(email.toLowerCase())),
+        );
+        const calendarTitle = parseCalendarResidentTitle(nextShow?.title);
+        const producerName = calendarTitle?.producerName || String(profile.full_name || canonicalEmail || "Unknown resident");
+        const webflowProfile = webflowResidentByName.get(normalizeResidentGroupingValue(producerName));
+
+        return {
+          groupKey: `producer:${normalizeResidentGroupingValue(producerName)}`,
+          id: String(profile.id),
+          producerName,
+          showName: calendarTitle ? calendarTitle.showName : nextShow?.title || null,
+          showType: "Recorded" as const,
+          emails,
+          webflowProfilePictureUrl: webflowProfile?.profilePictureUrl || null,
+          webflowProfilePictureAlt: webflowProfile?.profilePictureAlt || null,
+          webflowRadioShow: webflowProfile?.radioShow || null,
+          webflowCity: webflowProfile?.city || null,
+          webflowAbout: webflowProfile?.about || null,
+          webflowFollowLink: webflowProfile?.followLink || null,
+        };
+      });
+
+      const groupedResidents = new Map<string, ResidentRow>();
+      for (const resident of mappedResidents) {
+        const existing = groupedResidents.get(resident.groupKey);
+        if (existing) {
+          existing.emails = Array.from(new Set([...existing.emails, ...resident.emails])).sort();
+          if (!existing.showName && resident.showName) existing.showName = resident.showName;
+          continue;
+        }
+        groupedResidents.set(resident.groupKey, {
+          id: resident.id,
+          producerName: resident.producerName,
+          showName: resident.showName,
+          showType: resident.showType,
+          emails: resident.emails,
+          webflowProfilePictureUrl: resident.webflowProfilePictureUrl,
+          webflowProfilePictureAlt: resident.webflowProfilePictureAlt,
+          webflowRadioShow: resident.webflowRadioShow,
+          webflowCity: resident.webflowCity,
+          webflowAbout: resident.webflowAbout,
+          webflowFollowLink: resident.webflowFollowLink,
+        });
+      }
+      residentRows = Array.from(groupedResidents.values()).sort((first, second) =>
+        first.producerName.localeCompare(second.producerName),
+      );
+    } catch (error) {
+      console.error("Could not load Residents:", error);
+    }
   }
 
   const todayIsoDate = new Date().toISOString().slice(0, 10);
@@ -629,6 +772,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
               {[
                 ["calendar", "ON AIR"],
                 ["activity", "ARCHIVE"],
+                ["residents", "Residents"],
                 ["connections", "Connections"],
               ].map(([key, label]) => (
                 <Link
@@ -674,6 +818,10 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
 
               {adminModule === "activity" ? (
                 <ActivityLogWrapper rows={activityLogRows} />
+              ) : null}
+
+              {adminModule === "residents" ? (
+                <ResidentsModule rows={residentRows} />
               ) : null}
 
               {adminModule === "connections" ? (

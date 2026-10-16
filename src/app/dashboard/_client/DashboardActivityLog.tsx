@@ -28,11 +28,26 @@ type PublishResult = {
   status?: string;
   error?: string;
   mixcloudUrl?: string;
+  runId?: string;
 };
 
 type PublishResponse = { error?: string; results?: PublishResult[] };
 type LogEntry = { id: string; type: "success" | "error" | "info"; text: string };
 type Column = "aired" | "mixcloud" | "website";
+
+async function readJsonResponse<T>(response: Response, invalidResponseMessage: string): Promise<T> {
+  const body = await response.text();
+
+  if (!body.trim()) {
+    throw new Error(`${invalidResponseMessage} (HTTP ${response.status}).`);
+  }
+
+  try {
+    return JSON.parse(body) as T;
+  } catch {
+    throw new Error(`${invalidResponseMessage} (HTTP ${response.status}).`);
+  }
+}
 
 function formatShowDate(row: ActivityLogRow) {
   const value = row.showStartAt || (row.airingDate ? `${row.airingDate}T12:00:00Z` : "");
@@ -69,7 +84,10 @@ export default function DashboardActivityLog({ rows: initialRows }: { rows: Acti
     let active = true;
     void fetch("/api/submissions/reconcile-mixcloud", { method: "POST" })
       .then(async (response) => {
-        const data = await response.json() as { error?: string; reconciled?: number; results?: Array<{ producer?: string; status?: string }> };
+        const data = await readJsonResponse<{ error?: string; reconciled?: number; results?: Array<{ producer?: string; status?: string }> }>(
+          response,
+          "The server returned an invalid response while checking Mixcloud",
+        );
         if (!active) return;
         if (!response.ok) throw new Error(data.error || "Manual Mixcloud upload check failed.");
         if ((data.reconciled || 0) > 0) {
@@ -99,6 +117,12 @@ export default function DashboardActivityLog({ rows: initialRows }: { rows: Acti
     });
   }, [initialRows]);
 
+  React.useEffect(() => {
+    if (!rows.some((row) => row.mixcloud === "publishing")) return;
+    const refreshTimer = window.setInterval(() => router.refresh(), 5000);
+    return () => window.clearInterval(refreshTimer);
+  }, [router, rows]);
+
   const columns: Array<{ id: Column; title: string }> = [
     { id: "aired", title: "Aired" },
     { id: "mixcloud", title: "Published to Mixcloud" },
@@ -106,7 +130,9 @@ export default function DashboardActivityLog({ rows: initialRows }: { rows: Acti
   ];
 
   const byColumn = (column: Column) => rows.filter((row) => rowColumn(row) === column);
-  const eligible = (row: ActivityLogRow, column: Column) => column !== "mixcloud" || (row.hasCoverImage && ["ready", "failed", "not ready"].includes(row.webflow));
+  const eligible = (row: ActivityLogRow, column: Column) => column === "aired"
+    ? row.mixcloud !== "publishing"
+    : column !== "mixcloud" || (row.hasCoverImage && ["ready", "failed", "not ready"].includes(row.webflow));
   const nextColumn = (column: Column): Column | null => column === "aired" ? "mixcloud" : column === "mixcloud" ? "website" : null;
 
   const selectCard = (event: React.MouseEvent | React.KeyboardEvent, column: Column, row: ActivityLogRow) => {
@@ -163,13 +189,21 @@ export default function DashboardActivityLog({ rows: initialRows }: { rows: Acti
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ submissionIds: ids }),
       });
-      const data = await response.json() as PublishResponse;
+      const data = await readJsonResponse<PublishResponse>(
+        response,
+        column === "aired"
+          ? "The publishing service stopped responding. Refresh to check whether the show reached Mixcloud before retrying"
+          : "The website publishing service returned an invalid response",
+      );
       if (!response.ok) throw new Error(data.error || "Publishing failed.");
 
       const results = data.results || [];
       setRows((current) => current.map((row) => {
         const result = results.find((item) => item.submissionId === row.id);
         if (!ids.includes(row.id)) return row;
+        if (result?.status === "publishing") {
+          return { ...(originals.get(row.id) || row), mixcloud: "publishing", mixcloudError: null };
+        }
         if (result?.status !== "published") return originals.get(row.id) || row;
         return column === "aired" ? { ...row, mixcloudUrl: result.mixcloudUrl || row.mixcloudUrl, mixcloudError: null } : { ...row, webflowError: null };
       }));
@@ -179,10 +213,11 @@ export default function DashboardActivityLog({ rows: initialRows }: { rows: Acti
         ...results.map((result, index) => {
           const row = rows.find((item) => item.id === result.submissionId);
           const success = result.status === "published";
+          const queued = result.status === "publishing";
           return {
             id: `${Date.now()}-${index}`,
-            type: success ? "success" as const : "error" as const,
-            text: `${row?.producer || "Show"} — ${success ? `${column === "aired" ? "published to Mixcloud" : "published to website"}.` : `failed: ${(result.error || "unknown error").replace(/[.!?]+$/, "")}.`}`,
+            type: success ? "success" as const : queued ? "info" as const : "error" as const,
+            text: `${row?.producer || "Show"} — ${queued ? "Mixcloud publishing started in the background." : success ? `${column === "aired" ? "published to Mixcloud" : "published to website"}.` : `failed: ${(result.error || "unknown error").replace(/[.!?]+$/, "")}.`}`,
           };
         }),
         ...current,
@@ -213,7 +248,10 @@ export default function DashboardActivityLog({ rows: initialRows }: { rows: Acti
         body: JSON.stringify({ submissionIds: ids }),
       });
       if (!response.ok) {
-        const data = await response.json() as { error?: string };
+        const data = await readJsonResponse<{ error?: string }>(
+          response,
+          "The download service returned an invalid response",
+        );
         throw new Error(data.error || "Download failed.");
       }
       const blob = await response.blob();
@@ -344,6 +382,7 @@ export default function DashboardActivityLog({ rows: initialRows }: { rows: Acti
                         {column.id !== "aired" && row.mixcloudUrl ? <a href={row.mixcloudUrl} target="_blank" rel="noreferrer">Open on Mixcloud</a> : null}
                         {column.id === "mixcloud" && !row.hasCoverImage ? <p className={boardStyles["blocking-note"]}>Add an image before website publishing.</p> : null}
                         {column.id === "aired" && row.mixcloudError ? <p className={boardStyles["blocking-note"]}>{row.mixcloudError}</p> : null}
+                        {column.id === "aired" && row.mixcloud === "publishing" ? <p role="status">Publishing to Mixcloud in the background…</p> : null}
                         {row.webflowError && column.id === "mixcloud" ? <p className={boardStyles["blocking-note"]}>{row.webflowError}</p> : null}
                         {isProcessing && progress[row.id] !== undefined ? <p className={boardStyles["processing-label"]} role="status">Publishing…</p> : null}
                       </div>

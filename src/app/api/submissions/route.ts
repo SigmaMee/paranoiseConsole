@@ -847,6 +847,7 @@ export async function POST(request: Request) {
         producerProfileId: producerProfile.profileId,
         producerEmail,
         audioFilename: uploadedAudioFilename,
+        audioObjectKey,
         imageFilename: uploadedImageFilename,
         imageObjectKey: retainedImageObjectKey,
         showStartAt: persistedShowStart,

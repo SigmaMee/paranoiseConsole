@@ -34,6 +34,81 @@ function normalizeName(value: string) {
   return value.trim().normalize("NFKC").toLocaleLowerCase("en");
 }
 
+export type WebflowResidentProfile = {
+  name: string;
+  profilePictureUrl: string | null;
+  profilePictureAlt: string | null;
+  radioShow: string | null;
+  city: string | null;
+  about: string | null;
+  followLink: string | null;
+};
+
+function optionalText(value: unknown) {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function richTextToPlainText(value: unknown) {
+  const html = optionalText(value);
+  if (!html) return null;
+  return html
+    .replace(/<br\s*\/?\s*>/gi, "\n")
+    .replace(/<\/p\s*>|<\/li\s*>|<\/h[1-6]\s*>/gi, "\n")
+    .replace(/<li(?:\s[^>]*)?>/gi, "• ")
+    .replace(/<[^>]+>/g, "")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim() || null;
+}
+
+export async function listWebflowResidentProfiles(): Promise<WebflowResidentProfile[]> {
+  const profiles: WebflowResidentProfile[] = [];
+  let offset = 0;
+
+  while (true) {
+    const data = (await webflowRequest(
+      `/collections/${WEBFLOW_RESIDENTS_COLLECTION_ID}/items?limit=100&offset=${offset}`,
+    )) as {
+      items?: Array<{
+        fieldData?: {
+          name?: string;
+          "profile-picture"?: { url?: string; alt?: string };
+          "radio-show-2"?: string;
+          city?: string;
+          bio?: string;
+          "facebook-link"?: string;
+        };
+      }>;
+    };
+    const items = data.items || [];
+
+    for (const item of items) {
+      const fields = item.fieldData;
+      const name = optionalText(fields?.name);
+      if (!name) continue;
+      profiles.push({
+        name,
+        profilePictureUrl: optionalText(fields?.["profile-picture"]?.url),
+        profilePictureAlt: optionalText(fields?.["profile-picture"]?.alt),
+        radioShow: optionalText(fields?.["radio-show-2"]),
+        city: optionalText(fields?.city),
+        about: richTextToPlainText(fields?.bio),
+        followLink: optionalText(fields?.["facebook-link"]),
+      });
+    }
+
+    if (items.length < 100) break;
+    offset += items.length;
+  }
+
+  return profiles;
+}
+
 export async function findResidentItemId(producerName: string): Promise<string> {
   const matches: string[] = [];
   let offset = 0;

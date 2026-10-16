@@ -58,6 +58,7 @@ function parseShowStartToTime(show: UpcomingShow) {
 function mapCalendarEventToShow(event: calendar_v3.Schema$Event): UpcomingShow {
   const attendeeEmails = Array.isArray(event.attendees)
     ? event.attendees
+        .filter((attendee) => !attendee.self)
         .map((attendee) => attendee.email)
         .filter((email: unknown): email is string => typeof email === "string" && email.trim().length > 0)
         .map((email: string) => email.toLowerCase())
@@ -122,6 +123,42 @@ export async function getUpcomingShowsByProducerEmail(
     startsAt: event.start?.dateTime || event.start?.date || "",
     endsAt: event.end?.dateTime || event.end?.date || undefined,
   }));
+}
+
+export async function getUpcomingShowsForAllProducers(): Promise<UpcomingShow[]> {
+  const serviceAccountEmail = getRequiredEnv("GOOGLE_SERVICE_ACCOUNT_EMAIL");
+  const privateKey = getRequiredEnv("GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY").replace(
+    /\\n/g,
+    "\n",
+  );
+  const calendarId = getRequiredEnv("GOOGLE_CALENDAR_ID");
+
+  const auth = new google.auth.JWT({
+    email: serviceAccountEmail,
+    key: privateKey,
+    scopes: ["https://www.googleapis.com/auth/calendar.readonly"],
+  });
+
+  const calendar = google.calendar({ version: "v3", auth });
+  const now = getReferenceNow();
+  const threeMonthsFromNow = new Date(now);
+  threeMonthsFromNow.setMonth(threeMonthsFromNow.getMonth() + 3);
+  const response = await calendar.events.list({
+    calendarId,
+    timeMin: now.toISOString(),
+    timeMax: threeMonthsFromNow.toISOString(),
+    singleEvents: true,
+    orderBy: "startTime",
+    maxResults: 500,
+  });
+
+  return (response.data.items ?? [])
+    .filter((event) =>
+      event.status !== "cancelled"
+      && !/^guest mix\b/i.test((event.summary || "").trim()),
+    )
+    .map(mapCalendarEventToShow)
+    .filter((show) => Boolean(show.startsAt));
 }
 
 export async function findUpcomingShowStartByProducerAndTitle(

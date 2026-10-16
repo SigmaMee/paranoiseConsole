@@ -4,6 +4,7 @@ create table if not exists public.submissions (
   producer_profile_id uuid references public.profiles(id) on delete set null,
   producer_email text not null,
   audio_filename text not null,
+  audio_object_key text,
   image_filename text not null,
   image_object_key text,
   show_start_at timestamptz,
@@ -32,6 +33,9 @@ alter table if exists public.submissions
   add column if not exists submitted_tags text[];
 
 alter table if exists public.submissions
+  add column if not exists audio_object_key text;
+
+alter table if exists public.submissions
   add column if not exists image_object_key text;
 
 alter table if exists public.submissions
@@ -39,6 +43,18 @@ alter table if exists public.submissions
 
 alter table if exists public.submissions
   add column if not exists mixcloud_error text;
+
+alter table if exists public.submissions
+  add column if not exists mixcloud_workflow_run_id text;
+
+alter table if exists public.submissions
+  add column if not exists mixcloud_started_at timestamptz;
+
+alter table if exists public.submissions
+  add column if not exists mixcloud_published_at timestamptz;
+
+alter table if exists public.submissions
+  add column if not exists r2_audio_deleted_at timestamptz;
 
 create index if not exists submissions_created_at_idx
   on public.submissions (created_at desc);

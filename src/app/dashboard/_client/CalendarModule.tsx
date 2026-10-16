@@ -3,6 +3,7 @@
 import React from "react";
 import styles from "../calendar-module.module.css";
 import IconActionButton from "./IconActionButton";
+import ModalCloseButton from "./ModalCloseButton";
 
 export type CalendarPicture = {
   id: string;
@@ -513,9 +514,7 @@ export default function CalendarModule({ days, pictures, programmeCopyByDate, in
                   <button type="button" disabled={busy} onClick={() => downloadPictures([preview.id])} aria-label={`Download ${preview.filename}`}>
                     <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0 0 5-5m-5 5-5-5M5 20h14" /></svg>
                   </button>
-                  <button type="button" onClick={() => setPreview(null)} aria-label="Close picture preview">
-                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18" /></svg>
-                  </button>
+                  <ModalCloseButton onClick={() => setPreview(null)} aria-label="Close picture preview" />
                 </div>
                 <p className={styles.metadataDate}>{preview.dateIso}</p>
                 <h3>{preview.title}</h3>

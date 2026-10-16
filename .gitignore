@@ -43,3 +43,4 @@ skills.claude
 *.tsbuildinfo
 next-env.d.ts
 .env*.local
+/.swc

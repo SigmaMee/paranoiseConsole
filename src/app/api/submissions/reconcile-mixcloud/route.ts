@@ -3,6 +3,7 @@ import { createClient as createAdminClient } from "@supabase/supabase-js";
 import { formatInTimeZone } from "date-fns-tz";
 import { requireAdminUser } from "@/lib/admin-access";
 import { findResidentItemId, listPublishedShowsWithMixcloud } from "@/lib/webflow-api";
+import { deleteFromR2 } from "@/lib/r2-utils";
 
 export const runtime = "nodejs";
 const PUBLISH_MONITORING_START = "2026-10-01";
@@ -53,7 +54,7 @@ export async function POST() {
     const today = formatInTimeZone(new Date(), "Europe/Brussels", "yyyy-MM-dd");
     const { data, error } = await supabase
       .from("submissions")
-      .select("producer_email,airing_date,audio_filename,image_filename,mixcloud,mixcloud_url")
+      .select("producer_email,airing_date,audio_filename,audio_object_key,image_filename,mixcloud,mixcloud_url")
       .gte("airing_date", PUBLISH_MONITORING_START)
       .lt("airing_date", today)
       .neq("webflow_status", "published");
@@ -85,6 +86,7 @@ export async function POST() {
       producerEmail: string;
       airingDate: string;
       audioFilename: string;
+      audioObjectKey: string;
       imageFilename: string;
       mixcloudUrl: string;
       mixcloudStatus: string;
@@ -98,6 +100,7 @@ export async function POST() {
       const existing = candidates.get(key);
       if (existing) {
         existing.audioFilename ||= audioFilename;
+        existing.audioObjectKey ||= String(row.audio_object_key || "");
         existing.imageFilename ||= String(row.image_filename || "");
         existing.mixcloudUrl ||= String(row.mixcloud_url || "");
         if (row.mixcloud === "published") existing.mixcloudStatus = "published";
@@ -106,6 +109,7 @@ export async function POST() {
           producerEmail,
           airingDate,
           audioFilename,
+          audioObjectKey: String(row.audio_object_key || ""),
           imageFilename: String(row.image_filename || ""),
           mixcloudUrl: String(row.mixcloud_url || ""),
           mixcloudStatus: String(row.mixcloud || "not ready"),
@@ -143,6 +147,17 @@ export async function POST() {
           .eq("airing_date", candidate.airingDate));
       }
       if (updateError) throw updateError;
+      if (candidate.audioObjectKey) {
+        try {
+          await deleteFromR2(candidate.audioObjectKey);
+          await supabase
+            .from("submissions")
+            .update({ r2_audio_deleted_at: new Date().toISOString() })
+            .eq("audio_object_key", candidate.audioObjectKey);
+        } catch (cleanupError) {
+          console.warn(`Could not delete reconciled Mixcloud audio ${candidate.audioObjectKey} from R2:`, cleanupError);
+        }
+      }
       results.push({ producer: candidate.producerEmail, status: "reconciled", mixcloudUrl });
     }
 

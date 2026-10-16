@@ -2,38 +2,21 @@ import { NextResponse } from "next/server";
 import type { User } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
 
-type AdminCapableUser = Pick<User, "email" | "app_metadata">;
+type AdminCapableUser = Pick<User, "email">;
 type AdminAuthorization =
   | { user: User; response: null }
   | { user: null; response: NextResponse };
 
-function configuredAdminEmails() {
-  return new Set(
-    (process.env.ADMIN_EMAIL || "")
-      .split(",")
-      .map((email) => email.trim().toLowerCase())
-      .filter(Boolean),
-  );
-}
+export const PRIMARY_ADMIN_EMAIL = "paranoise.webradio@gmail.com";
 
 /**
- * Roles come from Supabase app metadata, which is not user-editable. The
- * configured admin email remains as a migration path for the existing admin.
+ * Administration is intentionally reserved for the single Paranoise account.
+ * App metadata remains protected, but cannot promote another email to admin.
  */
 export function isAdminUser(user: AdminCapableUser | null | undefined) {
   if (!user) return false;
-
-  const role = user.app_metadata?.role;
-  const roles = user.app_metadata?.roles;
-  if (
-    role === "admin" ||
-    (Array.isArray(roles) && roles.some((candidate) => candidate === "admin"))
-  ) {
-    return true;
-  }
-
   const email = user.email?.trim().toLowerCase();
-  return Boolean(email && configuredAdminEmails().has(email));
+  return email === PRIMARY_ADMIN_EMAIL;
 }
 
 export async function requireAdminUser(): Promise<AdminAuthorization> {

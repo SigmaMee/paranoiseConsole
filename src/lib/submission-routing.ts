@@ -17,6 +17,7 @@ export type PersistPayload = {
   producerProfileId?: string | null;
   producerEmail: string;
   audioFilename: string;
+  audioObjectKey?: string | null;
   imageFilename: string;
   imageObjectKey?: string | null;
   showStartAt?: string | null;
@@ -563,6 +564,7 @@ export async function persistSubmissionStatus(payload: PersistPayload) {
     producer_profile_id: payload.producerProfileId || null,
     producer_email: payload.producerEmail,
     audio_filename: payload.audioFilename,
+    audio_object_key: payload.audioObjectKey || null,
     image_filename: payload.imageFilename,
     image_object_key: payload.imageObjectKey || null,
     show_start_at: payload.showStartAt || null,
@@ -590,6 +592,7 @@ export async function persistSubmissionStatus(payload: PersistPayload) {
     error?.message?.toLowerCase().includes('column "airing_date"') ||
     error?.message?.toLowerCase().includes('column "submitted_tags"') ||
     error?.message?.toLowerCase().includes('column "submitted_description"') ||
+    error?.message?.toLowerCase().includes('column "audio_object_key"') ||
     error?.message?.toLowerCase().includes('column "image_object_key"');
 
   if (missingAiringColumns) {

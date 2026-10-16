@@ -1,0 +1,35 @@
+.button {
+  display: grid;
+  place-items: center;
+  width: var(--control-height);
+  min-width: var(--control-height);
+  height: var(--control-height);
+  padding: 0;
+  border: var(--border-thin) solid var(--color-text);
+  border-radius: var(--radius-pill);
+  background: var(--color-panel);
+  color: var(--color-text);
+  cursor: pointer;
+}
+
+.button:hover,
+.button:focus-visible {
+  border-color: var(--blue);
+  background: var(--blue);
+  color: var(--black);
+}
+
+.button:focus-visible {
+  outline: var(--focus-width) solid var(--color-focus);
+  outline-offset: var(--focus-offset);
+}
+
+.button svg {
+  width: var(--icon-size);
+  height: var(--icon-size);
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
