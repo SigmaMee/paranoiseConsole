@@ -48,7 +48,9 @@ export async function POST(request: Request) {
           .from("submissions")
           .select("audio_filename,image_filename,image_object_key,mixcloud,mixcloud_url,webflow_status,webflow_item_id")
           .eq("producer_email", producerEmail)
-          .eq("airing_date", airingDate);
+          .eq("airing_date", airingDate)
+          // Prefer the latest submitted audio when a producer replaces a file.
+          .order("created_at", { ascending: false });
         if (error) throw error;
         if (!rows?.length) throw new Error("Show submissions were not found.");
         if (!rows.some((row) => row.mixcloud === "published")) {

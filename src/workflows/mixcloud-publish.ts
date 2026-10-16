@@ -82,7 +82,9 @@ async function publishShowFromR2(submissionId: string, workflowRunId: string) {
     .from("submissions")
     .select("id,producer_email,airing_date,audio_filename,audio_object_key,image_object_key,submitted_description,submitted_tags,mixcloud,mixcloud_url")
     .eq("producer_email", selected.producer_email)
-    .eq("airing_date", selected.airing_date);
+    .eq("airing_date", selected.airing_date)
+    // A late upload replaces an earlier draft for the same broadcast.
+    .order("created_at", { ascending: false });
   if (error) throw error;
 
   const rows = (data || []) as SubmissionRecord[];
