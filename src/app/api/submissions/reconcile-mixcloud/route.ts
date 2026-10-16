@@ -176,7 +176,10 @@ export async function POST() {
           const matchingEpisode = Boolean(candidateEpisode && candidateEpisode === episodeToken(`${show.name} ${show.slug} ${show.mixcloudUrl}`));
           return { show, daysAfterAiring, exactUrl, matchingEpisode };
         })
-        .filter((match) => match.exactUrl || match.matchingEpisode || (match.daysAfterAiring >= 0 && match.daysAfterAiring <= 14))
+        // Date proximity alone is not a safe identity match. A producer can
+        // submit a replacement audio file after an earlier submission for the
+        // same airing date was already published.
+        .filter((match) => match.exactUrl || match.matchingEpisode)
         .sort((a, b) => Number(b.exactUrl) - Number(a.exactUrl) || Number(b.matchingEpisode) - Number(a.matchingEpisode) || a.daysAfterAiring - b.daysAfterAiring);
 
       const match = possibleMatches[0];
