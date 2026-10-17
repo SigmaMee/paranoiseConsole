@@ -46,8 +46,8 @@ export function createSafeAudioFilename(filename: string, contentType = "audio/m
   const plain = assertPlainFilename(filename);
   const lower = plain.toLowerCase();
 
-  if (!lower.endsWith(".mp3") || lower.slice(0, -4).includes(".")) {
-    throw new Error("Audio filename must have exactly one .mp3 extension.");
+  if (!lower.endsWith(".mp3")) {
+    throw new Error("Audio filename must end with .mp3.");
   }
 
   if (!AUDIO_CONTENT_TYPES.has(contentType.toLowerCase())) {
