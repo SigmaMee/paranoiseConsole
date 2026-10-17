@@ -21,6 +21,7 @@ type SubmissionRecord = {
   airing_date: string;
   audio_filename: string | null;
   audio_object_key: string | null;
+  audio_ftp_folder: string | null;
   image_object_key: string | null;
   submitted_description: string | null;
   submitted_tags: string[] | null;
@@ -48,6 +49,29 @@ function showName(filename: string) {
 function permanentMixcloudFailure(error: unknown) {
   if (!(error instanceof MixcloudApiError) || error.status === null) return false;
   return error.status >= 400 && error.status < 500 && ![408, 425, 429].includes(error.status);
+}
+
+function retryableFailureMessage(phase: string, error: unknown) {
+  const detail = error instanceof Error ? error.message : String(error);
+  return `Mixcloud ${phase} failed: ${detail}`;
+}
+
+async function recordRetryableFailure(
+  supabase: ReturnType<typeof adminClient>,
+  producerEmail: string,
+  airingDate: string,
+  phase: string,
+  error: unknown,
+) {
+  const message = retryableFailureMessage(phase, error);
+  console.warn("[MIXCLOUD_WORKFLOW_RETRYABLE_FAILURE]", { producerEmail, airingDate, message });
+  const { error: updateError } = await supabase
+    .from("submissions")
+    .update({ mixcloud: "publishing", mixcloud_error: message })
+    .eq("producer_email", producerEmail)
+    .eq("airing_date", airingDate)
+    .neq("mixcloud", "published");
+  if (updateError) throw updateError;
 }
 
 async function publishShowFromR2(submissionId: string, workflowRunId: string) {
@@ -80,7 +104,7 @@ async function publishShowFromR2(submissionId: string, workflowRunId: string) {
 
   const { data, error } = await supabase
     .from("submissions")
-    .select("id,producer_email,airing_date,audio_filename,audio_object_key,image_object_key,submitted_description,submitted_tags,mixcloud,mixcloud_url")
+    .select("id,producer_email,airing_date,audio_filename,audio_object_key,audio_ftp_folder,image_object_key,submitted_description,submitted_tags,mixcloud,mixcloud_url")
     .eq("producer_email", selected.producer_email)
     .eq("airing_date", selected.airing_date)
     // A late upload replaces an earlier draft for the same broadcast.
@@ -112,6 +136,7 @@ async function publishShowFromR2(submissionId: string, workflowRunId: string) {
     if (permanentMixcloudFailure(lookupError)) {
       throw new FatalError(lookupError instanceof Error ? lookupError.message : "Mixcloud lookup failed.");
     }
+    await recordRetryableFailure(supabase, selected.producer_email, selected.airing_date, "lookup", lookupError);
     throw new RetryableError(
       lookupError instanceof Error ? lookupError.message : "Mixcloud lookup temporarily failed.",
       { retryAfter: "30s" },
@@ -132,9 +157,12 @@ async function publishShowFromR2(submissionId: string, workflowRunId: string) {
     let audioBuffer: Buffer | undefined;
     if (audioAvailableInR2 && audioObjectKey) {
       audioUrl = await getSignedR2Url(audioObjectKey);
-    } else if (profile?.full_name) {
+    } else if (audioRow.audio_ftp_folder || profile?.full_name) {
       // Transitional support for submissions created before audio_object_key existed.
-      audioBuffer = (await downloadAudioFromFtp(audioRow.audio_filename, profile.full_name.trim())) || undefined;
+      const ftpFolder = audioRow.audio_ftp_folder || profile?.full_name;
+      audioBuffer = ftpFolder
+        ? (await downloadAudioFromFtp(audioRow.audio_filename, ftpFolder.trim())) || undefined
+        : undefined;
     }
     if (!audioUrl && !audioBuffer) {
       throw new FatalError("Audio is no longer available in R2 and no legacy FTP copy could be read.");
@@ -160,6 +188,7 @@ async function publishShowFromR2(submissionId: string, workflowRunId: string) {
       if (permanentMixcloudFailure(uploadError)) {
         throw new FatalError(uploadError instanceof Error ? uploadError.message : "Mixcloud rejected the upload.");
       }
+      await recordRetryableFailure(supabase, selected.producer_email, selected.airing_date, "upload", uploadError);
       throw new RetryableError(
         uploadError instanceof Error ? uploadError.message : "Mixcloud upload temporarily failed.",
         { retryAfter: "1m" },
@@ -191,7 +220,9 @@ async function publishShowFromR2(submissionId: string, workflowRunId: string) {
     audioObjectKey: audioRow.audio_object_key,
   };
 }
-publishShowFromR2.maxRetries = 2;
+// Large audio files can be interrupted by transient upstream connections.
+// Each attempt checks Mixcloud first, so retrying cannot create a duplicate post.
+publishShowFromR2.maxRetries = 4;
 
 async function markPublishFailed(submissionId: string, message: string) {
   "use step";
@@ -200,14 +231,18 @@ async function markPublishFailed(submissionId: string, message: string) {
   const supabase = adminClient();
   const { data: selected } = await supabase
     .from("submissions")
-    .select("producer_email,airing_date")
+    .select("producer_email,airing_date,mixcloud_error")
     .eq("id", submissionId)
     .maybeSingle();
   if (!selected?.producer_email || !selected.airing_date) return;
 
+  const storedDetail = typeof selected.mixcloud_error === "string" ? selected.mixcloud_error.trim() : "";
+  const finalMessage = message.includes("exceeded max retries") && storedDetail
+    ? storedDetail
+    : message;
   const { error } = await supabase
     .from("submissions")
-    .update({ mixcloud: "failed", mixcloud_error: message })
+    .update({ mixcloud: "failed", mixcloud_error: finalMessage })
     .eq("producer_email", selected.producer_email)
     .eq("airing_date", selected.airing_date)
     .neq("mixcloud", "published");

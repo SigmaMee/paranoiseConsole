@@ -835,6 +835,7 @@ export async function POST(request: Request) {
         producerEmail,
         audioFilename: uploadedAudioFilename,
         audioObjectKey,
+        audioFtpFolder: uploadedAudioFilename ? producerFolderName : null,
         imageFilename: uploadedImageFilename,
         imageObjectKey: retainedImageObjectKey,
         showStartAt: persistedShowStart,
