@@ -21,7 +21,6 @@ import { audioExistsOnFtp } from "@/lib/ftp-media";
 import { getInstagramConnection, type InstagramConnection } from "@/lib/instagram-oauth";
 import { formatInTimeZone, fromZonedTime } from "date-fns-tz";
 import { getProducerCalendarEmails } from "@/lib/producer-identity";
-import { listWebflowResidentProfiles } from "@/lib/webflow-api";
 
 type DashboardPageProps = {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
@@ -87,6 +86,7 @@ function normalizeResidentGroupingValue(value: string) {
     .normalize("NFKD")
     .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase()
+    .replace(/æ/g, "ae")
     .replace(/[^a-z0-9]+/g, " ")
     .trim();
 }
@@ -597,17 +597,36 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
       }
 
       let upcomingShows: Awaited<ReturnType<typeof getUpcomingShowsForAllProducers>> = [];
-      let webflowResidents: Awaited<ReturnType<typeof listWebflowResidentProfiles>> = [];
-      const [calendarResult, webflowResult] = await Promise.allSettled([
+      type StoredResidentProfile = {
+        profile_id: string | null;
+        producer_name: string;
+        radio_show: string | null;
+        city: string | null;
+        about: string | null;
+        follow_link: string | null;
+        profile_picture_path: string | null;
+        profile_picture_alt: string | null;
+      };
+      let storedResidents: StoredResidentProfile[] = [];
+      const [calendarResult, storedResidentsResult] = await Promise.allSettled([
         getUpcomingShowsForAllProducers(),
-        listWebflowResidentProfiles(),
+        adminSupabase
+          .from("resident_profiles")
+          .select("profile_id,producer_name,radio_show,city,about,follow_link,profile_picture_path,profile_picture_alt"),
       ]);
       if (calendarResult.status === "fulfilled") upcomingShows = calendarResult.value;
       else console.error("Could not load Calendar profiles for Residents:", calendarResult.reason);
-      if (webflowResult.status === "fulfilled") webflowResidents = webflowResult.value;
-      else console.error("Could not load Webflow profiles for Residents:", webflowResult.reason);
-      const webflowResidentByName = new Map(
-        webflowResidents.map((profile) => [normalizeResidentGroupingValue(profile.name), profile]),
+      if (storedResidentsResult.status === "fulfilled") {
+        if (storedResidentsResult.value.error) throw storedResidentsResult.value.error;
+        storedResidents = (storedResidentsResult.value.data || []) as StoredResidentProfile[];
+      } else console.error("Could not load stored profiles for Residents:", storedResidentsResult.reason);
+      const storedResidentByProfileId = new Map(
+        storedResidents
+          .filter((resident) => resident.profile_id)
+          .map((resident) => [resident.profile_id as string, resident]),
+      );
+      const storedResidentByName = new Map(
+        storedResidents.map((resident) => [normalizeResidentGroupingValue(resident.producer_name), resident]),
       );
 
       const mappedResidents = (profiles || []).filter((profile) =>
@@ -623,7 +642,14 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
         );
         const calendarTitle = parseCalendarResidentTitle(nextShow?.title);
         const producerName = calendarTitle?.producerName || String(profile.full_name || canonicalEmail || "Unknown resident");
-        const webflowProfile = webflowResidentByName.get(normalizeResidentGroupingValue(producerName));
+        const storedProfile = storedResidentByProfileId.get(String(profile.id))
+          || storedResidentByName.get(normalizeResidentGroupingValue(producerName))
+          || storedResidentByName.get(normalizeResidentGroupingValue(String(profile.full_name || "")));
+        const profilePictureUrl = storedProfile?.profile_picture_path
+          ? adminSupabase.storage
+              .from("resident-profile-pictures")
+              .getPublicUrl(storedProfile.profile_picture_path).data.publicUrl
+          : null;
 
         return {
           groupKey: `producer:${normalizeResidentGroupingValue(producerName)}`,
@@ -632,12 +658,12 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
           showName: calendarTitle ? calendarTitle.showName : nextShow?.title || null,
           showType: "Recorded" as const,
           emails,
-          webflowProfilePictureUrl: webflowProfile?.profilePictureUrl || null,
-          webflowProfilePictureAlt: webflowProfile?.profilePictureAlt || null,
-          webflowRadioShow: webflowProfile?.radioShow || null,
-          webflowCity: webflowProfile?.city || null,
-          webflowAbout: webflowProfile?.about || null,
-          webflowFollowLink: webflowProfile?.followLink || null,
+          profilePictureUrl,
+          profilePictureAlt: storedProfile?.profile_picture_alt || null,
+          profileRadioShow: storedProfile?.radio_show || null,
+          city: storedProfile?.city || null,
+          about: storedProfile?.about || null,
+          followLink: storedProfile?.follow_link || null,
         };
       });
 
@@ -655,12 +681,12 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
           showName: resident.showName,
           showType: resident.showType,
           emails: resident.emails,
-          webflowProfilePictureUrl: resident.webflowProfilePictureUrl,
-          webflowProfilePictureAlt: resident.webflowProfilePictureAlt,
-          webflowRadioShow: resident.webflowRadioShow,
-          webflowCity: resident.webflowCity,
-          webflowAbout: resident.webflowAbout,
-          webflowFollowLink: resident.webflowFollowLink,
+          profilePictureUrl: resident.profilePictureUrl,
+          profilePictureAlt: resident.profilePictureAlt,
+          profileRadioShow: resident.profileRadioShow,
+          city: resident.city,
+          about: resident.about,
+          followLink: resident.followLink,
         });
       }
       residentRows = Array.from(groupedResidents.values()).sort((first, second) =>

@@ -10,12 +10,12 @@ export type ResidentRow = {
   showName: string | null;
   showType: "Recorded";
   emails: string[];
-  webflowProfilePictureUrl: string | null;
-  webflowProfilePictureAlt: string | null;
-  webflowRadioShow: string | null;
-  webflowCity: string | null;
-  webflowAbout: string | null;
-  webflowFollowLink: string | null;
+  profilePictureUrl: string | null;
+  profilePictureAlt: string | null;
+  profileRadioShow: string | null;
+  city: string | null;
+  about: string | null;
+  followLink: string | null;
 };
 
 export default function ResidentsModule({ rows }: { rows: ResidentRow[] }) {
@@ -128,23 +128,23 @@ export default function ResidentsModule({ rows }: { rows: ResidentRow[] }) {
           }}>
           <section ref={panelRef} className={styles.panel} role="dialog" aria-modal="true" aria-labelledby="resident-panel-title">
             <header className={styles.profileHero}>
-              {selected.webflowProfilePictureUrl ? (
-                /* Webflow CMS images are external and their host may vary per item. */
+              {selected.profilePictureUrl ? (
+                /* Profile pictures are served from Supabase Storage. */
                 /* eslint-disable-next-line @next/next/no-img-element */
-                <img src={selected.webflowProfilePictureUrl} alt="" />
+                <img src={selected.profilePictureUrl} alt="" />
               ) : null}
               <h2 id="resident-panel-title" className={styles.panelTitle}>{selected.producerName}</h2>
               <ModalCloseButton ref={closeButtonRef} className={styles.closeButton} onClick={() => setSelected(null)} aria-label="Close resident details" />
             </header>
 
             <form className={styles.form} onSubmit={(event) => event.preventDefault()}>
-              <label>Radio show<input defaultValue={selected.showName || selected.webflowRadioShow || ""} /></label>
-              <label>City<input defaultValue={selected.webflowCity || ""} /></label>
+              <label>Radio show<input defaultValue={selected.showName || selected.profileRadioShow || ""} /></label>
+              <label>City<input defaultValue={selected.city || ""} /></label>
               <label>Type<select defaultValue={selected.showType}><option>Recorded</option><option>Live</option></select></label>
               <label>Email address(es)<textarea defaultValue={selected.emails.join("\n")} rows={Math.max(2, selected.emails.length)} /></label>
               <label>Roles<input defaultValue="" placeholder="To be defined" readOnly /></label>
-              <label>About<textarea defaultValue={selected.webflowAbout || ""} rows={8} /></label>
-              <label>Follow Link<input type="url" defaultValue={selected.webflowFollowLink || ""} /></label>
+              <label>About<textarea defaultValue={selected.about || ""} rows={8} /></label>
+              <label>Follow Link<input type="url" defaultValue={selected.followLink || ""} /></label>
               <p className={styles.formNote}>Saving is intentionally unavailable until edit behavior and downstream impact are defined.</p>
             </form>
           </section>

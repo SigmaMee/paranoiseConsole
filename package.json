@@ -6,6 +6,7 @@
     "node": "24.x"
   },
   "scripts": {
+    "migrate:residents": "node --env-file=.env.local scripts/migrate-webflow-residents-to-supabase.mjs",
     "dev": "next dev",
     "build": "next build",
     "start": "next start",

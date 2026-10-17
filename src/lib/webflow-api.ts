@@ -31,10 +31,11 @@ async function webflowRequest(path: string, init?: RequestInit) {
 }
 
 function normalizeName(value: string) {
-  return value.trim().normalize("NFKC").toLocaleLowerCase("en");
+  return value.trim().normalize("NFKD").toLocaleLowerCase("en").replace(/æ/g, "ae");
 }
 
 export type WebflowResidentProfile = {
+  itemId: string;
   name: string;
   profilePictureUrl: string | null;
   profilePictureAlt: string | null;
@@ -75,6 +76,7 @@ export async function listWebflowResidentProfiles(): Promise<WebflowResidentProf
       `/collections/${WEBFLOW_RESIDENTS_COLLECTION_ID}/items?limit=100&offset=${offset}`,
     )) as {
       items?: Array<{
+        id?: string;
         fieldData?: {
           name?: string;
           "profile-picture"?: { url?: string; alt?: string };
@@ -90,8 +92,9 @@ export async function listWebflowResidentProfiles(): Promise<WebflowResidentProf
     for (const item of items) {
       const fields = item.fieldData;
       const name = optionalText(fields?.name);
-      if (!name) continue;
+      if (!item.id || !name) continue;
       profiles.push({
+        itemId: item.id,
         name,
         profilePictureUrl: optionalText(fields?.["profile-picture"]?.url),
         profilePictureAlt: optionalText(fields?.["profile-picture"]?.alt),
