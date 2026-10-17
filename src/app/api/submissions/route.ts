@@ -299,6 +299,45 @@ async function getProducerFolderNameFromProfilesTable(user: {
 
   const fallbackFullName = getDefaultFullNameFromUser(user);
 
+  // Resolve the canonical email first. An authorized secondary login must use
+  // the primary producer profile instead of rewriting its own legacy profile
+  // to the same email (which would violate the unique producer_email key).
+  const { data: byEmail, error: byEmailError } = await supabase
+    .from("profiles")
+    .select("id, full_name")
+    .ilike("producer_email", normalizedEmail)
+    .maybeSingle();
+
+  if (byEmailError) {
+    throw new Error(`Failed to read producer profile by email: ${byEmailError.message}`);
+  }
+
+  if (byEmail) {
+    const fullName = byEmail.full_name;
+    if (typeof fullName === "string" && fullName.trim()) {
+      return {
+        profileId: byEmail.id,
+        folderName: fullName.trim(),
+      };
+    }
+
+    const { data: updated, error: updateError } = await supabase
+      .from("profiles")
+      .update({ full_name: fallbackFullName })
+      .eq("id", byEmail.id)
+      .select("id, full_name")
+      .single();
+
+    if (updateError) {
+      throw new Error(`Failed to update producer profile full_name: ${updateError.message}`);
+    }
+
+    return {
+      profileId: updated.id,
+      folderName: updated.full_name.trim(),
+    };
+  }
+
   const { data: byUserId, error: byUserIdError } = await supabase
     .from("profiles")
     .select("id, producer_email, full_name")
@@ -349,75 +388,23 @@ async function getProducerFolderNameFromProfilesTable(user: {
     };
   }
 
-  const { data: byEmail, error: byEmailError } = await supabase
+  const { data: inserted, error: insertError } = await supabase
     .from("profiles")
-    .select("id, full_name")
-    .ilike("producer_email", normalizedEmail)
-    .maybeSingle();
-
-  if (byEmailError) {
-    throw new Error(`Failed to read producer profile by email: ${byEmailError.message}`);
-  }
-
-  if (!byEmail) {
-    const { data: inserted, error: insertError } = await supabase
-      .from("profiles")
-      .insert({
-        user_id: user.id,
-        producer_email: normalizedEmail,
-        full_name: fallbackFullName,
-      })
-      .select("id, full_name")
-      .single();
-
-    if (insertError) {
-      throw new Error(`Failed to create producer profile: ${insertError.message}`);
-    }
-
-    return {
-      profileId: inserted.id,
-      folderName: inserted.full_name,
-    };
-  }
-
-  const fullName = byEmail.full_name;
-  if (typeof fullName !== "string" || !fullName.trim()) {
-    const { data: updated, error: updateError } = await supabase
-      .from("profiles")
-      .update({
-        user_id: user.id,
-        producer_email: normalizedEmail,
-        full_name: fallbackFullName,
-      })
-      .eq("id", byEmail.id)
-      .select("id, full_name")
-      .single();
-
-    if (updateError) {
-      throw new Error(`Failed to update producer profile full_name: ${updateError.message}`);
-    }
-
-    return {
-      profileId: updated.id,
-      folderName: updated.full_name.trim(),
-    };
-  }
-
-  const { error: linkError } = await supabase
-    .from("profiles")
-    .update({
+    .insert({
       user_id: user.id,
       producer_email: normalizedEmail,
+      full_name: fallbackFullName,
     })
-    .eq("id", byEmail.id);
+    .select("id, full_name")
+    .single();
 
-  if (linkError) {
-    throw new Error(`Failed to link producer profile to user: ${linkError.message}`);
+  if (insertError) {
+    throw new Error(`Failed to create producer profile: ${insertError.message}`);
   }
 
   return {
-    profileId: byEmail.id,
-    folderName: fullName.trim(),
+    profileId: inserted.id,
+    folderName: inserted.full_name,
   };
 }
 
