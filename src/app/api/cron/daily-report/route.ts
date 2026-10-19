@@ -8,6 +8,7 @@ import {
   type DailyReportShow,
   type UnmatchedCentovaPlaylist,
 } from "@/lib/email";
+import { audioExistsOnFtp } from "@/lib/ftp-media";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -17,6 +18,7 @@ const ATHENS_TZ = "Europe/Athens";
 type SubmissionAudioRow = {
   producer_email: string;
   audio_filename: string;
+  audio_ftp_folder: string | null;
   ftp_status: string;
 };
 
@@ -31,17 +33,6 @@ function isAuthorized(request: Request): boolean {
   if (!cronSecret) return false;
   const authHeader = request.headers.get("authorization")?.trim();
   return authHeader === `Bearer ${cronSecret}`;
-}
-
-// ---------------------------------------------------------------------------
-// Normalise a show/playlist title for fuzzy matching
-// ---------------------------------------------------------------------------
-
-function normalizeTitle(value: string): string {
-  return value
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, " ")
-    .trim();
 }
 
 function getAdminSupabase() {
@@ -75,13 +66,56 @@ async function writeCronHeartbeat(
   }
 }
 
-async function getUploadedAudioByEmailForDate(dateIso: string): Promise<Map<string, boolean>> {
+async function getResidentDestinationByEmail(): Promise<Map<string, string>> {
+  const supabase = getAdminSupabase();
+  if (!supabase) return new Map<string, string>();
+
+  const { data, error } = await supabase
+    .from("profiles")
+    .select("producer_email, full_name");
+
+  if (error) throw new Error(`Failed to read resident destinations for report: ${error.message}`);
+
+  const destinationByEmail = new Map(
+    (data ?? [])
+      .filter((row) => typeof row.producer_email === "string" && typeof row.full_name === "string")
+      .map((row) => [row.producer_email.toLowerCase().trim(), row.full_name.trim()]),
+  );
+
+  // Auth aliases store their canonical producer email in protected app_metadata.
+  // Resolve those aliases to the canonical profile destination as well.
+  for (let page = 1; ; page += 1) {
+    const { data: usersPage, error: usersError } = await supabase.auth.admin.listUsers({
+      page,
+      perPage: 1000,
+    });
+    if (usersError) throw new Error(`Failed to read producer aliases for report: ${usersError.message}`);
+
+    for (const user of usersPage.users) {
+      const loginEmail = user.email?.toLowerCase().trim();
+      const canonicalEmail = typeof user.app_metadata?.producer_email === "string"
+        ? user.app_metadata.producer_email.toLowerCase().trim()
+        : loginEmail;
+      const canonicalDestination = canonicalEmail ? destinationByEmail.get(canonicalEmail) : null;
+      if (loginEmail && canonicalDestination) destinationByEmail.set(loginEmail, canonicalDestination);
+    }
+
+    if (usersPage.users.length < 1000) break;
+  }
+
+  return destinationByEmail;
+}
+
+async function getUploadedAudioByDestinationForDate(
+  dateIso: string,
+  residentDestinationByEmail: Map<string, string>,
+): Promise<Map<string, boolean>> {
   const supabase = getAdminSupabase();
   if (!supabase) return new Map<string, boolean>();
 
   const { data, error } = await supabase
     .from("submissions")
-    .select("producer_email, audio_filename, ftp_status")
+    .select("producer_email, audio_filename, audio_ftp_folder, ftp_status")
     .eq("airing_date", dateIso)
     .eq("ftp_status", "success")
     .not("audio_filename", "is", null)
@@ -93,10 +127,12 @@ async function getUploadedAudioByEmailForDate(dateIso: string): Promise<Map<stri
 
   const rows = (data ?? []) as SubmissionAudioRow[];
   const map = new Map<string, boolean>();
-  for (const row of rows) {
+  await Promise.all(rows.map(async (row) => {
     const email = row.producer_email?.toLowerCase().trim();
-    if (email) map.set(email, true);
-  }
+    const destination = email ? residentDestinationByEmail.get(email) : null;
+    if (!destination) return;
+    map.set(destination.toLowerCase(), await audioExistsOnFtp(row.audio_filename, destination));
+  }));
   return map;
 }
 
@@ -117,11 +153,15 @@ export async function GET(request: Request): Promise<NextResponse> {
     const tomorrowFormatted = formatInTimeZone(tomorrow, ATHENS_TZ, "d MMMM yyyy");
 
     // Fetch data from both sources in parallel
-    const [calendarShows, centovaPlaylists, audioUploadedByEmail] = await Promise.all([
+    const [calendarShows, centovaPlaylists, residentDestinationByEmail] = await Promise.all([
       getShowsForDate(tomorrowDateIso),
       getScheduledCentovaPlaylists(),
-      getUploadedAudioByEmailForDate(tomorrowDateIso),
+      getResidentDestinationByEmail(),
     ]);
+    const audioUploadedByDestination = await getUploadedAudioByDestinationForDate(
+      tomorrowDateIso,
+      residentDestinationByEmail,
+    );
 
     // Track which Centova playlists have been matched
     const matchedCentovaIds = new Set<string>();
@@ -134,23 +174,22 @@ export async function GET(request: Request): Promise<NextResponse> {
         ? formatInTimeZone(new Date(show.startsAt), ATHENS_TZ, "yyyy-MM-dd")
         : tomorrowDateIso;
 
-      const normalizedShowTitle = normalizeTitle(show.title);
-
-      // Find matching Centova playlist by title (exact, then partial)
-      const match =
-        centovaPlaylists.find((p) => normalizeTitle(p.title) === normalizedShowTitle) ??
-        centovaPlaylists.find((p) => {
-          const pt = normalizeTitle(p.title);
-          return pt.includes(normalizedShowTitle) || normalizedShowTitle.includes(pt);
-        }) ??
-        null;
+      const attendeeEmails = Array.isArray(show.attendeeEmails)
+        ? show.attendeeEmails.map((email) => email.toLowerCase().trim())
+        : [];
+      const residentDestinations = attendeeEmails
+        .map((email) => residentDestinationByEmail.get(email))
+        .filter((destination): destination is string => Boolean(destination));
+      const match = centovaPlaylists.find((playlist) =>
+        residentDestinations.some(
+          (destination) => destination.toLowerCase() === playlist.title.toLowerCase().trim(),
+        ),
+      ) ?? null;
+      const audioUploaded = residentDestinations.some(
+        (destination) => audioUploadedByDestination.get(destination.toLowerCase()) === true,
+      );
 
       if (!match) {
-        const attendeeEmails = Array.isArray(show.attendeeEmails)
-          ? show.attendeeEmails.map((email) => email.toLowerCase())
-          : [];
-        const audioUploaded = attendeeEmails.some((email) => audioUploadedByEmail.get(email) === true);
-
         return {
           calendarTitle: show.title,
           calendarDate: calendarDateAthens,
@@ -168,11 +207,6 @@ export async function GET(request: Request): Promise<NextResponse> {
       const centovaTimeFull = match.scheduled_datetime ?? "";
       const centovaDate = centovaTimeFull.slice(0, 10) || null;
       const centovaTime = centovaTimeFull.slice(11, 16) || null; // "HH:mm"
-
-      const attendeeEmails = Array.isArray(show.attendeeEmails)
-        ? show.attendeeEmails.map((email) => email.toLowerCase())
-        : [];
-      const audioUploaded = attendeeEmails.some((email) => audioUploadedByEmail.get(email) === true);
 
       const dateMatches = calendarDateAthens !== null && centovaDate !== null && calendarDateAthens === centovaDate;
 
