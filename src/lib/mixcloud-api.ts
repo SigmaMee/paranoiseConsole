@@ -1,7 +1,10 @@
-import fetch from "node-fetch";
 import { getStoredMixcloudAccessToken } from "@/lib/mixcloud-oauth";
 import { readFile } from "node:fs/promises";
+import { request as httpsRequest } from "node:https";
+import { Readable } from "node:stream";
+import type { ReadableStream as NodeReadableStream } from "node:stream/web";
 import path from "node:path";
+import FormData from "form-data";
 
 function getRequiredEnv(name: string) {
   const value = process.env[name];
@@ -115,14 +118,64 @@ function normalizeUploadResponse(value: unknown): MixcloudUploadResponse | null 
   }
 }
 
-/**
- * Download file from URL and convert to Buffer
- */
 async function downloadFileAsBuffer(url: string): Promise<Buffer> {
-  const response = await fetch(url);
+  const response = await globalThis.fetch(url);
   if (!response.ok) throw new Error(`Failed to download file: ${response.statusText}`);
-  const buffer = await response.buffer();
-  return buffer as Buffer;
+  return Buffer.from(await response.arrayBuffer());
+}
+
+async function getAudioPart(audioUrl: string) {
+  const response = await globalThis.fetch(audioUrl);
+  if (!response.ok) {
+    throw new Error(`Failed to download file: ${response.statusText || `HTTP ${response.status}`}`);
+  }
+  if (!response.body) {
+    throw new Error("Failed to download file: response had no body");
+  }
+
+  const contentLengthHeader = response.headers.get("content-length");
+  const contentLength = contentLengthHeader ? Number(contentLengthHeader) : null;
+
+  return {
+    contentType: response.headers.get("content-type") || "audio/mpeg",
+    knownLength: typeof contentLength === "number" && Number.isSafeInteger(contentLength) && contentLength >= 0
+      ? contentLength
+      : undefined,
+    stream: Readable.fromWeb(response.body as unknown as NodeReadableStream<Uint8Array>),
+  };
+}
+
+function formLength(formData: FormData): Promise<number | null> {
+  return new Promise((resolve) => {
+    formData.getLength((error, length) => resolve(error ? null : length));
+  });
+}
+
+async function postMultipart(url: string, formData: FormData) {
+  const contentLength = await formLength(formData);
+  const headers = formData.getHeaders();
+  if (contentLength !== null) headers["content-length"] = String(contentLength);
+
+  return new Promise<{ body: string; status: number; statusText: string }>((resolve, reject) => {
+    const request = httpsRequest(url, { method: "POST", headers }, (response) => {
+      const chunks: Buffer[] = [];
+      response.on("data", (chunk: Buffer | string) => {
+        chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+      });
+      response.on("end", () => {
+        resolve({
+          body: Buffer.concat(chunks).toString("utf8"),
+          status: response.statusCode || 0,
+          statusText: response.statusMessage || "",
+        });
+      });
+      response.on("error", reject);
+    });
+
+    request.on("error", reject);
+    formData.on("error", (error) => request.destroy(error));
+    formData.pipe(request);
+  });
 }
 
 async function getFallbackCoverBuffer(): Promise<Buffer> {
@@ -148,25 +201,13 @@ export async function uploadToMixcloud({
   const accessToken = await getMixcloudAccessToken();
   const apiUrl = "https://api.mixcloud.com/upload/";
 
-  // Get audio file (either from buffer or download from URL)
-  let audioData: Buffer;
-  if (audioBuffer) {
-    audioData = audioBuffer;
-  } else if (audioUrl) {
-    try {
-      audioData = await downloadFileAsBuffer(audioUrl);
-    } catch (err) {
-      throw new Error(`Failed to download audio file: ${err instanceof Error ? err.message : String(err)}`);
-    }
-  } else {
+  if (!audioBuffer && !audioUrl) {
     throw new Error("Either audioUrl or audioBuffer must be provided");
   }
 
-  // Mixcloud API expects multipart/form-data
+  // `form-data` accepts Node streams, so R2 audio is piped to Mixcloud with
+  // constant memory usage instead of being copied into both a Buffer and File.
   const formData = new FormData();
-  
-  // Append audio as Blob
-  formData.append("mp3", new File([new Uint8Array(audioData)], "audio.mp3", { type: "audio/mpeg" }));
   formData.append("name", name);
   if (description) formData.append("description", description);
   
@@ -180,7 +221,7 @@ export async function uploadToMixcloud({
         formData.append(`tags-${index}-tag`, tag);
       });
   }
-  
+
   // Get picture (either from buffer or download from URL)
   let pictureData: Buffer | null = null;
   if (pictureBuffer) {
@@ -199,26 +240,46 @@ export async function uploadToMixcloud({
   }
 
   if (pictureData.length > 0) {
-    formData.append("picture", new File([new Uint8Array(pictureData)], "cover.jpg", { type: "image/jpeg" }));
+    formData.append("picture", pictureData, {
+      contentType: "image/jpeg",
+      filename: "cover.jpg",
+      knownLength: pictureData.length,
+    });
   }
 
-  const response = await globalThis.fetch(apiUrl + `?access_token=${accessToken}`, {
-    method: "POST",
-    body: formData,
-  });
+  // Open the large R2 response only after every small multipart field is ready,
+  // so the audio connection can immediately flow through to Mixcloud.
+  if (audioBuffer) {
+    formData.append("mp3", audioBuffer, {
+      contentType: "audio/mpeg",
+      filename: "audio.mp3",
+      knownLength: audioBuffer.length,
+    });
+  } else {
+    try {
+      const audio = await getAudioPart(audioUrl!);
+      formData.append("mp3", audio.stream, {
+        contentType: audio.contentType,
+        filename: "audio.mp3",
+        ...(audio.knownLength === undefined ? {} : { knownLength: audio.knownLength }),
+      });
+    } catch (err) {
+      throw new Error(`Failed to download audio file: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
 
-  if (!response.ok) {
-    const error = await response.text();
+  const response = await postMultipart(apiUrl + `?access_token=${encodeURIComponent(accessToken)}`, formData);
+
+  if (response.status < 200 || response.status >= 300) {
     throw new MixcloudApiError(
-      `Mixcloud upload failed: ${error || response.statusText || `HTTP ${response.status}`}`,
+      `Mixcloud upload failed: ${response.body || response.statusText || `HTTP ${response.status}`}`,
       response.status,
     );
   }
 
-  const responseBody = await response.text();
   let result: unknown;
   try {
-    result = JSON.parse(responseBody);
+    result = JSON.parse(response.body);
   } catch {
     throw new MixcloudApiError("Mixcloud upload returned a non-JSON response.", response.status);
   }
