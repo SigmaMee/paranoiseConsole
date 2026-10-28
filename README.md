@@ -4,6 +4,8 @@ Console is a production-facing internal tool for managing radio show submissions
 
 Console solves a real coordination problem across content, scheduling, storage, authentication, and delivery.
 
+**Live application:** [console.paranoiseradio.com](https://console.paranoiseradio.com) (invitation-only access)
+
 ## Overview
 
 The console sits between the weekly radio schedule and the broadcast/archive stack.
@@ -14,7 +16,7 @@ The console sits between the weekly radio schedule and the broadcast/archive sta
 - Audio is delivered to producer-specific FTP folders.
 - Cover art is delivered to Google Drive using OAuth or service-account access.
 - Mixcloud publishing can be triggered when credentials are available.
-- Admins monitor submission coverage, sync users from Google Calendar, and review operational activity.
+- Admins monitor submission coverage, manage resident records and service connections, and publish completed shows and weekly programming across Paranoise's public channels.
 
 ## Features
 
@@ -24,6 +26,10 @@ The console sits between the weekly radio schedule and the broadcast/archive sta
 - Admin tooling for schedule-aware onboarding and reporting, instead of treating operations as manual back-office work.
 - Product thinking in the UI: direct uploads, drag and drop, preview states, progress feedback, and partial-failure reporting.
 - Auto-generated daily reports of submissions and schedule status delivered via mail.
+- An ON AIR calendar for selecting artwork and publishing weekly programming carousels to Instagram, with optional Facebook cross-posting.
+- An archive workflow for publishing completed shows to Mixcloud and the Paranoise website, with reconciliation, replacement-audio support, and retry-safe processing.
+- Searchable resident management backed by Supabase, including shared-login support for shows with multiple producers.
+- In-console OAuth connection management for Google Drive, Mixcloud, and Instagram.
 
 ## Core Workflows
 
@@ -37,6 +43,8 @@ Residents authenticate through an invitation-only Supabase email-code flow and l
 - up to 5 genre tags
 
 The submission form supports drag and drop, image preview, audio preview, waveform scrubbing, and staged progress states. Files are uploaded directly from the browser to R2, then the app sends a smaller metadata payload to the server so Vercel never has to accept the full media payload.
+
+Shows with multiple producers can share access: the submission is resolved against the scheduled show rather than assuming one login maps to exactly one resident.
 
 ### 2. Media Routing Flow
 
@@ -56,11 +64,13 @@ The routing layer reports partial failures cleanly, which matters when different
 
 Admins can:
 
-- view upcoming and recent shows sourced from Google Calendar
-- measure schedule coverage against actual submissions
-- inspect activity logs and media state
-- bulk-create producer auth accounts from calendar attendees
-- detect profile drift between identity and profile data
+- review upcoming and recent shows in the Google Calendar-backed ON AIR module
+- measure schedule coverage against actual submissions and select the artwork used for each show
+- publish weekly programming carousels to Instagram and, when enabled, Facebook
+- inspect archive activity, download show assets, and publish completed shows to Mixcloud and Webflow
+- search and maintain resident records, including profiles shared across producer logins
+- bulk-create producer auth accounts from calendar attendees and detect identity/profile drift
+- connect and monitor Google Drive, Mixcloud, and Instagram from one place
 
 This turns the app into an operations console, not just an uploader.
 
@@ -76,9 +86,10 @@ Producer UI
 
 Admin UI
   -> Supabase + Google Calendar aggregation
-  -> activity, sync, and reporting tools
+  -> ON AIR calendar / residents / archive / connections
+  -> Instagram + Facebook programming publication
   -> Vercel Workflow
-  -> R2 audio -> Mixcloud -> R2 cleanup
+  -> R2 audio -> Mixcloud + Webflow archive -> R2 cleanup
 ```
 
 ## Notable Engineering Decisions
@@ -136,6 +147,16 @@ Why it matters:
 - keeps access aligned with the schedule
 - connects programming operations with platform access
 
+### Calendar and archive publishing
+
+The ON AIR module turns scheduled shows and submitted artwork into a selectable weekly programming carousel. Admins can publish it to Instagram and optionally mirror the post to Facebook. The archive workflow separately coordinates Mixcloud publication and the corresponding Webflow item, while keeping their statuses and recovery actions visible in Console.
+
+Why it matters:
+
+- one operational view covers the broadcast schedule and both social and archive publishing
+- admins can replace audio or artwork without losing the scheduled-show context
+- publication state is explicit and can be reconciled when an external API succeeds but a callback or local update fails
+
 ## Stack
 
 ### Frontend
@@ -161,7 +182,7 @@ Why it matters:
 
 ### Deployment
 
-- Vercel
+- Vercel at [console.paranoiseradio.com](https://console.paranoiseradio.com)
 
 ## Repository Highlights
 
@@ -169,8 +190,11 @@ Why it matters:
 - [src/app/api/submissions/route.ts](src/app/api/submissions/route.ts): core submission orchestration and downstream delivery.
 - [src/app/api/submissions/presign/route.ts](src/app/api/submissions/presign/route.ts): presigned upload generation for direct-to-R2 transfers.
 - [src/app/dashboard/page.tsx](src/app/dashboard/page.tsx): protected admin/producer dashboard with schedule and activity insights.
+- [src/app/dashboard/_client/CalendarModule.tsx](src/app/dashboard/_client/CalendarModule.tsx): ON AIR artwork selection and social-publishing workflow.
+- [src/app/dashboard/_client/ResidentsModule.tsx](src/app/dashboard/_client/ResidentsModule.tsx): searchable resident records and profile editing.
 - [src/lib/calendar-user-sync.ts](src/lib/calendar-user-sync.ts): Google Calendar driven onboarding workflow.
 - [src/app/api/cron/daily-report/route.ts](src/app/api/cron/daily-report/route.ts): scheduled reporting for next-day schedule readiness.
+- [src/app/dev/page.tsx](src/app/dev/page.tsx): public engineering record and selected production milestones.
 
 ## Local Development
 
@@ -304,6 +328,7 @@ Apply [`supabase/migrations/20261016090050_add_mixcloud_workflow_state.sql`](sup
 
 - `/login` for producer sign-in
 - `/dashboard` for the protected producer/admin console
+- `/dev` for the public engineering record
 
 ## Summary
 
