@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { MIXCLOUD_DESCRIPTION_MAX_LENGTH } from "@/lib/submission-limits";
 import { createClient } from "@/lib/supabase/server";
 import {
   getDriveWeekdayFolderIdForShowStart,
@@ -463,6 +464,13 @@ export async function POST(request: Request) {
       typeof body.selectedShowStart === "string" ? body.selectedShowStart.trim() : "";
     const selectedShowTitleRaw =
       typeof body.selectedShowTitle === "string" ? body.selectedShowTitle.trim() : "";
+
+    if (description.length > MIXCLOUD_DESCRIPTION_MAX_LENGTH) {
+      return NextResponse.json(
+        { error: `Description cannot exceed ${MIXCLOUD_DESCRIPTION_MAX_LENGTH} characters.` },
+        { status: 400 },
+      );
+    }
 
     // Tags can arrive as an array (JSON body) or comma-separated string
     const tagsRaw = Array.isArray(body.tags)

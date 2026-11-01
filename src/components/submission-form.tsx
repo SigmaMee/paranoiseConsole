@@ -11,6 +11,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { MIXCLOUD_DESCRIPTION_MAX_LENGTH } from "@/lib/submission-limits";
 
 const MAX_AUDIO_BYTES = 900 * 1024 * 1024;
 const ARTWORK_SIZE = 1200;
@@ -940,6 +941,10 @@ export function SubmissionForm({ selectedShowStart, selectedShowTitle }: Submiss
       return "Add at least one of audio, cover image, show description, or tags.";
     }
 
+    if (description.length > MIXCLOUD_DESCRIPTION_MAX_LENGTH) {
+      return `Description cannot exceed ${MIXCLOUD_DESCRIPTION_MAX_LENGTH} characters.`;
+    }
+
     if (audioFile) {
       const isMp3 = audioFile.type === "audio/mpeg" || audioFile.name.toLowerCase().endsWith(".mp3");
       if (!isMp3) return "Audio must be an MP3 file.";
@@ -1346,6 +1351,9 @@ export function SubmissionForm({ selectedShowStart, selectedShowTitle }: Submiss
                     Briefly describe your show. The description will be used in Mixcloud and social media for the daily
                     schedule post. If you leave it blank we will have to improvise 😎
                   </span>
+                  <span id="show-description-limit" className="field-label-helper">
+                    {description.length}/{MIXCLOUD_DESCRIPTION_MAX_LENGTH} characters
+                  </span>
                 </div>
                 <textarea
                   id="show-description"
@@ -1353,6 +1361,8 @@ export function SubmissionForm({ selectedShowStart, selectedShowTitle }: Submiss
                   value={description}
                   placeholder="What the listenrs should expect from your show, or any other details you'd like to share."
                   onChange={(event) => setDescription(event.target.value)}
+                  maxLength={MIXCLOUD_DESCRIPTION_MAX_LENGTH}
+                  aria-describedby="show-description-limit"
                   rows={4}
                 />
               </div>
