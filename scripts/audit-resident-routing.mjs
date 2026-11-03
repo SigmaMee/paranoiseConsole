@@ -7,6 +7,7 @@ dotenv.config({ path: ".env.local" });
 
 const EXCLUDED_ROUTING_EMAILS = new Set([
   "paranoise.webradio@gmail.com",
+  "cerbole@gmail.com",
   "spyridon.moraitis@klarna.com",
   "spyros.moraitis@wolt.com",
 ]);
