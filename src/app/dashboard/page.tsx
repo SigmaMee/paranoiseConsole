@@ -346,21 +346,6 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
       const currentMonth = todayInBrussels.slice(0, 7);
       const currentMonthStart = fromZonedTime(`${currentMonth}-01T00:00:00`, ADMIN_TIME_ZONE).toISOString();
 
-      // Completed cards are intentionally ephemeral: clear them at the first admin visit
-      // after the Brussels calendar month changes. External Mixcloud/Webflow items remain.
-      const { error: expiredPublishedError } = await adminSupabase
-        .from("submissions")
-        .delete()
-        .eq("webflow_status", "published")
-        .lt("webflow_published_at", currentMonthStart);
-      if (expiredPublishedError) throw expiredPublishedError;
-      const { error: undatedPublishedError } = await adminSupabase
-        .from("submissions")
-        .delete()
-        .eq("webflow_status", "published")
-        .is("webflow_published_at", null);
-      if (undatedPublishedError) throw undatedPublishedError;
-
       const { data: submissions } = await adminSupabase
           .from("submissions")
           .select(
@@ -440,6 +425,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
         mixcloudStatuses: string[];
         hasMixcloudUrl: boolean;
         webflowStatuses: string[];
+        hasCurrentMonthWebsitePublication: boolean;
         webflowItemId: string | null;
         webflowError: string | null;
         mixcloudUrl: string | null;
@@ -458,6 +444,10 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
         const submittedTags = Array.isArray(row.submitted_tags) ? row.submitted_tags : [];
         const submissionId = typeof row.id === "string" ? row.id : "";
         const mixcloudStatus = typeof row.mixcloud === "string" ? row.mixcloud : "not ready";
+        const webflowStatus = typeof row.webflow_status === "string" ? row.webflow_status : "not ready";
+        const webflowPublishedAt = typeof row.webflow_published_at === "string" ? row.webflow_published_at : null;
+        const isCurrentMonthWebsitePublication = webflowStatus === "published"
+          && Boolean(webflowPublishedAt && webflowPublishedAt >= currentMonthStart);
 
         const groupKey = `${producerEmail}|${showStartAt || airingDate || "no-date"}`;
 
@@ -475,7 +465,8 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
           existing.hasMixcloudUrl = existing.hasMixcloudUrl || Boolean(row.mixcloud_url);
           existing.mixcloudUrl ||= typeof row.mixcloud_url === "string" ? row.mixcloud_url : null;
           existing.mixcloudError ||= mixcloudErrorById.get(submissionId) || null;
-          existing.webflowStatuses.push(typeof row.webflow_status === "string" ? row.webflow_status : "not ready");
+          existing.webflowStatuses.push(webflowStatus);
+          existing.hasCurrentMonthWebsitePublication ||= isCurrentMonthWebsitePublication;
           existing.webflowItemId ||= typeof row.webflow_item_id === "string" ? row.webflow_item_id : null;
           existing.webflowError ||= typeof row.webflow_error === "string" ? row.webflow_error : null;
         } else {
@@ -495,7 +486,8 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
             hasMixcloudUrl: Boolean(row.mixcloud_url),
             mixcloudUrl: typeof row.mixcloud_url === "string" ? row.mixcloud_url : null,
             mixcloudError: mixcloudErrorById.get(submissionId) || null,
-            webflowStatuses: [typeof row.webflow_status === "string" ? row.webflow_status : "not ready"],
+            webflowStatuses: [webflowStatus],
+            hasCurrentMonthWebsitePublication: isCurrentMonthWebsitePublication,
             webflowItemId: typeof row.webflow_item_id === "string" ? row.webflow_item_id : null,
             webflowError: typeof row.webflow_error === "string" ? row.webflow_error : null,
           });
@@ -505,6 +497,9 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
       // Convert grouped submissions to activity log rows
       const eligibleGroups = Array.from(groupedSubmissions.values()).filter((group) => {
         const websitePublished = group.webflowStatuses.includes("published");
+        // Completed website cards are intentionally ephemeral. Hide publications
+        // from earlier months without deleting submission or social-publication history.
+        if (websitePublished && !group.hasCurrentMonthWebsitePublication) return false;
         const mixcloudPublished = group.mixcloudStatuses.includes("published") && group.hasMixcloudUrl;
         if (websitePublished || mixcloudPublished) return true;
         return Boolean(group.airingDate && group.airingDate < todayInBrussels && group.audioFilename);
