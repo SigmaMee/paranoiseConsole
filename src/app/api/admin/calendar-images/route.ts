@@ -161,10 +161,11 @@ async function getImageWithFallbacks(
 async function getProducerFolder(producerEmail: string) {
   const { data } = await adminClient()
     .from("profiles")
-    .select("full_name")
+    .select("full_name,ftp_folder_name")
     .ilike("producer_email", producerEmail)
     .maybeSingle();
-  return typeof data?.full_name === "string" ? data.full_name.trim() : "";
+  const folderName = data?.ftp_folder_name || data?.full_name;
+  return typeof folderName === "string" ? folderName.trim() : "";
 }
 
 function adminClient() {

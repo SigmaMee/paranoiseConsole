@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient as createAdminClient } from "@supabase/supabase-js";
 import { formatInTimeZone } from "date-fns-tz";
 import { requireAdminUser } from "@/lib/admin-access";
-import { findResidentItemId, listPublishedShowsWithMixcloud } from "@/lib/webflow-api";
+import { findResidentItemId, findResidentItemIdBySlug, listPublishedShowsWithMixcloud } from "@/lib/webflow-api";
 import { deleteFromR2 } from "@/lib/r2-utils";
 
 export const runtime = "nodejs";
@@ -63,7 +63,7 @@ export async function POST() {
     const username = process.env.MIXCLOUD_USERNAME || "ParanoiseRadio";
     const emails = Array.from(new Set((data || []).map((row) => String(row.producer_email || "")).filter(Boolean)));
     const { data: profiles, error: profilesError } = emails.length > 0
-      ? await supabase.from("profiles").select("id,producer_email,full_name,webflow_item_id").in("producer_email", emails)
+      ? await supabase.from("profiles").select("id,producer_email,full_name,slug,webflow_item_id").in("producer_email", emails)
       : { data: [], error: null };
     if (profilesError) throw profilesError;
     const residentByEmail = new Map<string, string>();
@@ -71,9 +71,12 @@ export async function POST() {
       const email = String(profile.producer_email || "").toLowerCase();
       let residentItemId = String(profile.webflow_item_id || "");
       const fullName = String(profile.full_name || "").trim();
+      const residentSlug = String(profile.slug || "").trim();
       if (!residentItemId && fullName) {
         try {
-          residentItemId = await findResidentItemId(fullName);
+          residentItemId = residentSlug
+            ? await findResidentItemIdBySlug(residentSlug)
+            : await findResidentItemId(fullName);
           await supabase.from("profiles").update({ webflow_item_id: residentItemId }).eq("id", profile.id);
         } catch (error) {
           console.warn(`Could not resolve Webflow Resident for ${fullName}:`, error);

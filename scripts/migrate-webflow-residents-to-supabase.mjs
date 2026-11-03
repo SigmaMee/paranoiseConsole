@@ -139,18 +139,18 @@ const supabase = createClient(
 const webflowToken = requiredEnvironmentVariable("WEBFLOW_API_TOKEN");
 
 const [{ data: profiles, error: profilesError }, webflowItems] = await Promise.all([
-  supabase.from("profiles").select("id,full_name,webflow_item_id"),
+  supabase.from("profiles").select("id,full_name,webflow_item_id,slug"),
   listWebflowResidents(webflowToken),
 ]);
 if (profilesError) throw profilesError;
 
 const profilesByName = new Map(
-  (profiles || []).map((profile) => [normalizeName(profile.full_name), profile.id]),
+  (profiles || []).map((profile) => [normalizeName(profile.full_name), profile]),
 );
 const profilesByWebflowItemId = new Map(
   (profiles || [])
     .filter((profile) => profile.webflow_item_id)
-    .map((profile) => [profile.webflow_item_id, profile.id]),
+    .map((profile) => [profile.webflow_item_id, profile]),
 );
 let imported = 0;
 let failed = 0;
@@ -160,7 +160,8 @@ let manuallyExcluded = 0;
 for (const item of webflowItems) {
   const fields = item.fieldData || {};
   const producerName = optionalText(fields.name);
-  if (!item.id || !producerName) continue;
+  const webflowSlug = optionalText(fields.slug);
+  if (!item.id || !producerName || !webflowSlug) continue;
   const isManuallyExcluded = EXCLUDED_WEBFLOW_RESIDENT_IDS.has(item.id);
   if (item.isArchived === true || isManuallyExcluded) {
     try {
@@ -175,11 +176,25 @@ for (const item of webflowItems) {
   }
   const sourceImageUrl = optionalText(fields["profile-picture"]?.url);
   try {
+    const linkedProfile = profilesByWebflowItemId.get(item.id)
+      || profilesByName.get(normalizeName(producerName))
+      || null;
+    const canonicalSlug = linkedProfile?.slug || webflowSlug;
+
+    if (linkedProfile && !linkedProfile.slug) {
+      const { error: slugError } = await supabase
+        .from("profiles")
+        .update({ slug: canonicalSlug })
+        .eq("id", linkedProfile.id)
+        .is("slug", null);
+      if (slugError) throw slugError;
+      linkedProfile.slug = canonicalSlug;
+    }
+
     const profilePicturePath = await copyProfilePicture(supabase, item.id, sourceImageUrl);
     const { error } = await supabase.from("resident_profiles").upsert({
-      profile_id: profilesByWebflowItemId.get(item.id)
-        || profilesByName.get(normalizeName(producerName))
-        || null,
+      profile_id: linkedProfile?.id || null,
+      slug: canonicalSlug,
       producer_name: producerName,
       radio_show: optionalText(fields["radio-show-2"]),
       city: optionalText(fields.city),

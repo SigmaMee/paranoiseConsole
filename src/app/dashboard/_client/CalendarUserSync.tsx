@@ -5,8 +5,11 @@ import styles from "./calendar-user-sync.module.css";
 type Producer = {
   email: string;
   producerName: string;
+  slug: string;
   fullName: string | null;
   eventTitle: string;
+  nextShowStartAt: string;
+  slugConflict: string | null;
 };
 
 export default function CalendarUserSync() {
@@ -16,6 +19,7 @@ export default function CalendarUserSync() {
     scanned: number;
     created: number;
     alreadyExists: number;
+    provisioned: number;
     errors: Array<{ email: string; error: string }>;
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -79,7 +83,7 @@ export default function CalendarUserSync() {
     <div className={styles.section}>
       <h2 className="dashboard-section-title">Add new producers</h2>
       <p className={`muted ${styles.description}`}>
-        Scan calendar events and create passwordless auth users for producers. Event format: producer-name - radio show name.
+        Scan calendar events, review canonical slugs, and provision passwordless accounts, FTP folders, and scheduled Centova playlists. Event format: producer-name - radio show name.
       </p>
       
       <button
@@ -101,6 +105,7 @@ export default function CalendarUserSync() {
                 <tr>
                   <th className={styles.scanTableHeaderCell}>Email</th>
                   <th className={styles.scanTableHeaderCell}>Producer</th>
+                  <th className={styles.scanTableHeaderCell}>Canonical slug</th>
                   <th className={styles.scanTableHeaderCell}>From Event</th>
                 </tr>
               </thead>
@@ -110,6 +115,10 @@ export default function CalendarUserSync() {
                     <td className={styles.scanTableCell}>{producer.email}</td>
                     <td className={styles.scanTableCell}>
                       {producer.producerName}
+                    </td>
+                    <td className={styles.scanTableCell}>
+                      {producer.slug}
+                      {producer.slugConflict ? ` — ${producer.slugConflict}` : ""}
                     </td>
                     <td className={`${styles.scanTableCell} ${styles.scanTableEvent}`}>
                       {producer.eventTitle}
@@ -122,9 +131,9 @@ export default function CalendarUserSync() {
           <button
             className={`dashboard-connect ${styles.confirmButton} ${styles.confirmButtonGreen}`}
             onClick={handleCreate}
-            disabled={loading}
+            disabled={loading || scannedProducers.some((producer) => Boolean(producer.slugConflict))}
           >
-            {loading ? "Creating Users..." : "Confirm & Create Users"}
+            {loading ? "Provisioning Residents..." : "Confirm & Provision Residents"}
           </button>
         </div>
       )}
@@ -140,6 +149,7 @@ export default function CalendarUserSync() {
           <p className={`${styles.alertTitle} ${styles.alertTitleSuccess}`}>Sync Complete</p>
           <p className={styles.alertText}>Producers scanned: {result.scanned}</p>
           <p className={styles.alertText}>Users created: {result.created}</p>
+          <p className={styles.alertText}>Residents provisioned: {result.provisioned}</p>
           <p className={styles.alertText}>Already exists: {result.alreadyExists}</p>
           {result.errors.length > 0 && (
             <>

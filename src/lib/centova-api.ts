@@ -135,6 +135,68 @@ function normalizePlaylistStatus(status?: string) {
   return status === "disabled" ? "disabled" : "enabled";
 }
 
+function scheduledPlaylistForm(title: string, scheduledDatetime: string) {
+  const [datePart, timePart] = scheduledDatetime.split(" ");
+  const [year, month, day] = datePart.split("-");
+  const scheduledTime = parseTimeComponents(timePart);
+
+  return new URLSearchParams({
+    "playlist[title]": title,
+    "playlist[status]": "enabled",
+    "playlist[type]": "scheduled",
+    "playlist[general_order]": "sequential",
+    "playlist[general_weight]": "1",
+    general_starttime_hour: "12",
+    general_starttime_min: "0",
+    general_starttime_ampm: "0",
+    general_endtime_hour: "12",
+    general_endtime_min: "0",
+    general_endtime_ampm: "0",
+    scheduled_date_month: String(Number(month)),
+    scheduled_date_day: String(Number(day)),
+    scheduled_date_year: year,
+    tmp_scheduled_datetime: scheduledDatetime,
+    scheduled_time_hour: scheduledTime.hour,
+    scheduled_time_min: scheduledTime.minute,
+    scheduled_time_ampm: scheduledTime.ampm,
+    "playlist[scheduled_repeat]": "never",
+    "playlist[scheduled_monthdays]": "date",
+    "playlist[scheduled_style]": "sequential",
+    "playlist[scheduled_interruptible]": "0",
+    "playlist[scheduled_duration]": "0",
+    "playlist[interval_length]": "20",
+    "playlist[interval_type]": "songs",
+    "playlist[interval_style]": "onerandom",
+  });
+}
+
+function toAthensDateTime(showStartAt: string) {
+  const showDate = new Date(showStartAt);
+  if (Number.isNaN(showDate.getTime())) {
+    throw new Error(`Invalid show start date: ${showStartAt}`);
+  }
+  return formatInTimeZone(showDate, "Europe/Athens", "yyyy-MM-dd HH:mm:ss");
+}
+
+async function createScheduledCentovaPlaylist(title: string, scheduledDatetime: string) {
+  const { baseUrl, cookieHeader } = await loginToCentovaSession();
+  const body = scheduledPlaylistForm(title, scheduledDatetime);
+  body.set("create", "Save");
+
+  const response = await fetch(`${baseUrl}/client/index.php?page=playlists&action=add`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
+      Cookie: cookieHeader,
+    },
+    body: body.toString(),
+    redirect: "manual",
+  });
+  if (!response.ok && response.status !== 302) {
+    throw new Error(`Centova playlist creation failed with status ${response.status}.`);
+  }
+}
+
 async function updateCentovaPlaylistSchedule(
   playlist: CentovaPlaylist,
   scheduledDatetime: string,
@@ -298,19 +360,7 @@ export async function schedulePlaylist(
   showStartAt: string,
 ): Promise<CentovaPlaylistUpdateResult> {
   try {
-    const showDate = new Date(showStartAt);
-    if (Number.isNaN(showDate.getTime())) {
-      return {
-        success: false,
-        message: `Invalid show start date: ${showStartAt}`,
-      };
-    }
-
-    const athensDateTime = formatInTimeZone(
-      showDate,
-      "Europe/Athens",
-      "yyyy-MM-dd HH:mm:ss",
-    );
+    const athensDateTime = toAthensDateTime(showStartAt);
     const playlists = await listCentovaPlaylists();
     const playlist = playlists.find((entry) => String(entry.id) === String(playlistId));
     if (!playlist) {
@@ -331,6 +381,43 @@ export async function schedulePlaylist(
     return {
       success: false,
       message: `Failed to schedule playlist: ${message}`,
+    };
+  }
+}
+
+export async function ensureScheduledCentovaPlaylist(
+  playlistName: string,
+  showStartAt: string,
+): Promise<CentovaPlaylistUpdateResult> {
+  try {
+    const scheduledDatetime = toAthensDateTime(showStartAt);
+    let playlists = await listCentovaPlaylists();
+    let playlist = playlists.find(
+      (entry) => entry.title.toLowerCase().trim() === playlistName.toLowerCase().trim(),
+    );
+
+    if (!playlist) {
+      await createScheduledCentovaPlaylist(playlistName, scheduledDatetime);
+      playlists = await listCentovaPlaylists();
+      playlist = playlists.find(
+        (entry) => entry.title.toLowerCase().trim() === playlistName.toLowerCase().trim(),
+      );
+      if (!playlist) {
+        throw new Error(`Centova did not return playlist "${playlistName}" after creation.`);
+      }
+    }
+
+    await updateCentovaPlaylistSchedule({ ...playlist, type: "scheduled" }, scheduledDatetime);
+    return {
+      success: true,
+      message: `Centova playlist "${playlist.title}" is scheduled for ${scheduledDatetime} Athens time.`,
+    };
+  } catch (error) {
+    return {
+      success: false,
+      message: error instanceof Error
+        ? `Failed to ensure Centova playlist "${playlistName}": ${error.message}`
+        : `Failed to ensure Centova playlist "${playlistName}".`,
     };
   }
 }
@@ -361,17 +448,17 @@ export async function getScheduledCentovaPlaylists(): Promise<ScheduledCentovaPl
 }
 
 export async function updateShowPlaylist(
-  producerFolderName: string,
+  playlistName: string,
   audioFilename: string,
   showStartAt: string,
+  producerFolderName = playlistName,
 ): Promise<CentovaPlaylistUpdateResult> {
   try {
-    // Find playlist matching producer folder name
-    const playlist = await getCentovaPlaylistByName(producerFolderName);
+    const playlist = await getCentovaPlaylistByName(playlistName);
     if (!playlist) {
       return {
         success: false,
-        message: `Could not find Centova playlist matching "${producerFolderName}"`,
+        message: `Could not find Centova playlist matching "${playlistName}"`,
       };
     }
 

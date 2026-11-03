@@ -37,6 +37,7 @@ function normalizeName(value: string) {
 export type WebflowResidentProfile = {
   itemId: string;
   name: string;
+  slug: string;
   profilePictureUrl: string | null;
   profilePictureAlt: string | null;
   radioShow: string | null;
@@ -79,6 +80,7 @@ export async function listWebflowResidentProfiles(): Promise<WebflowResidentProf
         id?: string;
         fieldData?: {
           name?: string;
+          slug?: string;
           "profile-picture"?: { url?: string; alt?: string };
           "radio-show-2"?: string;
           city?: string;
@@ -92,10 +94,12 @@ export async function listWebflowResidentProfiles(): Promise<WebflowResidentProf
     for (const item of items) {
       const fields = item.fieldData;
       const name = optionalText(fields?.name);
-      if (!item.id || !name) continue;
+      const slug = optionalText(fields?.slug);
+      if (!item.id || !name || !slug) continue;
       profiles.push({
         itemId: item.id,
         name,
+        slug,
         profilePictureUrl: optionalText(fields?.["profile-picture"]?.url),
         profilePictureAlt: optionalText(fields?.["profile-picture"]?.alt),
         radioShow: optionalText(fields?.["radio-show-2"]),
@@ -141,6 +145,32 @@ export async function findResidentItemId(producerName: string): Promise<string> 
   }
   if (matches.length > 1) {
     throw new Error(`Multiple Webflow Residents match producer "${producerName}".`);
+  }
+  return matches[0];
+}
+
+export async function findResidentItemIdBySlug(residentSlug: string): Promise<string> {
+  const matches: string[] = [];
+  let offset = 0;
+
+  while (true) {
+    const data = (await webflowRequest(
+      `/collections/${WEBFLOW_RESIDENTS_COLLECTION_ID}/items?limit=100&offset=${offset}`,
+    )) as { items?: Array<{ id?: string; fieldData?: { slug?: string } }> };
+    const items = data.items || [];
+    for (const item of items) {
+      if (item.id && item.fieldData?.slug === residentSlug) matches.push(item.id);
+    }
+    if (items.length < 100) break;
+    offset += items.length;
+  }
+
+  if (matches.length !== 1) {
+    throw new Error(
+      matches.length === 0
+        ? `No Webflow Resident matches slug "${residentSlug}".`
+        : `Multiple Webflow Residents match slug "${residentSlug}".`,
+    );
   }
   return matches[0];
 }

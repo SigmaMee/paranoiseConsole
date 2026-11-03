@@ -149,7 +149,7 @@ async function publishShowFromR2(submissionId: string, workflowRunId: string) {
     const audioAvailableInR2 = Boolean(audioObjectKey && await fileExistsInR2(audioObjectKey));
     const { data: profile } = await supabase
       .from("profiles")
-      .select("full_name")
+      .select("full_name,ftp_folder_name")
       .eq("producer_email", selected.producer_email)
       .maybeSingle();
 
@@ -157,9 +157,9 @@ async function publishShowFromR2(submissionId: string, workflowRunId: string) {
     let audioBuffer: Buffer | undefined;
     if (audioAvailableInR2 && audioObjectKey) {
       audioUrl = await getSignedR2Url(audioObjectKey);
-    } else if (audioRow.audio_ftp_folder || profile?.full_name) {
+    } else if (audioRow.audio_ftp_folder || profile?.ftp_folder_name || profile?.full_name) {
       // Transitional support for submissions created before audio_object_key existed.
-      const ftpFolder = audioRow.audio_ftp_folder || profile?.full_name;
+      const ftpFolder = audioRow.audio_ftp_folder || profile?.ftp_folder_name || profile?.full_name;
       audioBuffer = ftpFolder
         ? (await downloadAudioFromFtp(audioRow.audio_filename, ftpFolder.trim())) || undefined
         : undefined;

@@ -298,7 +298,7 @@ export async function POST(request: Request) {
         // Get producer folder name
         const { data: profile } = await adminSupabase
           .from("profiles")
-          .select("full_name")
+          .select("full_name,ftp_folder_name")
           .eq("producer_email", show.producerEmail)
           .single();
 
@@ -307,7 +307,7 @@ export async function POST(request: Request) {
           continue;
         }
 
-        const producerFolderName = profile.full_name.trim();
+        const producerFolderName = (profile.ftp_folder_name || profile.full_name).trim();
         const producerName = profile.full_name.trim();
         const showDateFormatted = formatDateDDMMYY(show.airingDate);
         const showFolder = `${showDateFormatted} - ${producerName}`;

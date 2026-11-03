@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient as createAdminClient } from "@supabase/supabase-js";
 import { requireAdminUser } from "@/lib/admin-access";
 import { fileExistsInR2, getSignedR2Url } from "@/lib/r2-utils";
-import { createPublishedShow, findResidentItemId, toWebflowSlug } from "@/lib/webflow-api";
+import { createPublishedShow, findResidentItemId, findResidentItemIdBySlug, toWebflowSlug } from "@/lib/webflow-api";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -77,14 +77,16 @@ export async function POST(request: Request) {
 
         const { data: profile, error: profileError } = await supabase
           .from("profiles")
-          .select("id,full_name,webflow_item_id")
+          .select("id,full_name,slug,webflow_item_id")
           .eq("producer_email", producerEmail)
           .single();
         if (profileError || !profile?.full_name) throw new Error("Producer profile was not found.");
 
         let residentItemId = profile.webflow_item_id as string | null;
         if (!residentItemId) {
-          residentItemId = await findResidentItemId(profile.full_name);
+          residentItemId = profile.slug
+            ? await findResidentItemIdBySlug(profile.slug)
+            : await findResidentItemId(profile.full_name);
           await supabase.from("profiles").update({ webflow_item_id: residentItemId }).eq("id", profile.id);
         }
 

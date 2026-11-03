@@ -305,7 +305,7 @@ async function getProducerFolderNameFromProfilesTable(user: {
   // to the same email (which would violate the unique producer_email key).
   const { data: byEmail, error: byEmailError } = await supabase
     .from("profiles")
-    .select("id, full_name")
+    .select("id, full_name, ftp_folder_name, centova_playlist_name")
     .ilike("producer_email", normalizedEmail)
     .maybeSingle();
 
@@ -318,7 +318,8 @@ async function getProducerFolderNameFromProfilesTable(user: {
     if (typeof fullName === "string" && fullName.trim()) {
       return {
         profileId: byEmail.id,
-        folderName: fullName.trim(),
+        folderName: byEmail.ftp_folder_name || fullName.trim(),
+        playlistName: byEmail.centova_playlist_name || fullName.trim(),
       };
     }
 
@@ -326,7 +327,7 @@ async function getProducerFolderNameFromProfilesTable(user: {
       .from("profiles")
       .update({ full_name: fallbackFullName })
       .eq("id", byEmail.id)
-      .select("id, full_name")
+      .select("id, full_name, ftp_folder_name, centova_playlist_name")
       .single();
 
     if (updateError) {
@@ -335,13 +336,14 @@ async function getProducerFolderNameFromProfilesTable(user: {
 
     return {
       profileId: updated.id,
-      folderName: updated.full_name.trim(),
+      folderName: updated.ftp_folder_name || updated.full_name.trim(),
+      playlistName: updated.centova_playlist_name || updated.full_name.trim(),
     };
   }
 
   const { data: byUserId, error: byUserIdError } = await supabase
     .from("profiles")
-    .select("id, producer_email, full_name")
+    .select("id, producer_email, full_name, ftp_folder_name, centova_playlist_name")
     .eq("user_id", user.id)
     .maybeSingle();
 
@@ -365,7 +367,8 @@ async function getProducerFolderNameFromProfilesTable(user: {
     if (!needsEmailUpdate && !needsNameUpdate) {
       return {
         profileId: byUserId.id,
-        folderName: fullName,
+        folderName: byUserId.ftp_folder_name || fullName,
+        playlistName: byUserId.centova_playlist_name || fullName,
       };
     }
 
@@ -376,7 +379,7 @@ async function getProducerFolderNameFromProfilesTable(user: {
         full_name: fullName,
       })
       .eq("id", byUserId.id)
-      .select("id, full_name")
+      .select("id, full_name, ftp_folder_name, centova_playlist_name")
       .single();
 
     if (patchError) {
@@ -385,7 +388,8 @@ async function getProducerFolderNameFromProfilesTable(user: {
 
     return {
       profileId: patched.id,
-      folderName: patched.full_name,
+      folderName: patched.ftp_folder_name || patched.full_name,
+      playlistName: patched.centova_playlist_name || patched.full_name,
     };
   }
 
@@ -396,7 +400,7 @@ async function getProducerFolderNameFromProfilesTable(user: {
       producer_email: normalizedEmail,
       full_name: fallbackFullName,
     })
-    .select("id, full_name")
+    .select("id, full_name, ftp_folder_name, centova_playlist_name")
     .single();
 
   if (insertError) {
@@ -405,7 +409,8 @@ async function getProducerFolderNameFromProfilesTable(user: {
 
   return {
     profileId: inserted.id,
-    folderName: inserted.full_name,
+    folderName: inserted.ftp_folder_name || inserted.full_name,
+    playlistName: inserted.centova_playlist_name || inserted.full_name,
   };
 }
 
@@ -577,6 +582,7 @@ export async function POST(request: Request) {
       user_metadata: user.user_metadata,
     });
     const producerFolderName = producerProfile.folderName;
+    const producerPlaylistName = producerProfile.playlistName;
 
     let ftpResult;
     let driveResult;
@@ -651,9 +657,10 @@ export async function POST(request: Request) {
       if (audioResult.success && persistedShowStart && isUpcomingShowStart(persistedShowStart)) {
         stage = "centova:update-playlist";
         centovaResult = await updateShowPlaylist(
-          producerFolderName,
+          producerPlaylistName,
           audioUploadName,
           persistedShowStart,
+          producerFolderName,
         );
       }
     } else if (uploadType === "description") {
@@ -783,9 +790,10 @@ export async function POST(request: Request) {
       if (audioUploadSuccessful && persistedShowStart && isUpcomingShowStart(persistedShowStart)) {
         stage = "centova:update-playlist";
         centovaResult = await updateShowPlaylist(
-          producerFolderName,
+          producerPlaylistName,
           uploadedAudioFilename,
           persistedShowStart,
+          producerFolderName,
         );
       }
     } else {
