@@ -5,6 +5,12 @@ import { Client } from "basic-ftp";
 
 dotenv.config({ path: ".env.local" });
 
+const EXCLUDED_ROUTING_EMAILS = new Set([
+  "paranoise.webradio@gmail.com",
+  "spyridon.moraitis@klarna.com",
+  "spyros.moraitis@wolt.com",
+]);
+
 function required(name) {
   const value = process.env[name];
   if (!value) throw new Error(`Missing env var: ${name}`);
@@ -73,7 +79,12 @@ const webflowSlugByProfileId = new Map(
     .map((resident) => [resident.profile_id, resident.slug]),
 );
 
-const rows = (profilesResult.data || []).map((profile) => {
+const routableProfiles = (profilesResult.data || []).filter(
+  (profile) => !EXCLUDED_ROUTING_EMAILS.has(String(profile.producer_email || "").toLowerCase()),
+);
+const excludedCount = (profilesResult.data || []).length - routableProfiles.length;
+
+const rows = routableProfiles.map((profile) => {
   const slug = profile.slug || "";
   const ftpRoute = profile.ftp_folder_name || profile.full_name;
   const centovaRoute = profile.centova_playlist_name || profile.full_name;
@@ -98,4 +109,5 @@ const cutoverReady = rows.filter(
 );
 console.log(`${rows.length - currentRouteFailures.length}/${rows.length} residents have valid current routes.`);
 console.log(`${cutoverReady.length}/${rows.length} residents are ready for a future slug-first cutover.`);
+console.log(`${excludedCount} non-routable host or legacy identity profiles were excluded.`);
 if (currentRouteFailures.length > 0) process.exitCode = 1;
