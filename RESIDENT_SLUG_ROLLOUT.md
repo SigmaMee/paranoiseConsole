@@ -6,7 +6,7 @@ ready for a later cutover.
 
 ## Deployment order
 
-1. Apply `supabase/migrations/20261103113000_add_resident_routing_identifiers.sql`.
+1. Apply `supabase/migrations/20261103103754_add_resident_routing_identifiers.sql`.
    The new columns are nullable and do not change existing routes.
 2. Run `npm run backfill:resident-slugs` to preserve established Webflow
    resident slugs in Console. Existing Console slugs are never overwritten.
