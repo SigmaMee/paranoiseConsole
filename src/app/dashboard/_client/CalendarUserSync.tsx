@@ -5,6 +5,7 @@ import styles from "./calendar-user-sync.module.css";
 type Producer = {
   email: string;
   producerName: string;
+  radioShow: string;
   slug: string;
   fullName: string | null;
   eventTitle: string;
@@ -60,7 +61,7 @@ export default function CalendarUserSync() {
       const response = await fetch("/api/admin/sync-calendar-users", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "create" }),
+        body: JSON.stringify({ action: "create", producers: scannedProducers }),
       });
 
       const data = await response.json();

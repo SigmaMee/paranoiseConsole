@@ -20,10 +20,13 @@ function normalizeEmail(email: string | null | undefined) {
  * Format: producer-name - radio show name
  * Returns the producer-name part
  */
-function extractProducerNameFromEvent(eventTitle: string): string | null {
-  const match = eventTitle.match(/^([^-]+)\s*-/);
+function extractResidentNamesFromEvent(eventTitle: string) {
+  const match = eventTitle.match(/^(.+?)\s+[-–—]\s+(.+)$/);
   if (!match) return null;
-  return match[1].trim();
+  return {
+    producerName: match[1].trim(),
+    radioShow: match[2].trim(),
+  };
 }
 
 function isGuestMixEvent(eventTitle: string): boolean {
@@ -33,6 +36,7 @@ function isGuestMixEvent(eventTitle: string): boolean {
 export type CalendarProducer = {
   email: string;
   producerName: string;
+  radioShow: string;
   slug: string;
   fullName: string | null;
   eventTitle: string;
@@ -97,10 +101,10 @@ export async function scanCalendarForProducers(): Promise<CalendarProducer[]> {
     const eventTitle = event.summary || "";
     if (isGuestMixEvent(eventTitle)) continue;
 
-    const producerName = extractProducerNameFromEvent(eventTitle);
+    const residentNames = extractResidentNamesFromEvent(eventTitle);
     const showStartAt = event.start?.dateTime || event.start?.date;
     
-    if (!producerName || !showStartAt) continue;
+    if (!residentNames || !showStartAt) continue;
 
     const attendees = event.attendees ?? [];
     
@@ -121,8 +125,9 @@ export async function scanCalendarForProducers(): Promise<CalendarProducer[]> {
       ) {
         producerMap.set(email, {
           email,
-          producerName,
-          slug: toCanonicalResidentSlug(producerName),
+          producerName: residentNames.producerName,
+          radioShow: residentNames.radioShow,
+          slug: toCanonicalResidentSlug(residentNames.producerName),
           fullName: attendee.displayName || null,
           eventTitle,
           nextShowStartAt: new Date(showStartAt).toISOString(),
@@ -149,6 +154,28 @@ export async function scanCalendarForProducers(): Promise<CalendarProducer[]> {
       return !exists;
     });
 
+    const knownEmailByProfileId = new Map<string, string>();
+    const candidateEmails = newProducers.map((producer) => producer.email);
+    if (candidateEmails.length > 0) {
+      const { data: existingProfiles, error: existingProfilesError } = await supabase
+        .from("profiles")
+        .select("id,producer_email,slug")
+        .in("producer_email", candidateEmails);
+      if (existingProfilesError) throw existingProfilesError;
+
+      const establishedSlugByEmail = new Map(
+        (existingProfiles || [])
+          .filter((profile) => profile.slug)
+          .map((profile) => [normalizeEmail(profile.producer_email), profile.slug]),
+      );
+      for (const profile of existingProfiles || []) {
+        knownEmailByProfileId.set(profile.id, normalizeEmail(profile.producer_email));
+      }
+      for (const producer of newProducers) {
+        producer.slug = establishedSlugByEmail.get(producer.email) || producer.slug;
+      }
+    }
+
     const slugCounts = new Map<string, number>();
     for (const producer of newProducers) {
       slugCounts.set(producer.slug, (slugCounts.get(producer.slug) || 0) + 1);
@@ -159,20 +186,46 @@ export async function scanCalendarForProducers(): Promise<CalendarProducer[]> {
 
     const candidateSlugs = [...slugCounts.keys()].filter(Boolean);
     if (candidateSlugs.length > 0) {
-      const { data: profiles, error: profilesError } = await supabase
-        .from("profiles")
-        .select("producer_email,slug")
-        .in("slug", candidateSlugs);
+      const [profilesResult, residentProfilesResult] = await Promise.all([
+        supabase
+          .from("profiles")
+          .select("id,producer_email,slug")
+          .in("slug", candidateSlugs),
+        supabase
+          .from("resident_profiles")
+          .select("profile_id,producer_name,slug")
+          .in("slug", candidateSlugs),
+      ]);
+      const { data: profiles, error: profilesError } = profilesResult;
       if (profilesError) throw profilesError;
+      const { data: residentProfiles, error: residentProfilesError } = residentProfilesResult;
+      if (residentProfilesError) throw residentProfilesError;
 
       const ownerBySlug = new Map(
         (profiles || []).map((profile) => [profile.slug, profile.producer_email]),
       );
+      const emailByProfileId = new Map(
+        [
+          ...knownEmailByProfileId,
+          ...(profiles || []).map(
+            (profile) => [profile.id, normalizeEmail(profile.producer_email)] as const,
+          ),
+        ],
+      );
+      const residentOwnerBySlug = new Map(
+        (residentProfiles || []).map((profile) => [profile.slug, {
+          email: profile.profile_id ? emailByProfileId.get(profile.profile_id) : null,
+          name: profile.producer_name,
+        }]),
+      );
       for (const producer of newProducers) {
         if (producer.slugConflict) continue;
         const existingOwner = ownerBySlug.get(producer.slug);
-        producer.slugConflict = existingOwner
+        const residentOwner = residentOwnerBySlug.get(producer.slug);
+        producer.slugConflict = existingOwner && normalizeEmail(existingOwner) !== producer.email
           ? `Already assigned to ${existingOwner}`
+          : residentOwner && residentOwner.email !== producer.email
+            ? `Already assigned to resident ${residentOwner.name}`
           : (slugCounts.get(producer.slug) || 0) > 1
             ? "Generated for more than one scanned resident"
             : null;
@@ -227,13 +280,12 @@ async function listAllUsersByEmail(supabase: SupabaseClient): Promise<Map<string
  * Event format: producer-name - radio show name.
  * Accounts are passwordless and can sign in only through their email address.
  */
-export async function createUsersFromCalendar(): Promise<CreateUsersResult> {
+export async function createUsersFromCalendar(
+  producers: CalendarProducer[],
+): Promise<CreateUsersResult> {
   const supabaseUrl = getRequiredEnv("NEXT_PUBLIC_SUPABASE_URL");
   const serviceRole = getRequiredEnv("SUPABASE_SERVICE_ROLE_KEY");
   const supabase = createClient(supabaseUrl, serviceRole);
-
-  // Scan calendar for producers
-  const producers = await scanCalendarForProducers();
 
   // Get existing users
   const existingUsers = await listAllUsersByEmail(supabase);
@@ -256,7 +308,7 @@ export async function createUsersFromCalendar(): Promise<CreateUsersResult> {
 
     const { data: existingProfile, error: existingProfileError } = await supabase
       .from("profiles")
-      .select("slug,ftp_folder_name,centova_playlist_name")
+      .select("id,user_id,full_name,slug,ftp_folder_name,centova_playlist_name")
       .eq("producer_email", producer.email)
       .maybeSingle();
     if (existingProfileError) {
@@ -264,7 +316,23 @@ export async function createUsersFromCalendar(): Promise<CreateUsersResult> {
       continue;
     }
 
-    const canonicalSlug = existingProfile?.slug || producer.slug;
+    const generatedSlug = toCanonicalResidentSlug(producer.producerName);
+    if (existingProfile?.slug && existingProfile.slug !== producer.slug) {
+      result.errors.push({
+        email: producer.email,
+        error: `Reviewed slug "${producer.slug}" no longer matches the established slug "${existingProfile.slug}". Scan again.`,
+      });
+      continue;
+    }
+    if (!existingProfile?.slug && generatedSlug !== producer.slug) {
+      result.errors.push({
+        email: producer.email,
+        error: `Reviewed slug "${producer.slug}" no longer matches the generated slug "${generatedSlug}". Scan again.`,
+      });
+      continue;
+    }
+
+    const canonicalSlug = producer.slug;
     const { data: conflictingProfile, error: slugLookupError } = await supabase
       .from("profiles")
       .select("producer_email")
@@ -279,6 +347,23 @@ export async function createUsersFromCalendar(): Promise<CreateUsersResult> {
       result.errors.push({
         email: producer.email,
         error: `Canonical slug "${canonicalSlug}" is already assigned to ${conflictingProfile.producer_email}.`,
+      });
+      continue;
+    }
+
+    const { data: conflictingResident, error: residentSlugLookupError } = await supabase
+      .from("resident_profiles")
+      .select("profile_id,producer_name")
+      .eq("slug", canonicalSlug)
+      .maybeSingle();
+    if (residentSlugLookupError) {
+      result.errors.push({ email: producer.email, error: residentSlugLookupError.message });
+      continue;
+    }
+    if (conflictingResident && conflictingResident.profile_id !== existingProfile?.id) {
+      result.errors.push({
+        email: producer.email,
+        error: `Canonical slug "${canonicalSlug}" is already assigned to resident ${conflictingResident.producer_name}.`,
       });
       continue;
     }
@@ -321,19 +406,23 @@ export async function createUsersFromCalendar(): Promise<CreateUsersResult> {
     }
 
     const profileFullName = producer.fullName || producer.producerName;
-    const { error: profileError } = await supabase.from("profiles").upsert(
-      {
-        user_id: data.user.id,
-        producer_email: producer.email,
-        full_name: profileFullName,
-        slug: canonicalSlug,
-        ftp_folder_name: existingProfile?.ftp_folder_name || canonicalSlug,
-        centova_playlist_name: existingProfile?.centova_playlist_name || canonicalSlug,
-      },
-      {
-        onConflict: "producer_email",
-      },
-    );
+    const { data: savedProfile, error: profileError } = await supabase
+      .from("profiles")
+      .upsert(
+        {
+          user_id: data.user.id,
+          producer_email: producer.email,
+          full_name: profileFullName,
+          slug: canonicalSlug,
+          ftp_folder_name: existingProfile?.ftp_folder_name || canonicalSlug,
+          centova_playlist_name: existingProfile?.centova_playlist_name || canonicalSlug,
+        },
+        {
+          onConflict: "producer_email",
+        },
+      )
+      .select("id")
+      .single();
 
     if (profileError) {
       const { error: rollbackError } = await supabase.auth.admin.deleteUser(data.user.id);
@@ -342,6 +431,44 @@ export async function createUsersFromCalendar(): Promise<CreateUsersResult> {
         error: rollbackError
           ? `Profile sync failed: ${profileError.message}. Auth rollback also failed: ${rollbackError.message}`
           : `Profile sync failed and the new auth account was rolled back: ${profileError.message}`,
+      });
+      continue;
+    }
+
+    const { error: residentProfileError } = await supabase.from("resident_profiles").upsert(
+      {
+        profile_id: savedProfile.id,
+        slug: canonicalSlug,
+        producer_name: producer.producerName,
+        radio_show: producer.radioShow,
+        show_type: "Recorded",
+        webflow_sync_status: "pending",
+        webflow_sync_error: null,
+      },
+      { onConflict: "profile_id" },
+    );
+
+    if (residentProfileError) {
+      if (existingProfile) {
+        await supabase
+          .from("profiles")
+          .update({
+            user_id: existingProfile.user_id,
+            full_name: existingProfile.full_name,
+            slug: existingProfile.slug,
+            ftp_folder_name: existingProfile.ftp_folder_name,
+            centova_playlist_name: existingProfile.centova_playlist_name,
+          })
+          .eq("id", existingProfile.id);
+      } else {
+        await supabase.from("profiles").delete().eq("id", savedProfile.id);
+      }
+      const { error: rollbackError } = await supabase.auth.admin.deleteUser(data.user.id);
+      result.errors.push({
+        email: producer.email,
+        error: rollbackError
+          ? `Resident profile creation failed: ${residentProfileError.message}. Auth rollback also failed: ${rollbackError.message}`
+          : `Resident profile creation failed and the new account was rolled back: ${residentProfileError.message}`,
       });
       continue;
     }
