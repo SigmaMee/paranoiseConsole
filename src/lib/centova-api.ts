@@ -181,7 +181,7 @@ function toAthensDateTime(showStartAt: string) {
 async function createScheduledCentovaPlaylist(title: string, scheduledDatetime: string) {
   const { baseUrl, cookieHeader } = await loginToCentovaSession();
   const body = scheduledPlaylistForm(title, scheduledDatetime);
-  body.set("create", "Save");
+  body.set("update", "Save");
 
   const response = await fetch(`${baseUrl}/client/index.php?page=playlists&action=add`, {
     method: "POST",
