@@ -8,8 +8,8 @@ ready for a later cutover.
 
 1. Apply `supabase/migrations/20261103113000_add_resident_routing_identifiers.sql`.
    The new columns are nullable and do not change existing routes.
-2. Run `npm run migrate:residents` to preserve established Webflow resident
-   slugs in Console. Existing Console slugs are never overwritten.
+2. Run `npm run backfill:resident-slugs` to preserve established Webflow
+   resident slugs in Console. Existing Console slugs are never overwritten.
 3. Deploy the compatible application code. Profiles without explicit routing
    names continue to use `full_name`; newly imported residents use their slug.
 4. Run `npm run audit:resident-routing`. Resolve any current-route failures
