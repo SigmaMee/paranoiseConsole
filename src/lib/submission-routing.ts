@@ -4,6 +4,10 @@ import { google } from "googleapis";
 import { Readable } from "stream";
 import { createClient } from "@supabase/supabase-js";
 import { getGoogleDriveOAuthClientFromStoredToken } from "@/lib/google-drive-oauth";
+import {
+  requireDriveDestinationFolderId,
+  resolveDriveWeekdayFolderId,
+} from "@/lib/google-drive-destination";
 
 const MAX_AUDIO_BYTES = 900 * 1024 * 1024;
 
@@ -382,24 +386,17 @@ export async function getDriveWeekdayFolderIdForShowStart(showStart: string) {
       normalizeWeekdayFolderName(folder.name) === normalizedExpected,
   );
 
-  if (!match?.id) {
-    throw new Error(
-      `Could not find Google Drive weekday folder '${expectedFolderName}' under the configured parent folder.`,
-    );
-  }
-
-  return match.id;
+  return resolveDriveWeekdayFolderId(match?.id);
 }
 
 export async function routeImageToDrive(
   image: File,
-  destinationFolderId?: string,
+  destinationFolderId: string,
   filenamePrefix?: string,
   uploadNameOverride?: string,
 ): Promise<RouteResult> {
-  const folderId = destinationFolderId || getRequiredEnv("GOOGLE_DRIVE_FOLDER_ID");
-
   try {
+    const folderId = requireDriveDestinationFolderId(destinationFolderId);
     const authSelection = await getDriveAuth();
     const drive = google.drive({ version: "v3", auth: authSelection.auth });
     const originalName = image.name || `cover-${randomUUID()}`;
@@ -470,11 +467,10 @@ export async function routeImageToDrive(
 export async function routeTextToDrive(
   content: string,
   uploadName: string,
-  destinationFolderId?: string,
+  destinationFolderId: string,
 ): Promise<RouteResult> {
-  const folderId = destinationFolderId || getRequiredEnv("GOOGLE_DRIVE_FOLDER_ID");
-
   try {
+    const folderId = requireDriveDestinationFolderId(destinationFolderId);
     const authSelection = await getDriveAuth();
     const drive = google.drive({ version: "v3", auth: authSelection.auth });
     const bytes = Buffer.from(content, "utf8");
