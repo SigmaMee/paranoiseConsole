@@ -7,7 +7,7 @@ import { getGoogleDriveOAuthClientFromStoredToken } from "@/lib/google-drive-oau
 import {
   requireDriveDestinationFolderId,
   resolveDriveWeekdayFolderId,
-} from "@/lib/google-drive-destination";
+} from "@/lib/google-drive-destination.mjs";
 
 const MAX_AUDIO_BYTES = 900 * 1024 * 1024;
 
