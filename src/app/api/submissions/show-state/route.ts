@@ -52,22 +52,37 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    let rows: Array<{ submitted_description?: string | null; submitted_tags?: string[] | null }> = [];
+    const producerEmail = getProducerEmail(user);
+    const { data: slot, error: slotError } = await supabase
+      .from("submission_slots")
+      .select("audio_filename,image_filename,audio_submitted_at,image_submitted_at,completed_at")
+      .ilike("producer_email", producerEmail)
+      .eq("show_start_at", showStart)
+      .maybeSingle();
+
+    let rows: Array<{
+      submitted_description?: string | null;
+      submitted_tags?: string[] | null;
+      audio_filename?: string | null;
+      image_filename?: string | null;
+      ftp_status?: string | null;
+      drive_status?: string | null;
+    }> = [];
 
     const { data, error } = await supabase
       .from("submissions")
-      .select("submitted_description,submitted_tags")
+      .select("submitted_description,submitted_tags,audio_filename,image_filename,ftp_status,drive_status")
       .eq("airing_date", airingDate)
-      .ilike("producer_email", getProducerEmail(user))
+      .ilike("producer_email", producerEmail)
       .order("created_at", { ascending: false })
       .limit(20);
 
     if (error?.message?.toLowerCase().includes('column "submitted_description"')) {
       const { data: legacyRows, error: legacyError } = await supabase
         .from("submissions")
-        .select("submitted_tags")
+        .select("submitted_tags,audio_filename,image_filename,ftp_status,drive_status")
         .eq("airing_date", airingDate)
-        .ilike("producer_email", getProducerEmail(user))
+        .ilike("producer_email", producerEmail)
         .order("created_at", { ascending: false })
         .limit(20);
 
@@ -75,7 +90,7 @@ export async function GET(request: Request) {
         return NextResponse.json({ description: null, tags: [] });
       }
 
-      rows = (legacyRows || []) as Array<{ submitted_tags?: string[] | null }>;
+      rows = legacyRows || [];
     } else if (error) {
       return NextResponse.json({ description: null, tags: [] });
     } else {
@@ -102,7 +117,29 @@ export async function GET(request: Request) {
       }
     }
 
-    return NextResponse.json({ description, tags });
+    const slotUnavailable = slotError?.message?.toLowerCase().includes('relation "submission_slots"');
+    const legacyAudioFilename = rows.find((row) => {
+      const candidate = row as { audio_filename?: string | null };
+      return Boolean(candidate.audio_filename?.trim()) && row.ftp_status === "success";
+    }) as { audio_filename?: string | null } | undefined;
+    const legacyImageFilename = rows.find((row) => {
+      const candidate = row as { image_filename?: string | null };
+      return Boolean(candidate.image_filename?.trim())
+        && row.ftp_status === "success"
+        && row.drive_status === "success";
+    }) as { image_filename?: string | null } | undefined;
+    const audioFilename = slot?.audio_filename || legacyAudioFilename?.audio_filename || null;
+    const imageFilename = slot?.image_filename || legacyImageFilename?.image_filename || null;
+
+    return NextResponse.json({
+      description,
+      tags,
+      audioFilename,
+      imageFilename,
+      audioSubmitted: slotUnavailable ? Boolean(audioFilename) : Boolean(slot?.audio_submitted_at),
+      imageSubmitted: slotUnavailable ? Boolean(imageFilename) : Boolean(slot?.image_submitted_at),
+      completed: Boolean(slot?.completed_at),
+    });
   } catch {
     return NextResponse.json({ description: null, tags: [] });
   }

@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { MIXCLOUD_DESCRIPTION_MAX_LENGTH } from "@/lib/submission-limits";
 import { createClient } from "@/lib/supabase/server";
 import {
+  claimSubmissionSlotMedia,
+  finalizeSubmissionSlotMedia,
   getDriveWeekdayFolderIdForShowStart,
   persistSubmissionStatus,
   routeAudioStreamToFtp,
@@ -36,6 +38,7 @@ import {
   validateUploadSize,
 } from "@/lib/upload-security";
 import { writeUploadSecurityEvent } from "@/lib/upload-security-audit";
+import { randomUUID } from "crypto";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -421,6 +424,13 @@ async function getProducerFolderNameFromProfilesTable(user: {
 export async function POST(request: Request) {
   const traceId = `sub-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   let stage = "init";
+  let mediaClaimToken: string | null = null;
+  let mediaClaimFinalized = false;
+  let deliveredAudioFilename = "";
+  let deliveredImageFilename = "";
+  let deliveredImageObjectKey: string | null = null;
+  let audioDeliverySuccessful = false;
+  let imageDeliverySuccessful = false;
 
   const logContext: {
     uploadType?: "audio" | "cover" | "description" | "all";
@@ -589,6 +599,7 @@ export async function POST(request: Request) {
     let centovaResult: { success: boolean; message: string } | null = null;
     let uploadedImageFilename = optionalImage?.name || "";
     let uploadedAudioFilename = audioObjectKey ? audioFilename : "";
+    let retainedImageObjectKey: string | null = null;
 
     stage = "calendar:fetch-upcoming";
     const upcomingShows = await getUpcomingShowsByProducerEmail(producerCalendarEmails);
@@ -602,6 +613,27 @@ export async function POST(request: Request) {
     const descriptionFilenameHint = dateForSuffix
       ? `${selectedShowTitle}-${formatShowDateDdMmYy(dateForSuffix)}`
       : audioFilename || "show-description";
+
+    const slotAiringDate = toAiringDateIso(persistedShowStart);
+    if ((audioObjectKey || optionalImage) && (!persistedShowStart || !slotAiringDate)) {
+      return NextResponse.json(
+        { error: "A valid show must be selected before uploading media." },
+        { status: 400 },
+      );
+    }
+
+    if ((audioObjectKey || optionalImage) && persistedShowStart && slotAiringDate) {
+      stage = "slot:claim-media";
+      mediaClaimToken = randomUUID();
+      await claimSubmissionSlotMedia({
+        producerEmail,
+        showStartAt: persistedShowStart,
+        airingDate: slotAiringDate,
+        hasAudio: Boolean(audioObjectKey),
+        hasImage: Boolean(optionalImage),
+        claimToken: mediaClaimToken,
+      });
+    }
 
     stage = "audit:delivery-attempted";
     await writeUploadSecurityEvent({
@@ -640,6 +672,8 @@ export async function POST(request: Request) {
         audioUploadName,
       );
       uploadedAudioFilename = audioUploadName;
+      audioDeliverySuccessful = audioResult.success;
+      deliveredAudioFilename = audioResult.success ? audioUploadName : "";
 
       ftpResult = {
         success: audioResult.success,
@@ -705,6 +739,8 @@ export async function POST(request: Request) {
         uploadedAudioFilename = audioUploadName;
         ftpSuccess = ftpSuccess && audioResult.success;
         audioUploadSuccessful = audioResult.success;
+        audioDeliverySuccessful = audioResult.success;
+        deliveredAudioFilename = audioResult.success ? audioUploadName : "";
         ftpMessages.push(audioResult.message);
       }
 
@@ -760,6 +796,8 @@ export async function POST(request: Request) {
 
         driveSuccess = driveSuccess && driveCoverResult.success;
         driveMessages.push(driveCoverResult.message);
+        imageDeliverySuccessful = ftpCoverResult.success && driveCoverResult.success;
+        deliveredImageFilename = imageDeliverySuccessful ? uploadedImageFilename : "";
       }
 
       if (descriptionFileContent) {
@@ -838,14 +876,17 @@ export async function POST(request: Request) {
 
       ftpResult = ftpCoverResult;
       driveResult = driveCoverResult;
+      imageDeliverySuccessful = ftpCoverResult.success && driveCoverResult.success;
+      deliveredImageFilename = imageDeliverySuccessful ? uploadedImageFilename : "";
     }
 
     try {
       stage = "persist:submission-status";
       const airingDate = toAiringDateIso(persistedShowStart);
-      const retainedImageObjectKey = imageObjectKey && optionalImage
+      retainedImageObjectKey = imageObjectKey && optionalImage
         ? await retainCoverInR2(imageObjectKey, user.id, airingDate, optionalImage)
         : null;
+      deliveredImageObjectKey = imageDeliverySuccessful ? retainedImageObjectKey : null;
       await persistSubmissionStatus({
         producerProfileId: producerProfile.profileId,
         producerEmail,
@@ -871,6 +912,23 @@ export async function POST(request: Request) {
         stack: error instanceof Error ? error.stack : undefined,
         ...logContext,
       });
+      if (mediaClaimToken && !mediaClaimFinalized) {
+        await finalizeSubmissionSlotMedia({
+          claimToken: mediaClaimToken,
+          audioFilename: uploadedAudioFilename,
+          imageFilename: uploadedImageFilename,
+          imageObjectKey: imageDeliverySuccessful ? retainedImageObjectKey : null,
+          audioSuccess: audioDeliverySuccessful,
+          imageSuccess: imageDeliverySuccessful,
+        }).then(() => {
+          mediaClaimFinalized = true;
+        }).catch((finalizeError) => {
+          console.error("[SUBMISSIONS_SLOT_FINALIZE_FAILED]", {
+            traceId,
+            error: finalizeError instanceof Error ? finalizeError.message : String(finalizeError),
+          });
+        });
+      }
       return NextResponse.json(
         {
           error:
@@ -885,6 +943,19 @@ export async function POST(request: Request) {
     }
 
     const allSucceeded = ftpResult.success && driveResult.success && (!centovaResult || centovaResult.success);
+
+    if (mediaClaimToken) {
+      stage = "slot:finalize-media";
+      await finalizeSubmissionSlotMedia({
+        claimToken: mediaClaimToken,
+        audioFilename: uploadedAudioFilename,
+        imageFilename: uploadedImageFilename,
+        imageObjectKey: imageDeliverySuccessful ? retainedImageObjectKey : null,
+        audioSuccess: audioDeliverySuccessful,
+        imageSuccess: imageDeliverySuccessful,
+      });
+      mediaClaimFinalized = true;
+    }
 
     stage = "audit:delivery-completed";
     await writeUploadSecurityEvent({
@@ -946,6 +1017,22 @@ export async function POST(request: Request) {
       { status: allSucceeded ? 200 : 207 },
     );
   } catch (error) {
+    if (mediaClaimToken && !mediaClaimFinalized) {
+      await finalizeSubmissionSlotMedia({
+        claimToken: mediaClaimToken,
+        audioFilename: deliveredAudioFilename,
+        imageFilename: deliveredImageFilename,
+        imageObjectKey: deliveredImageObjectKey,
+        audioSuccess: audioDeliverySuccessful,
+        imageSuccess: imageDeliverySuccessful,
+      }).catch((releaseError) => {
+        console.error("[SUBMISSIONS_SLOT_RELEASE_FAILED]", {
+          traceId,
+          error: releaseError instanceof Error ? releaseError.message : String(releaseError),
+        });
+      });
+    }
+
     const errorMessage = error instanceof Error ? error.message : "";
     console.error("[SUBMISSIONS_TRACE_UNHANDLED]", {
       traceId,
@@ -962,6 +1049,13 @@ export async function POST(request: Request) {
             "Upload stream was interrupted while receiving files. Please retry and keep the tab open until submission finishes.",
         },
         { status: 400 },
+      );
+    }
+
+    if (stage === "slot:claim-media") {
+      return NextResponse.json(
+        { error: errorMessage || "This media component has already been submitted." },
+        { status: 409 },
       );
     }
 

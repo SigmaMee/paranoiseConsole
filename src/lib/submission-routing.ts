@@ -35,6 +35,15 @@ export type PersistPayload = {
   driveMessage: string;
 };
 
+export type SubmissionSlotState = {
+  audio_filename: string | null;
+  image_filename: string | null;
+  image_object_key: string | null;
+  audio_submitted_at: string | null;
+  image_submitted_at: string | null;
+  completed_at: string | null;
+};
+
 function getRequiredEnv(name: string) {
   const value = process.env[name];
   if (!value) {
@@ -536,6 +545,56 @@ function createAdminSupabaseClient() {
   const url = getRequiredEnv("NEXT_PUBLIC_SUPABASE_URL");
   const serviceRoleKey = getRequiredEnv("SUPABASE_SERVICE_ROLE_KEY");
   return createClient(url, serviceRoleKey);
+}
+
+export async function claimSubmissionSlotMedia(payload: {
+  producerEmail: string;
+  showStartAt: string;
+  airingDate: string;
+  hasAudio: boolean;
+  hasImage: boolean;
+  claimToken: string;
+}) {
+  const supabase = createAdminSupabaseClient();
+  const { data, error } = await supabase.rpc("claim_submission_slot_media", {
+    requested_producer_email: payload.producerEmail,
+    requested_show_start_at: payload.showStartAt,
+    requested_airing_date: payload.airingDate,
+    requested_audio: payload.hasAudio,
+    requested_image: payload.hasImage,
+    requested_claim_token: payload.claimToken,
+  });
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return data as SubmissionSlotState;
+}
+
+export async function finalizeSubmissionSlotMedia(payload: {
+  claimToken: string;
+  audioFilename: string;
+  imageFilename: string;
+  imageObjectKey: string | null;
+  audioSuccess: boolean;
+  imageSuccess: boolean;
+}) {
+  const supabase = createAdminSupabaseClient();
+  const { data, error } = await supabase.rpc("finalize_submission_slot_media", {
+    requested_claim_token: payload.claimToken,
+    requested_audio_filename: payload.audioFilename,
+    requested_image_filename: payload.imageFilename,
+    requested_image_object_key: payload.imageObjectKey,
+    requested_audio_success: payload.audioSuccess,
+    requested_image_success: payload.imageSuccess,
+  });
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return data as SubmissionSlotState;
 }
 
 export async function persistSubmissionStatus(payload: PersistPayload) {

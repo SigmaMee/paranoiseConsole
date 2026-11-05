@@ -456,10 +456,15 @@ async function uploadFileToR2WithAdaptiveFallback(
 export function SubmissionForm({ selectedShowStart, selectedShowEnd, selectedShowTitle }: SubmissionFormProps) {
   const [audioFile, setAudioFile] = useState<File | null>(null);
   const [imageFile, setImageFile] = useState<File | null>(null);
+  const [isFallbackArtwork, setIsFallbackArtwork] = useState(false);
   const [isArtworkGenerating, setIsArtworkGenerating] = useState(false);
   const [audioPreviewUrl, setAudioPreviewUrl] = useState<string | null>(null);
   const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null);
   const [persistedImagePreviewUrl, setPersistedImagePreviewUrl] = useState<string | null>(null);
+  const [persistedAudioFilename, setPersistedAudioFilename] = useState<string | null>(null);
+  const [isAudioSubmitted, setIsAudioSubmitted] = useState(false);
+  const [isImageSubmitted, setIsImageSubmitted] = useState(false);
+  const [isSubmissionComplete, setIsSubmissionComplete] = useState(false);
   const [artworkProfile, setArtworkProfile] = useState<ResidentArtworkProfile | null>(null);
   const [waveformBars, setWaveformBars] = useState<number[]>([]);
   const [audioDuration, setAudioDuration] = useState(0);
@@ -487,10 +492,12 @@ export function SubmissionForm({ selectedShowStart, selectedShowEnd, selectedSho
   const artworkSourceRef = useRef<File | null>(null);
   const artworkThemeIndexRef = useRef<number | null>(null);
   const manualArtworkSelectionRef = useRef(false);
+  const imageSubmittedRef = useRef(false);
 
   function resetDraftState() {
     setAudioFile(null);
     setImageFile(null);
+    setIsFallbackArtwork(false);
     setArtworkProfile(null);
     residentProfileSourceRef.current = null;
     artworkSourceRef.current = null;
@@ -589,6 +596,11 @@ export function SubmissionForm({ selectedShowStart, selectedShowEnd, selectedSho
     resetDraftState();
     setErrorMessage("");
     setSubmitAllSuccess(false);
+    setPersistedAudioFilename(null);
+    setIsAudioSubmitted(false);
+    setIsImageSubmitted(false);
+    setIsSubmissionComplete(false);
+    imageSubmittedRef.current = false;
 
     clearPersistedImagePreviewUrl();
 
@@ -616,7 +628,19 @@ export function SubmissionForm({ selectedShowStart, selectedShowEnd, selectedSho
         const payload = (await response.json().catch(() => null)) as {
           description?: string | null;
           tags?: string[];
+          audioFilename?: string | null;
+          audioSubmitted?: boolean;
+          imageSubmitted?: boolean;
+          completed?: boolean;
         } | null;
+
+        const audioSubmitted = payload?.audioSubmitted === true;
+        const imageSubmitted = payload?.imageSubmitted === true;
+        setPersistedAudioFilename(payload?.audioFilename || null);
+        setIsAudioSubmitted(audioSubmitted);
+        setIsImageSubmitted(imageSubmitted);
+        setIsSubmissionComplete(payload?.completed === true);
+        imageSubmittedRef.current = imageSubmitted;
 
         if (payload && typeof payload.description === "string") {
           setDescription(payload.description);
@@ -687,14 +711,15 @@ export function SubmissionForm({ selectedShowStart, selectedShowEnd, selectedSho
           type: imageBlob.type,
         });
         residentProfileSourceRef.current = sourceFile;
-        if (manualArtworkSelectionRef.current) return;
+        if (manualArtworkSelectionRef.current || imageSubmittedRef.current) return;
 
         const themeIndex = Math.floor(Math.random() * ARTWORK_THEME_NAMES.length);
         const generatedArtwork = await generateArtwork(sourceFile, profile, ARTWORK_THEME_NAMES[themeIndex]);
-        if (!manualArtworkSelectionRef.current) {
+        if (!manualArtworkSelectionRef.current && !imageSubmittedRef.current) {
           artworkSourceRef.current = sourceFile;
           artworkThemeIndexRef.current = themeIndex;
           setImageFile(generatedArtwork);
+          setIsFallbackArtwork(true);
         }
       } catch (error) {
         if (error instanceof DOMException && error.name === "AbortError") return;
@@ -704,9 +729,13 @@ export function SubmissionForm({ selectedShowStart, selectedShowEnd, selectedSho
       }
     };
 
-    void loadPersistedShowState();
-    void loadPersistedCoverPreview();
-    void loadResidentFallbackArtwork();
+    void (async () => {
+      await loadPersistedShowState();
+      await Promise.all([
+        loadPersistedCoverPreview(),
+        imageSubmittedRef.current ? Promise.resolve() : loadResidentFallbackArtwork(),
+      ]);
+    })();
 
     return () => {
       controller.abort();
@@ -777,10 +806,12 @@ export function SubmissionForm({ selectedShowStart, selectedShowEnd, selectedSho
   }, [imageFile]);
 
   useEffect(() => {
-    if (!audioFile) { setWaveformBars([]); return; }
-    const seed = `${audioFile.name}-${audioFile.size}-${audioFile.lastModified}`;
+    if (!audioFile && !persistedAudioFilename) { setWaveformBars([]); return; }
+    const seed = audioFile
+      ? `${audioFile.name}-${audioFile.size}-${audioFile.lastModified}`
+      : persistedAudioFilename || "submitted-audio";
     setWaveformBars(createFakeWaveformBars(seed));
-  }, [audioFile]);
+  }, [audioFile, persistedAudioFilename]);
 
   function onAudioInputChange(event: ChangeEvent<HTMLInputElement>) {
     setAudioFile(event.target.files?.[0] ?? null);
@@ -804,6 +835,7 @@ export function SubmissionForm({ selectedShowStart, selectedShowEnd, selectedSho
       artworkSourceRef.current = sourceFile;
       artworkThemeIndexRef.current = themeIndex;
       setImageFile(generatedArtwork);
+      setIsFallbackArtwork(!isManualSelection);
       clearPersistedImagePreviewUrl();
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "The artwork could not be generated.");
@@ -855,6 +887,7 @@ export function SubmissionForm({ selectedShowStart, selectedShowEnd, selectedSho
       artworkSourceRef.current = null;
       artworkThemeIndexRef.current = null;
       setImageFile(null);
+      setIsFallbackArtwork(false);
     }
     clearPersistedImagePreviewUrl();
     if (imageInputRef.current) imageInputRef.current.value = "";
@@ -939,10 +972,14 @@ export function SubmissionForm({ selectedShowStart, selectedShowEnd, selectedSho
   }
 
   function validate() {
-    const hasAudio = Boolean(audioFile);
-    const hasImage = Boolean(imageFile);
+    const hasAudio = Boolean(audioFile) || isAudioSubmitted;
+    const hasImage = Boolean(imageFile && !isFallbackArtwork) || isImageSubmitted;
     const hasDescription = Boolean(description.trim());
     const hasTags = selectedTags.length > 0;
+
+    if (isSubmissionComplete) {
+      return "This show submission is complete and closed.";
+    }
 
     if (!hasAudio && !hasImage && !hasDescription && !hasTags) {
       return "Add at least one of audio, cover image, show description, or tags.";
@@ -962,7 +999,7 @@ export function SubmissionForm({ selectedShowStart, selectedShowEnd, selectedSho
       return "Cover must be a standard image file type.";
     }
 
-    if (!hasImage) {
+    if (!hasImage && !hasAudio) {
       return artworkProfile?.profilePictureUrl
         ? "The resident profile picture could not be prepared. Try again or add a cover image."
         : "Add a cover image because the resident profile does not have a profile picture.";
@@ -980,6 +1017,7 @@ export function SubmissionForm({ selectedShowStart, selectedShowEnd, selectedSho
     setIsLoading(true);
     setUploadProgress(0);
     setProgressPhase("uploading");
+    const explicitImageFile = isFallbackArtwork ? null : imageFile;
 
     try {
       // -----------------------------------------------------------------------
@@ -995,12 +1033,12 @@ export function SubmissionForm({ selectedShowStart, selectedShowEnd, selectedSho
           partSizeBytes: PRIMARY_PART_SIZE_BYTES,
         });
       }
-      if (imageFile) {
+      if (explicitImageFile) {
         filesToPresign.push({
           field: "image",
-          filename: imageFile.name,
-          contentType: imageFile.type || "image/jpeg",
-          size: imageFile.size,
+          filename: explicitImageFile.name,
+          contentType: explicitImageFile.type || "image/jpeg",
+          size: explicitImageFile.size,
           partSizeBytes: PRIMARY_PART_SIZE_BYTES,
         });
       }
@@ -1034,10 +1072,10 @@ export function SubmissionForm({ selectedShowStart, selectedShowEnd, selectedSho
 
       // Track per-file progress and blend into a single [0–70] range
       let audioProgress = audioFile ? 0 : 100;
-      let imageProgress = imageFile ? 0 : 100;
+      let imageProgress = explicitImageFile ? 0 : 100;
 
       function blendedProgress() {
-        const fileCount = (audioFile ? 1 : 0) + (imageFile ? 1 : 0);
+        const fileCount = (audioFile ? 1 : 0) + (explicitImageFile ? 1 : 0);
         if (fileCount === 0) return 70;
         const avg = (audioProgress + imageProgress) / (fileCount === 2 ? 2 : 1);
         // If only one file, the other slot is already 100 so the average is just that file
@@ -1059,9 +1097,9 @@ export function SubmissionForm({ selectedShowStart, selectedShowEnd, selectedSho
         );
       }
 
-      if (imageFile && imageResult) {
+      if (explicitImageFile && imageResult) {
         uploads.push(
-          uploadFileToR2WithAdaptiveFallback(imageFile, imageResult, (pct) => {
+          uploadFileToR2WithAdaptiveFallback(explicitImageFile, imageResult, (pct) => {
             imageProgress = pct;
             setUploadProgress(blendedProgress());
           }),
@@ -1088,8 +1126,8 @@ export function SubmissionForm({ selectedShowStart, selectedShowEnd, selectedSho
         audioContentType: audioFile?.type,
         audioSize: audioFile?.size,
         imageObjectKey: imageResult?.objectKey,
-        imageFilename: imageFile?.name,
-        imageContentType: imageFile?.type,
+        imageFilename: explicitImageFile?.name,
+        imageContentType: explicitImageFile?.type,
       };
 
       // Animate progress 70 → 99 while the server processes.
@@ -1148,6 +1186,19 @@ export function SubmissionForm({ selectedShowStart, selectedShowEnd, selectedSho
       }
 
       setSubmitAllSuccess(true);
+      const audioNowSubmitted = isAudioSubmitted || Boolean(audioFile);
+      const imageNowSubmitted = isImageSubmitted || Boolean(explicitImageFile);
+      if (audioFile) {
+        setPersistedAudioFilename(audioFile.name);
+        setIsAudioSubmitted(true);
+      }
+      if (explicitImageFile) {
+        setIsImageSubmitted(true);
+        imageSubmittedRef.current = true;
+      }
+      if (audioNowSubmitted && imageNowSubmitted) {
+        setIsSubmissionComplete(true);
+      }
       if (submitAllSuccessTimeoutRef.current !== null) {
         window.clearTimeout(submitAllSuccessTimeoutRef.current);
       }
@@ -1174,6 +1225,11 @@ export function SubmissionForm({ selectedShowStart, selectedShowEnd, selectedSho
       ? Math.min(waveformBars.length, Math.max(0, Math.round((audioCurrentTime / audioDuration) * waveformBars.length)))
       : 0;
   const activeCoverPreviewUrl = imagePreviewUrl || persistedImagePreviewUrl;
+  const activeAudioPreviewUrl = audioPreviewUrl || (
+    isAudioSubmitted && selectedShowStart
+      ? `/api/submissions/audio-preview?showStart=${encodeURIComponent(selectedShowStart)}`
+      : null
+  );
 
   return (
     <form className="form submission-form" onSubmit={(event) => event.preventDefault()}>
@@ -1202,7 +1258,7 @@ export function SubmissionForm({ selectedShowStart, selectedShowEnd, selectedSho
                   Show artwork
                 </label>
               </div>
-              {!activeCoverPreviewUrl ? (
+              {!activeCoverPreviewUrl && !isImageSubmitted ? (
                 <div
                   className={`upload-zone upload-zone-square ${isImageDragging ? "upload-zone-dragging" : ""}`}
                   role="button"
@@ -1228,6 +1284,11 @@ export function SubmissionForm({ selectedShowStart, selectedShowEnd, selectedSho
                   <p className="upload-zone-secondary">Console will crop it and apply the Paranoise template</p>
                 </div>
               ) : null}
+              {!activeCoverPreviewUrl && isImageSubmitted ? (
+                <div className="cover-preview-card" aria-label="Submitted show artwork">
+                  <p className="upload-zone-primary">Artwork submitted</p>
+                </div>
+              ) : null}
               <input
                 ref={imageInputRef}
                 id="show-cover"
@@ -1235,15 +1296,16 @@ export function SubmissionForm({ selectedShowStart, selectedShowEnd, selectedSho
                 type="file"
                 accept="image/*"
                 onChange={onImageInputChange}
+                disabled={isImageSubmitted || isSubmissionComplete}
               />
               {activeCoverPreviewUrl ? (
                 <div
                   className="cover-preview-card"
-                  role="button"
-                  tabIndex={0}
-                  onClick={openImagePicker}
-                  onKeyDown={(event) => onDropzoneKeyDown(event, openImagePicker)}
-                  aria-label="Replace cover image"
+                  role={isImageSubmitted ? undefined : "button"}
+                  tabIndex={isImageSubmitted ? undefined : 0}
+                  onClick={isImageSubmitted ? undefined : openImagePicker}
+                  onKeyDown={isImageSubmitted ? undefined : (event) => onDropzoneKeyDown(event, openImagePicker)}
+                  aria-label={isImageSubmitted ? "Submitted show artwork" : "Replace cover image"}
                 >
                   <Image
                     className="cover-preview-image"
@@ -1253,7 +1315,7 @@ export function SubmissionForm({ selectedShowStart, selectedShowEnd, selectedSho
                     height={800}
                     unoptimized
                   />
-                  <div className="cover-preview-actions">
+                  {!isImageSubmitted ? <div className="cover-preview-actions">
                     {imagePreviewUrl ? (
                       <>
                         <button className="btn-tertiary" type="button" onClick={downloadArtwork}>
@@ -1272,7 +1334,7 @@ export function SubmissionForm({ selectedShowStart, selectedShowEnd, selectedSho
                     <button className="btn-tertiary" type="button" onClick={clearImageFile}>
                       Remove artwork
                     </button>
-                  </div>
+                  </div> : null}
                 </div>
               ) : null}
             </div>
@@ -1285,7 +1347,7 @@ export function SubmissionForm({ selectedShowStart, selectedShowEnd, selectedSho
                   </label>
                   <span className="field-label-helper">MP3 320KBPS 120&apos; MAX</span>
                 </div>
-                {!audioFile ? (
+                {!audioFile && !isAudioSubmitted ? (
                   <div
                     className={`upload-zone ${isAudioDragging ? "upload-zone-dragging" : ""}`}
                     role="button"
@@ -1308,12 +1370,13 @@ export function SubmissionForm({ selectedShowStart, selectedShowEnd, selectedSho
                   type="file"
                   accept=".mp3,audio/mpeg"
                   onChange={onAudioInputChange}
+                  disabled={isAudioSubmitted || isSubmissionComplete}
                 />
-                {audioPreviewUrl ? (
+                {activeAudioPreviewUrl ? (
                   <div className="audio-preview-card">
                     <audio
                       ref={audioPreviewRef}
-                      src={audioPreviewUrl}
+                      src={activeAudioPreviewUrl}
                       preload="metadata"
                       onLoadedMetadata={onAudioPreviewMetadataLoaded}
                       onTimeUpdate={onAudioPreviewTimeUpdate}
@@ -1358,9 +1421,15 @@ export function SubmissionForm({ selectedShowStart, selectedShowEnd, selectedSho
                         </span>
                       </div>
                     </div>
-                    <button className="btn-tertiary" type="button" onClick={clearAudioFile}>
-                      Remove audio file
-                    </button>
+                    {isAudioSubmitted ? (
+                      persistedAudioFilename ? (
+                        <p className="upload-zone-secondary">{persistedAudioFilename}</p>
+                      ) : null
+                    ) : (
+                      <button className="btn-tertiary" type="button" onClick={clearAudioFile}>
+                        Remove audio file
+                      </button>
+                    )}
                   </div>
                 ) : null}
               </div>
@@ -1454,13 +1523,20 @@ export function SubmissionForm({ selectedShowStart, selectedShowEnd, selectedSho
           </div>
 
           <div className="submission-submit-wrap">
+            {isSubmissionComplete ? (
+              <p className="message" role="status">
+                This show submission is complete. Artwork and audio have both been received.
+              </p>
+            ) : null}
             <button
               className={submitAllSuccess ? "button-success-static submission-submit" : "button button-primary submission-submit"}
               type="button"
               onClick={() => onSubmit()}
-              disabled={isLoading || isArtworkGenerating}
+              disabled={isLoading || isArtworkGenerating || isSubmissionComplete}
             >
-              {isLoading
+              {isSubmissionComplete
+                ? "Submission complete"
+                : isLoading
                 ? "Submitting show..."
                 : submitAllSuccess
                   ? "Show submitted successfully."
