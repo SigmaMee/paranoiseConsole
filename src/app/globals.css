@@ -110,6 +110,7 @@
   --focus-offset: 0.125rem;
   --control-height: 2.75rem;
   --workspace-choice-min-size: 13rem;
+  --workspace-selected-background: var(--blue);
   --icon-size: 1.5rem;
   --font-size-xs: 0.75rem;
   --font-size-sm: 0.875rem;
@@ -456,15 +457,6 @@ a {
 
 .dashboard-workspace-nav {
   display: grid;
-  gap: var(--space-3);
-}
-
-.dashboard-workspace-nav > p {
-  color: var(--color-muted);
-  font-size: var(--font-size-sm);
-  font-weight: 700;
-  letter-spacing: var(--tracking-wide);
-  text-transform: uppercase;
 }
 
 .dashboard-workspace-nav > div {
@@ -490,10 +482,21 @@ a {
 }
 
 .dashboard-workspace-link:hover,
-.dashboard-workspace-link:focus-visible,
-.dashboard-workspace-link-active {
+.dashboard-workspace-link:focus-visible {
   border-color: var(--color-accent);
   background: var(--neutral-surface-hover);
+}
+
+.dashboard-workspace-link-active,
+.dashboard-workspace-link-active:hover,
+.dashboard-workspace-link-active:focus-visible {
+  border-color: var(--workspace-selected-background);
+  background: var(--workspace-selected-background);
+  color: var(--black);
+}
+
+.dashboard-workspace-link-active span {
+  color: var(--black);
 }
 
 .dashboard-workspace-link:focus-visible {

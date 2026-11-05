@@ -805,7 +805,6 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
 
         {!isAdmin && hasSharingRole ? (
           <nav className="dashboard-workspace-nav" aria-label="Choose workspace">
-            <p>Choose a module</p>
             <div>
               <Link
                 href="/dashboard?workspace=production"
