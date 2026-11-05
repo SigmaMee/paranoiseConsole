@@ -118,6 +118,11 @@ export type SubmissionEmailPayload = {
   ftpSuccess: boolean;
   driveSuccess: boolean;
   centovaResult: { success: boolean; message: string } | null;
+  storyArtwork?: {
+    filename: string;
+    content: Buffer;
+    contentType: string;
+  } | null;
 };
 
 export function buildSubmissionConfirmationHtml(payload: SubmissionEmailPayload): { html: string; subject: string } {
@@ -128,6 +133,7 @@ export function buildSubmissionConfirmationHtml(payload: SubmissionEmailPayload)
   const audioStatus = payload.ftpSuccess && payload.audioFilename ? tick : payload.audioFilename ? cross : dash;
   const coverStatus = payload.imageFilename ? (payload.driveSuccess ? tick : cross) : dash;
   const descStatus = payload.hasDescription ? tick : dash;
+  const storyStatus = payload.storyArtwork ? tick : dash;
 
   const centovaRow =
     payload.centovaResult !== null
@@ -174,6 +180,11 @@ export function buildSubmissionConfirmationHtml(payload: SubmissionEmailPayload)
             <td style="padding:8px 12px;border-bottom:1px solid #222;">${descStatus}</td>
             <td style="padding:8px 12px;border-bottom:1px solid #222;color:${C.muted};font-size:13px;">${payload.hasDescription ? "Included" : "Not included"}</td>
           </tr>
+          <tr>
+            <td style="padding:8px 12px;border-bottom:1px solid #222;color:${C.white};">Story artwork</td>
+            <td style="padding:8px 12px;border-bottom:1px solid #222;">${storyStatus}</td>
+            <td style="padding:8px 12px;border-bottom:1px solid #222;color:${C.muted};font-size:13px;">${payload.storyArtwork ? "Attached — ready to post" : "Not included"}</td>
+          </tr>
           ${centovaRow}
         </table>
       </td>
@@ -191,7 +202,19 @@ export async function sendSubmissionConfirmationEmail(
 ): Promise<void> {
   const resend = getResend();
   const { html, subject } = buildSubmissionConfirmationHtml(payload);
-  await resend.emails.send({ from: FROM, to: payload.to, subject, html });
+  await resend.emails.send({
+    from: FROM,
+    to: payload.to,
+    subject,
+    html,
+    attachments: payload.storyArtwork
+      ? [{
+          filename: payload.storyArtwork.filename,
+          content: payload.storyArtwork.content,
+          contentType: payload.storyArtwork.contentType,
+        }]
+      : undefined,
+  });
 }
 
 // ---------------------------------------------------------------------------

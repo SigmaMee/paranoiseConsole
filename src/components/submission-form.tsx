@@ -16,6 +16,7 @@ import { MIXCLOUD_DESCRIPTION_MAX_LENGTH } from "@/lib/submission-limits";
 import {
   ARTWORK_THEME_NAMES,
   createShowArtwork,
+  createShowStoryArtwork,
   type ArtworkThemeName,
   type ResidentArtworkProfile,
   type ShowArtworkDetails,
@@ -549,6 +550,20 @@ export function SubmissionForm({ selectedShowStart, selectedShowEnd, selectedSho
     [selectedShowEnd, selectedShowStart, selectedShowTitle],
   );
 
+  const generateStoryArtwork = useCallback(
+    async (sourceFile: Blob, profile: ResidentArtworkProfile, themeName: ArtworkThemeName) => {
+      const details: ShowArtworkDetails = {
+        producerName: profile.producerName || "PARANOISE RADIO",
+        radioShow: profile.radioShow || selectedShowTitle || "PARANOISE RADIO",
+        city: profile.city || "",
+        startsAt: selectedShowStart,
+        endsAt: selectedShowEnd,
+      };
+      return createShowStoryArtwork(sourceFile, details, themeName);
+    },
+    [selectedShowEnd, selectedShowStart, selectedShowTitle],
+  );
+
   useEffect(() => {
     return () => {
       if (submitAllSuccessTimeoutRef.current !== null) {
@@ -1018,6 +1033,21 @@ export function SubmissionForm({ selectedShowStart, selectedShowEnd, selectedSho
     setUploadProgress(0);
     setProgressPhase("uploading");
     const explicitImageFile = isFallbackArtwork ? null : imageFile;
+    let storyArtworkFile: File | null = null;
+
+    const storySource = artworkSourceRef.current;
+    const storyThemeIndex = artworkThemeIndexRef.current;
+    if (storySource && artworkProfile && storyThemeIndex !== null) {
+      try {
+        storyArtworkFile = await generateStoryArtwork(
+          storySource,
+          artworkProfile,
+          ARTWORK_THEME_NAMES[storyThemeIndex],
+        );
+      } catch (error) {
+        console.warn("Story artwork could not be generated; submission will continue.", error);
+      }
+    }
 
     try {
       // -----------------------------------------------------------------------
@@ -1063,6 +1093,30 @@ export function SubmissionForm({ selectedShowStart, selectedShowEnd, selectedSho
         presignedFiles = presignData.files;
       }
 
+      let storyResult: PresignedFileResult | undefined;
+      if (storyArtworkFile) {
+        const storyPresignResponse = await fetch("/api/submissions/presign", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            files: [{
+              field: "image",
+              filename: storyArtworkFile.name,
+              contentType: storyArtworkFile.type || "image/jpeg",
+              size: storyArtworkFile.size,
+              partSizeBytes: PRIMARY_PART_SIZE_BYTES,
+            }],
+          }),
+        });
+        if (storyPresignResponse.ok) {
+          const storyPresignData = (await storyPresignResponse.json()) as { files: PresignedFileResult[] };
+          storyResult = storyPresignData.files[0];
+        } else {
+          console.warn("Story artwork upload could not be prepared; submission will continue.");
+          storyArtworkFile = null;
+        }
+      }
+
       // -----------------------------------------------------------------------
       // Step 2 — Upload files directly to R2 via presigned PUT URLs
       //           Progress covers 0–70% of the visible progress bar.
@@ -1106,6 +1160,17 @@ export function SubmissionForm({ selectedShowStart, selectedShowEnd, selectedSho
         );
       }
 
+      if (storyArtworkFile && storyResult) {
+        uploads.push(
+          uploadFileToR2WithAdaptiveFallback(storyArtworkFile, storyResult, () => undefined)
+            .catch((error) => {
+              console.warn("Story artwork upload failed; submission will continue.", error);
+              storyArtworkFile = null;
+              storyResult = undefined;
+            }),
+        );
+      }
+
       await Promise.all(uploads);
 
       // -----------------------------------------------------------------------
@@ -1128,6 +1193,9 @@ export function SubmissionForm({ selectedShowStart, selectedShowEnd, selectedSho
         imageObjectKey: imageResult?.objectKey,
         imageFilename: explicitImageFile?.name,
         imageContentType: explicitImageFile?.type,
+        storyObjectKey: storyArtworkFile ? storyResult?.objectKey : undefined,
+        storyFilename: storyArtworkFile?.name,
+        storyContentType: storyArtworkFile?.type,
       };
 
       // Animate progress 70 → 99 while the server processes.

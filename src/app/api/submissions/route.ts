@@ -93,6 +93,13 @@ async function getR2ObjectStream(objectKey: string): Promise<Readable> {
   return response.Body as Readable;
 }
 
+async function deleteStagedObject(objectKey: string) {
+  await r2.send(new DeleteObjectCommand({
+    Bucket: process.env.R2_BUCKET_NAME!,
+    Key: objectKey,
+  }));
+}
+
 async function retainCoverInR2(
   stagedObjectKey: string,
   userId: string,
@@ -432,6 +439,7 @@ export async function POST(request: Request) {
   let deliveredImageObjectKey: string | null = null;
   let audioDeliverySuccessful = false;
   let imageDeliverySuccessful = false;
+  let stagedStoryObjectKey: string | null = null;
 
   const logContext: {
     uploadType?: "audio" | "cover" | "description" | "all";
@@ -520,6 +528,12 @@ export async function POST(request: Request) {
       typeof body.imageFilename === "string" ? body.imageFilename : "cover.jpg";
     const imageContentTypeRaw =
       typeof body.imageContentType === "string" ? body.imageContentType : "image/jpeg";
+    const storyObjectKey =
+      typeof body.storyObjectKey === "string" ? body.storyObjectKey : null;
+    const storyFilenameRaw =
+      typeof body.storyFilename === "string" ? body.storyFilename : "show-story.jpg";
+    const storyContentTypeRaw =
+      typeof body.storyContentType === "string" ? body.storyContentType : "image/jpeg";
 
     const audioFilename = audioObjectKey
       ? createSafeAudioFilename(audioFilenameRaw, audioContentTypeRaw)
@@ -527,8 +541,13 @@ export async function POST(request: Request) {
     const imageFilename = imageObjectKey
       ? createSafeImageFilename(imageFilenameRaw, imageContentTypeRaw)
       : "";
+    const storyFilename = storyObjectKey
+      ? createSafeImageFilename(storyFilenameRaw, storyContentTypeRaw)
+      : "";
     const audioContentType = audioContentTypeRaw.toLowerCase();
     const imageContentType = imageContentTypeRaw.toLowerCase();
+    const storyContentType = storyContentTypeRaw.toLowerCase();
+    stagedStoryObjectKey = storyObjectKey;
 
     logContext.hasAudioObjectKey = Boolean(audioObjectKey);
     logContext.hasImageObjectKey = Boolean(imageObjectKey);
@@ -540,18 +559,22 @@ export async function POST(request: Request) {
     });
 
     stage = "staging:validate-r2-ownership";
-    const [audioObjectMeta, imageObjectMeta] = await Promise.all([
+    const [audioObjectMeta, imageObjectMeta, storyObjectMeta] = await Promise.all([
       audioObjectKey
         ? validateStagedObject(audioObjectKey, user.id, "audio", audioFilename, audioContentType)
         : null,
       imageObjectKey
         ? validateStagedObject(imageObjectKey, user.id, "image", imageFilename, imageContentType)
         : null,
+      storyObjectKey
+        ? validateStagedObject(storyObjectKey, user.id, "image", storyFilename, storyContentType)
+        : null,
     ]);
 
     stage = "staging:download-from-r2";
-    const [optionalImage] = await Promise.all([
+    const [optionalImage, optionalStoryArtwork] = await Promise.all([
       imageObjectKey ? downloadFromR2(imageObjectKey, imageContentType, imageFilename) : null,
+      storyObjectKey ? downloadFromR2(storyObjectKey, storyContentType, storyFilename) : null,
     ]);
 
     const hasMetadataPayload = Boolean(selectedShowStartRaw)
@@ -657,7 +680,7 @@ export async function POST(request: Request) {
       eventType: "delivery_attempted",
       outcome: "pending",
       uploadType,
-      stagedObjectKeys: [audioObjectKey, imageObjectKey].filter(
+      stagedObjectKeys: [audioObjectKey, imageObjectKey, storyObjectKey].filter(
         (objectKey): objectKey is string => Boolean(objectKey),
       ),
       audioFilename,
@@ -668,6 +691,8 @@ export async function POST(request: Request) {
         audio_storage_etag: audioObjectMeta?.eTag ?? null,
         image_size_bytes: imageObjectMeta?.contentLength ?? null,
         image_storage_etag: imageObjectMeta?.eTag ?? null,
+        story_size_bytes: storyObjectMeta?.contentLength ?? null,
+        story_storage_etag: storyObjectMeta?.eTag ?? null,
         has_description: Boolean(descriptionFileContent),
       },
     });
@@ -995,6 +1020,19 @@ export async function POST(request: Request) {
     // Fire confirmation email non-blocking — does not affect the response
     if (ftpResult.success) {
       stage = "email:confirmation";
+      const storyArtwork = optionalStoryArtwork
+        ? {
+            filename: optionalStoryArtwork.name,
+            content: Buffer.from(await optionalStoryArtwork.arrayBuffer()),
+            contentType: optionalStoryArtwork.type || "image/jpeg",
+          }
+        : null;
+      if (storyObjectKey) {
+        await deleteStagedObject(storyObjectKey).catch((cleanupError: unknown) => {
+          console.error("Failed to remove staged story artwork:", cleanupError);
+        });
+        stagedStoryObjectKey = null;
+      }
       void sendSubmissionConfirmationEmail({
         to: userEmail,
         producerName: producerFolderName,
@@ -1006,9 +1044,15 @@ export async function POST(request: Request) {
         ftpSuccess: ftpResult.success,
         driveSuccess: driveResult.success,
         centovaResult: centovaResult ?? null,
+        storyArtwork,
       }).catch((err: unknown) => {
         console.error("Failed to send submission confirmation email:", err);
       });
+    } else if (storyObjectKey) {
+      await deleteStagedObject(storyObjectKey).catch((cleanupError: unknown) => {
+        console.error("Failed to remove unused staged story artwork:", cleanupError);
+      });
+      stagedStoryObjectKey = null;
     }
 
     console.info("[SUBMISSIONS_TRACE_SUCCESS]", {
@@ -1031,6 +1075,12 @@ export async function POST(request: Request) {
       { status: allSucceeded ? 200 : 207 },
     );
   } catch (error) {
+    if (stagedStoryObjectKey) {
+      await deleteStagedObject(stagedStoryObjectKey).catch((cleanupError: unknown) => {
+        console.error("Failed to remove staged story artwork after submission error:", cleanupError);
+      });
+      stagedStoryObjectKey = null;
+    }
     if (mediaClaimToken && !mediaClaimFinalized) {
       await finalizeEpisodeMedia({
         claimToken: mediaClaimToken,
