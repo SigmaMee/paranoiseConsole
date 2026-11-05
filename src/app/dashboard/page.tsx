@@ -820,7 +820,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
                 aria-current={isSharingWorkspace ? "page" : undefined}
               >
                 <strong>Sharing</strong>
-                <span>Prepare and publish ON AIR</span>
+                <span>Prepare and publish the daily schedule on our social media</span>
               </Link>
             </div>
           </nav>
