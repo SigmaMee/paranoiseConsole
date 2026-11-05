@@ -10,6 +10,7 @@ export type ResidentRow = {
   showName: string | null;
   showType: "Recorded";
   emails: string[];
+  roles: string[];
   profilePictureUrl: string | null;
   profilePictureAlt: string | null;
   profileRadioShow: string | null;
@@ -19,6 +20,7 @@ export type ResidentRow = {
 };
 
 export default function ResidentsModule({ rows }: { rows: ResidentRow[] }) {
+  const [residentRows, setResidentRows] = React.useState(rows);
   const [query, setQuery] = React.useState("");
   const [selected, setSelected] = React.useState<ResidentRow | null>(null);
   const closeButtonRef = React.useRef<HTMLButtonElement>(null);
@@ -27,12 +29,37 @@ export default function ResidentsModule({ rows }: { rows: ResidentRow[] }) {
 
   const filteredRows = React.useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
-    if (!normalizedQuery) return rows;
-    return rows.filter((row) =>
+    if (!normalizedQuery) return residentRows;
+    return residentRows.filter((row) =>
       [row.producerName, row.showName || "", row.showType, ...row.emails]
         .some((value) => value.toLowerCase().includes(normalizedQuery)),
     );
-  }, [query, rows]);
+  }, [query, residentRows]);
+  const [roleSaving, setRoleSaving] = React.useState(false);
+  const [roleMessage, setRoleMessage] = React.useState("");
+
+  const updateSharingRole = async (sharing: boolean) => {
+    if (!selected) return;
+    setRoleSaving(true);
+    setRoleMessage("");
+    try {
+      const response = await fetch("/api/admin/resident-roles", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ profileId: selected.id, sharing }),
+      });
+      const result = (await response.json()) as { roles?: string[]; error?: string };
+      if (!response.ok || !result.roles) throw new Error(result.error || "Roles could not be updated.");
+      const updated = { ...selected, roles: result.roles };
+      setSelected(updated);
+      setResidentRows((current) => current.map((row) => row.id === updated.id ? updated : row));
+      setRoleMessage("Roles updated.");
+    } catch (error) {
+      setRoleMessage(error instanceof Error ? error.message : "Roles could not be updated.");
+    } finally {
+      setRoleSaving(false);
+    }
+  };
 
   React.useEffect(() => {
     if (!selected) return;
@@ -76,7 +103,7 @@ export default function ResidentsModule({ rows }: { rows: ResidentRow[] }) {
       <div className={styles.heading}>
         <div>
           <h1 className={styles.title}>Residents</h1>
-          <p className={styles.summary}>{rows.length} resident{rows.length === 1 ? "" : "s"}</p>
+          <p className={styles.summary}>{residentRows.length} resident{residentRows.length === 1 ? "" : "s"}</p>
         </div>
         <label className={styles.searchLabel}>
           <span className={styles.visuallyHidden}>Search residents</span>
@@ -112,7 +139,7 @@ export default function ResidentsModule({ rows }: { rows: ResidentRow[] }) {
                 <td>{row.showName || "—"}</td>
                 <td>{row.showType}</td>
                 <td>{row.emails.join(", ")}</td>
-                <td><span className={styles.placeholder}>—</span></td>
+                <td>{row.roles.map((role) => role.charAt(0).toUpperCase() + role.slice(1)).join(", ")}</td>
               </tr>
             ))}
           </tbody>
@@ -142,7 +169,19 @@ export default function ResidentsModule({ rows }: { rows: ResidentRow[] }) {
               <label>City<input defaultValue={selected.city || ""} /></label>
               <label>Type<select defaultValue={selected.showType}><option>Recorded</option><option>Live</option></select></label>
               <label>Email address(es)<textarea defaultValue={selected.emails.join("\n")} rows={Math.max(2, selected.emails.length)} /></label>
-              <label>Roles<input defaultValue="" placeholder="To be defined" readOnly /></label>
+              <fieldset className={styles.rolesFieldset}>
+                <legend>Roles</legend>
+                <label><input type="checkbox" checked disabled /> Production</label>
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={selected.roles.includes("sharing")}
+                    disabled={roleSaving}
+                    onChange={(event) => updateSharingRole(event.target.checked)}
+                  /> Sharing
+                </label>
+                {roleMessage ? <p role="status">{roleMessage}</p> : null}
+              </fieldset>
               <label>About<textarea defaultValue={selected.about || ""} rows={8} /></label>
               <label>Follow Link<input type="url" defaultValue={selected.followLink || ""} /></label>
               <p className={styles.formNote}>Saving is intentionally unavailable until edit behavior and downstream impact are defined.</p>

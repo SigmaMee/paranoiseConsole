@@ -4,7 +4,7 @@ import archiver from "archiver";
 import { PassThrough } from "node:stream";
 import { Writable } from "node:stream";
 import { NextResponse } from "next/server";
-import { requireAdminUser } from "@/lib/admin-access";
+import { requireSharingUser } from "@/lib/module-access";
 import { google } from "googleapis";
 import { getGoogleDriveOAuthClientFromStoredToken } from "@/lib/google-drive-oauth";
 import { getDriveWeekdayFolderIdForShowStart } from "@/lib/submission-routing";
@@ -196,7 +196,7 @@ async function retainLegacyImage(
 }
 
 export async function GET(request: Request) {
-  const authorization = await requireAdminUser();
+  const authorization = await requireSharingUser();
   if (authorization.response) return authorization.response;
 
   const id = new URL(request.url).searchParams.get("id")?.trim();
@@ -238,7 +238,7 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  const authorization = await requireAdminUser();
+  const authorization = await requireSharingUser();
   if (authorization.response) return authorization.response;
 
   const payload = (await request.json()) as { submissionIds?: unknown };

@@ -109,6 +109,7 @@
   --focus-width: 0.125rem;
   --focus-offset: 0.125rem;
   --control-height: 2.75rem;
+  --workspace-choice-min-size: 13rem;
   --icon-size: 1.5rem;
   --font-size-xs: 0.75rem;
   --font-size-sm: 0.875rem;
@@ -451,6 +452,53 @@ a {
   overflow-x: auto;
   padding-bottom: 0;
   margin-bottom: calc(var(--space-8) * -1);
+}
+
+.dashboard-workspace-nav {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.dashboard-workspace-nav > p {
+  color: var(--color-muted);
+  font-size: var(--font-size-sm);
+  font-weight: 700;
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+}
+
+.dashboard-workspace-nav > div {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(var(--workspace-choice-min-size), 100%), 1fr));
+  gap: var(--space-3);
+}
+
+.dashboard-workspace-link {
+  display: grid;
+  gap: var(--space-2);
+  min-height: calc(var(--control-height) * 2);
+  border: var(--border-thin) solid var(--neutral-border);
+  border-radius: var(--radius-md);
+  background: var(--neutral-surface);
+  color: var(--color-text);
+  padding: var(--space-4);
+}
+
+.dashboard-workspace-link span {
+  color: var(--color-muted);
+  font-size: var(--font-size-sm);
+}
+
+.dashboard-workspace-link:hover,
+.dashboard-workspace-link:focus-visible,
+.dashboard-workspace-link-active {
+  border-color: var(--color-accent);
+  background: var(--neutral-surface-hover);
+}
+
+.dashboard-workspace-link:focus-visible {
+  outline: var(--focus-width) solid var(--color-focus);
+  outline-offset: var(--focus-offset);
 }
 
 .dashboard-module-link {

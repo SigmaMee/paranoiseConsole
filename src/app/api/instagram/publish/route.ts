@@ -1,12 +1,12 @@
 import { NextResponse } from "next/server";
-import { requireAdminUser } from "@/lib/admin-access";
+import { requireSharingUser } from "@/lib/module-access";
 import { publishInstagramCarousel } from "@/lib/instagram-publishing";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
 
 export async function POST(request: Request) {
-  const authorization = await requireAdminUser();
+  const authorization = await requireSharingUser();
   if (authorization.response) return authorization.response;
   try {
     const payload = (await request.json()) as { dateIso?: unknown; caption?: unknown; submissionIds?: unknown };

@@ -21,6 +21,7 @@ import { audioExistsOnFtp } from "@/lib/ftp-media";
 import { getInstagramConnection, type InstagramConnection } from "@/lib/instagram-oauth";
 import { formatInTimeZone, fromZonedTime } from "date-fns-tz";
 import { getProducerCalendarEmails } from "@/lib/producer-identity";
+import { getResidentModuleRoles } from "@/lib/module-access";
 
 type DashboardPageProps = {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
@@ -106,6 +107,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
   const instagramOauthMessage =
     typeof params.instagram_oauth_message === "string" ? params.instagram_oauth_message : "";
   const weekParam = getParam("week");
+  const requestedWorkspace = getParam("workspace");
   const requestedModule = getParam("module");
   const adminModule = ["calendar", "activity", "residents", "connections"].includes(requestedModule)
     ? requestedModule
@@ -126,6 +128,14 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
   }
 
   const isAdmin = isAdminUser(user);
+  const residentRoles = await getResidentModuleRoles(user);
+  const hasSharingRole = residentRoles.includes("sharing");
+  const residentWorkspace = !isAdmin && hasSharingRole
+    ? requestedWorkspace === "production" || requestedWorkspace === "sharing"
+      ? requestedWorkspace
+      : null
+    : "production";
+  const isSharingWorkspace = residentWorkspace === "sharing";
   const producerName =
     typeof user.user_metadata?.full_name === "string" && user.user_metadata.full_name.trim()
       ? user.user_metadata.full_name.trim()
@@ -187,12 +197,12 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
     webflowError: string | null;
   }> = [];
 
-  if (isAdmin && process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY) {
+  if ((isAdmin || isSharingWorkspace) && process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY) {
     try {
       instagramConnection = await getInstagramConnection();
     } catch {}
 
-    if (adminModule === "connections") try {
+    if (isAdmin && adminModule === "connections") try {
       const adminSupabase = createAdminClient(
         process.env.NEXT_PUBLIC_SUPABASE_URL,
         process.env.SUPABASE_SERVICE_ROLE_KEY,
@@ -223,7 +233,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
       }
     } catch {}
 
-    if (adminModule === "calendar") try {
+    if ((isAdmin && adminModule === "calendar") || isSharingWorkspace) try {
       const weekDates = Array.from({ length: 7 }, (_, index) => shiftDateIso(selectedWeekStart, index));
       const showsByDay = await Promise.all(weekDates.map(async (dateIso) => ({
         dateIso,
@@ -245,7 +255,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
       }
     } catch {}
 
-    if (adminModule === "calendar") try {
+    if ((isAdmin && adminModule === "calendar") || isSharingWorkspace) try {
       const adminSupabase = createAdminClient(
         process.env.NEXT_PUBLIC_SUPABASE_URL,
         process.env.SUPABASE_SERVICE_ROLE_KEY,
@@ -336,7 +346,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
       }
     } catch {}
 
-    if (adminModule === "activity") try {
+    if (isAdmin && adminModule === "activity") try {
       const adminSupabase = createAdminClient(
         process.env.NEXT_PUBLIC_SUPABASE_URL,
         process.env.SUPABASE_SERVICE_ROLE_KEY,
@@ -559,7 +569,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
       activityLogRows = resolvedActivityRows;
     } catch {}
 
-    if (adminModule === "residents") try {
+    if (isAdmin && adminModule === "residents") try {
       const adminSupabase = createAdminClient(
         process.env.NEXT_PUBLIC_SUPABASE_URL,
         process.env.SUPABASE_SERVICE_ROLE_KEY,
@@ -594,6 +604,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
       let upcomingShows: Awaited<ReturnType<typeof getUpcomingShowsForAllProducers>> = [];
       type StoredResidentProfile = {
         profile_id: string | null;
+        roles: string[] | null;
         producer_name: string;
         radio_show: string | null;
         city: string | null;
@@ -607,7 +618,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
         getUpcomingShowsForAllProducers(),
         adminSupabase
           .from("resident_profiles")
-          .select("profile_id,producer_name,radio_show,city,about,follow_link,profile_picture_path,profile_picture_alt"),
+          .select("profile_id,roles,producer_name,radio_show,city,about,follow_link,profile_picture_path,profile_picture_alt"),
       ]);
       if (calendarResult.status === "fulfilled") upcomingShows = calendarResult.value;
       else console.error("Could not load Calendar profiles for Residents:", calendarResult.reason);
@@ -653,6 +664,9 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
           showName: calendarTitle ? calendarTitle.showName : nextShow?.title || null,
           showType: "Recorded" as const,
           emails,
+          roles: Array.isArray(storedProfile?.roles) && storedProfile.roles.length > 0
+            ? storedProfile.roles
+            : ["production"],
           profilePictureUrl,
           profilePictureAlt: storedProfile?.profile_picture_alt || null,
           profileRadioShow: storedProfile?.radio_show || null,
@@ -676,6 +690,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
           showName: resident.showName,
           showType: resident.showType,
           emails: resident.emails,
+          roles: resident.roles,
           profilePictureUrl: resident.profilePictureUrl,
           profilePictureAlt: resident.profilePictureAlt,
           profileRadioShow: resident.profileRadioShow,
@@ -780,11 +795,61 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
           </div>
         </section>
 
-        {!isAdmin ? (
+        {!isAdmin && hasSharingRole ? (
+          <nav className="dashboard-workspace-nav" aria-label="Choose workspace">
+            <p>Choose a module</p>
+            <div>
+              <Link
+                href="/dashboard?workspace=production"
+                className={residentWorkspace === "production" ? "dashboard-workspace-link dashboard-workspace-link-active" : "dashboard-workspace-link"}
+                aria-current={residentWorkspace === "production" ? "page" : undefined}
+              >
+                <strong>Production</strong>
+                <span>Prepare and submit your radio show</span>
+              </Link>
+              <Link
+                href={`/dashboard?workspace=sharing&week=${selectedWeekStart}`}
+                className={isSharingWorkspace ? "dashboard-workspace-link dashboard-workspace-link-active" : "dashboard-workspace-link"}
+                aria-current={isSharingWorkspace ? "page" : undefined}
+              >
+                <strong>Sharing</strong>
+                <span>Prepare and publish ON AIR</span>
+              </Link>
+            </div>
+          </nav>
+        ) : null}
+
+        {!isAdmin && residentWorkspace === "production" ? (
           <ShowSubmissionToggle
             mostRecentPastShow={mostRecentPastShow}
             mostRecentFutureShow={mostRecentFutureShow}
           />
+        ) : null}
+
+        {!isAdmin && isSharingWorkspace ? (
+          <section className="dashboard-panel dashboard-calendar-panel" aria-label="ON AIR sharing module">
+            <div className="dashboard-module-heading">
+              <form method="get" className="dashboard-month-navigation">
+                <input type="hidden" name="workspace" value="sharing" />
+                <button className="btn-tertiary dashboard-week-button" type="submit" name="week" value={previousWeek} aria-label="Previous week">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 18-6-6 6-6" /></svg>
+                </button>
+                <div className="dashboard-month-group">
+                  <p className="muted dashboard-month-label">{weekLabel}</p>
+                  <button className="dashboard-month-reset" type="submit">Current week</button>
+                </div>
+                <button className="btn-tertiary dashboard-week-button" type="submit" name="week" value={nextWeek} aria-label="Next week">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6" /></svg>
+                </button>
+              </form>
+            </div>
+            <CalendarModule
+              days={coverageDays}
+              pictures={calendarPictures}
+              programmeCopyByDate={programmeCopyByDate}
+              instagramConnected={instagramConnection?.status === "connected"}
+            />
+          </section>
         ) : null}
 
         {isAdmin ? (
