@@ -7,14 +7,19 @@ import {
   DragEvent,
   KeyboardEvent,
   MouseEvent,
+  useCallback,
   useEffect,
   useRef,
   useState,
 } from "react";
 import { MIXCLOUD_DESCRIPTION_MAX_LENGTH } from "@/lib/submission-limits";
+import {
+  createShowArtwork,
+  type ResidentArtworkProfile,
+  type ShowArtworkDetails,
+} from "@/lib/show-artwork";
 
 const MAX_AUDIO_BYTES = 900 * 1024 * 1024;
-const ARTWORK_SIZE = 1200;
 
 const MUSICBRAINZ_GENRE_TAGS = [
   "acid house",
@@ -119,6 +124,7 @@ type PartUploadFailureTelemetry = {
 
 type SubmissionFormProps = {
   selectedShowStart: string | null;
+  selectedShowEnd: string | null;
   selectedShowTitle: string | null;
 };
 
@@ -168,118 +174,15 @@ function createFakeWaveformBars(seedSource: string, totalBars = 72) {
   return bars;
 }
 
-function loadBrowserImage(source: string) {
-  return new Promise<HTMLImageElement>((resolve, reject) => {
-    const image = new window.Image();
-    image.onload = () => resolve(image);
-    image.onerror = () => reject(new Error("The selected image could not be read."));
-    image.src = source;
+async function fetchResidentArtworkProfile(signal?: AbortSignal) {
+  const response = await fetch("/api/submissions/artwork-profile", {
+    method: "GET",
+    cache: "no-store",
+    signal,
   });
-}
-
-function formatArtworkDate(showStart: string | null) {
-  if (!showStart) return "PARANOISE RADIO";
-  const date = new Date(showStart);
-  if (Number.isNaN(date.getTime())) return "PARANOISE RADIO";
-  const dateLabel = new Intl.DateTimeFormat("en-GB", {
-    weekday: "short",
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-    timeZone: "Europe/Athens",
-  }).format(date).toUpperCase();
-  const timeLabel = new Intl.DateTimeFormat("en-GB", {
-    hour: "2-digit",
-    minute: "2-digit",
-    hourCycle: "h23",
-    timeZone: "Europe/Athens",
-  }).format(date);
-  return `${dateLabel} · ${timeLabel} GR`;
-}
-
-async function createShowArtwork(
-  sourceFile: File,
-  showTitle: string | null,
-  showStart: string | null,
-) {
-  const sourceUrl = URL.createObjectURL(sourceFile);
-  try {
-    const [sourceImage, monogram] = await Promise.all([
-      loadBrowserImage(sourceUrl),
-      loadBrowserImage("/branding/monogram-white.png"),
-      document.fonts?.load('400 48px "Favoritpro"'),
-      document.fonts?.load('500 30px "Favoritpro"'),
-    ]);
-    const canvas = document.createElement("canvas");
-    canvas.width = ARTWORK_SIZE;
-    canvas.height = ARTWORK_SIZE;
-    const context = canvas.getContext("2d");
-    if (!context) throw new Error("Artwork generation is not supported by this browser.");
-
-    // Cover-crop the producer's image into the square template.
-    const imageScale = Math.max(ARTWORK_SIZE / sourceImage.width, ARTWORK_SIZE / sourceImage.height);
-    const imageWidth = sourceImage.width * imageScale;
-    const imageHeight = sourceImage.height * imageScale;
-    context.drawImage(
-      sourceImage,
-      (ARTWORK_SIZE - imageWidth) / 2,
-      (ARTWORK_SIZE - imageHeight) / 2,
-      imageWidth,
-      imageHeight,
-    );
-
-    const gradient = context.createLinearGradient(0, ARTWORK_SIZE * 0.42, 0, ARTWORK_SIZE);
-    gradient.addColorStop(0, "rgba(0,0,0,0)");
-    gradient.addColorStop(0.58, "rgba(0,0,0,0.38)");
-    gradient.addColorStop(1, "rgba(0,0,0,0.92)");
-    context.fillStyle = gradient;
-    context.fillRect(0, 0, ARTWORK_SIZE, ARTWORK_SIZE);
-
-    const margin = 64;
-    const logoWidth = 112;
-    const logoHeight = (monogram.height / monogram.width) * logoWidth;
-    const dateBaseline = ARTWORK_SIZE - 64;
-    const titleStart = margin + logoWidth + 16;
-
-    const title = (showTitle || "Paranoise Radio").trim();
-    context.fillStyle = "#ffffff";
-    context.font = '400 48px "Favoritpro", Arial, sans-serif';
-    context.textBaseline = "bottom";
-    const maxTitleWidth = ARTWORK_SIZE - titleStart - margin;
-    let titleSize = 48;
-    while (context.measureText(title).width > maxTitleWidth && titleSize > 26) {
-      titleSize -= 2;
-      context.font = `400 ${titleSize}px "Favoritpro", Arial, sans-serif`;
-    }
-    const titleMetrics = context.measureText(title);
-    context.font = '500 30px "Favoritpro", Arial, sans-serif';
-    const dateLabel = formatArtworkDate(showStart);
-    const dateMetrics = context.measureText(dateLabel);
-    const titleBaseline =
-      dateBaseline - dateMetrics.actualBoundingBoxAscent - 16 - titleMetrics.actualBoundingBoxDescent;
-
-    context.globalAlpha = 0.96;
-    context.drawImage(monogram, margin, dateBaseline - logoHeight, logoWidth, logoHeight);
-    context.globalAlpha = 1;
-    context.font = `400 ${titleSize}px "Favoritpro", Arial, sans-serif`;
-    context.fillText(title, titleStart, titleBaseline);
-
-    context.fillStyle = "#53c8f0";
-    context.font = '500 30px "Favoritpro", Arial, sans-serif';
-    context.fillText(dateLabel, titleStart, dateBaseline);
-
-    const blob = await new Promise<Blob>((resolve, reject) => {
-      canvas.toBlob(
-        (result) => result ? resolve(result) : reject(new Error("The artwork could not be exported.")),
-        "image/jpeg",
-        0.94,
-      );
-    });
-    const safeTitle = title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "show";
-    return new File([blob], `${safeTitle}-artwork.jpg`, { type: "image/jpeg" });
-  } finally {
-    URL.revokeObjectURL(sourceUrl);
-  }
+  if (response.status === 204) return null;
+  if (!response.ok) throw new Error("The resident profile could not be loaded.");
+  return (await response.json()) as ResidentArtworkProfile;
 }
 
 /**
@@ -548,13 +451,14 @@ async function uploadFileToR2WithAdaptiveFallback(
 // Component
 // ---------------------------------------------------------------------------
 
-export function SubmissionForm({ selectedShowStart, selectedShowTitle }: SubmissionFormProps) {
+export function SubmissionForm({ selectedShowStart, selectedShowEnd, selectedShowTitle }: SubmissionFormProps) {
   const [audioFile, setAudioFile] = useState<File | null>(null);
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [isArtworkGenerating, setIsArtworkGenerating] = useState(false);
   const [audioPreviewUrl, setAudioPreviewUrl] = useState<string | null>(null);
   const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null);
   const [persistedImagePreviewUrl, setPersistedImagePreviewUrl] = useState<string | null>(null);
+  const [artworkProfile, setArtworkProfile] = useState<ResidentArtworkProfile | null>(null);
   const [waveformBars, setWaveformBars] = useState<number[]>([]);
   const [audioDuration, setAudioDuration] = useState(0);
   const [audioCurrentTime, setAudioCurrentTime] = useState(0);
@@ -577,10 +481,15 @@ export function SubmissionForm({ selectedShowStart, selectedShowTitle }: Submiss
   const audioPreviewRef = useRef<HTMLAudioElement | null>(null);
   const tagInputRef = useRef<HTMLInputElement | null>(null);
   const submitAllSuccessTimeoutRef = useRef<number | null>(null);
+  const residentProfileSourceRef = useRef<File | null>(null);
+  const manualArtworkSelectionRef = useRef(false);
 
   function resetDraftState() {
     setAudioFile(null);
     setImageFile(null);
+    setArtworkProfile(null);
+    residentProfileSourceRef.current = null;
+    manualArtworkSelectionRef.current = false;
     setIsArtworkGenerating(false);
     setDescription("");
     setSelectedTags([]);
@@ -612,6 +521,20 @@ export function SubmissionForm({ selectedShowStart, selectedShowTitle }: Submiss
       return null;
     });
   }
+
+  const generateArtwork = useCallback(
+    async (sourceFile: Blob, profile: ResidentArtworkProfile) => {
+      const details: ShowArtworkDetails = {
+        producerName: profile.producerName || "PARANOISE RADIO",
+        radioShow: profile.radioShow || selectedShowTitle || "PARANOISE RADIO",
+        city: profile.city || "",
+        startsAt: selectedShowStart,
+        endsAt: selectedShowEnd,
+      };
+      return createShowArtwork(sourceFile, details);
+    },
+    [selectedShowEnd, selectedShowStart, selectedShowTitle],
+  );
 
   useEffect(() => {
     return () => {
@@ -738,13 +661,48 @@ export function SubmissionForm({ selectedShowStart, selectedShowTitle }: Submiss
       }
     };
 
+    const loadResidentFallbackArtwork = async () => {
+      setIsArtworkGenerating(true);
+      try {
+        const profile = await fetchResidentArtworkProfile(controller.signal);
+        if (!profile) return;
+        setArtworkProfile(profile);
+        if (!profile.profilePictureUrl) return;
+
+        const imageResponse = await fetch(profile.profilePictureUrl, {
+          method: "GET",
+          cache: "no-store",
+          signal: controller.signal,
+        });
+        if (!imageResponse.ok || imageResponse.status === 204) return;
+        const imageBlob = await imageResponse.blob();
+        if (!imageBlob.size || !imageBlob.type.startsWith("image/")) return;
+        const sourceFile = new File([imageBlob], "resident-profile-picture", {
+          type: imageBlob.type,
+        });
+        residentProfileSourceRef.current = sourceFile;
+        if (manualArtworkSelectionRef.current) return;
+
+        const generatedArtwork = await generateArtwork(sourceFile, profile);
+        if (!manualArtworkSelectionRef.current) {
+          setImageFile(generatedArtwork);
+        }
+      } catch (error) {
+        if (error instanceof DOMException && error.name === "AbortError") return;
+        // Profile artwork is a fallback; manual cover selection remains available.
+      } finally {
+        setIsArtworkGenerating(false);
+      }
+    };
+
     void loadPersistedShowState();
     void loadPersistedCoverPreview();
+    void loadResidentFallbackArtwork();
 
     return () => {
       controller.abort();
     };
-  }, [selectedShowStart]);
+  }, [generateArtwork, selectedShowEnd, selectedShowStart, selectedShowTitle]);
 
   useEffect(() => {
     return () => {
@@ -819,7 +777,7 @@ export function SubmissionForm({ selectedShowStart, selectedShowTitle }: Submiss
     setAudioFile(event.target.files?.[0] ?? null);
   }
 
-  async function setArtworkSource(sourceFile: File | null) {
+  async function setArtworkSource(sourceFile: File | null, isManualSelection = true) {
     if (!sourceFile) return;
     if (!sourceFile.type.startsWith("image/")) {
       setErrorMessage("Cover must be a standard image file type.");
@@ -827,8 +785,12 @@ export function SubmissionForm({ selectedShowStart, selectedShowTitle }: Submiss
     }
     setIsArtworkGenerating(true);
     setErrorMessage("");
+    if (isManualSelection) manualArtworkSelectionRef.current = true;
     try {
-      const generatedArtwork = await createShowArtwork(sourceFile, selectedShowTitle, selectedShowStart);
+      const profile = artworkProfile || await fetchResidentArtworkProfile();
+      if (!profile) throw new Error("The resident profile could not be loaded for the artwork tag.");
+      setArtworkProfile(profile);
+      const generatedArtwork = await generateArtwork(sourceFile, profile);
       setImageFile(generatedArtwork);
       clearPersistedImagePreviewUrl();
     } catch (error) {
@@ -873,7 +835,13 @@ export function SubmissionForm({ selectedShowStart, selectedShowTitle }: Submiss
 
   function clearImageFile(event: MouseEvent<HTMLButtonElement>) {
     event.preventDefault(); event.stopPropagation();
-    setImageFile(null);
+    manualArtworkSelectionRef.current = false;
+    const fallbackSource = residentProfileSourceRef.current;
+    if (fallbackSource && artworkProfile) {
+      void setArtworkSource(fallbackSource, false);
+    } else {
+      setImageFile(null);
+    }
     clearPersistedImagePreviewUrl();
     if (imageInputRef.current) imageInputRef.current.value = "";
   }
@@ -953,6 +921,12 @@ export function SubmissionForm({ selectedShowStart, selectedShowTitle }: Submiss
 
     if (imageFile && !imageFile.type.startsWith("image/")) {
       return "Cover must be a standard image file type.";
+    }
+
+    if (!hasImage) {
+      return artworkProfile?.profilePictureUrl
+        ? "The resident profile picture could not be prepared. Try again or add a cover image."
+        : "Add a cover image because the resident profile does not have a profile picture.";
     }
 
     return null;

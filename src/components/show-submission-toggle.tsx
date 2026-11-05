@@ -6,6 +6,7 @@ import { SubmissionForm } from "@/components/submission-form";
 type ProducerShow = {
   title: string;
   startsAt: string;
+  endsAt: string | null;
 };
 
 type ShowSubmissionToggleProps = {
@@ -60,6 +61,7 @@ export function ShowSubmissionToggle({
   );
 
   const selectedShowStart = selectedShow?.startsAt || null;
+  const selectedShowEnd = selectedShow?.endsAt || null;
   const selectedShowTitle = selectedShow?.title || null;
 
   return (
@@ -110,6 +112,7 @@ export function ShowSubmissionToggle({
       <section className="dashboard-panel">
         <SubmissionForm
           selectedShowStart={selectedShowStart}
+          selectedShowEnd={selectedShowEnd}
           selectedShowTitle={selectedShowTitle}
         />
       </section>
