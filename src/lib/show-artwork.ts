@@ -15,11 +15,14 @@ const FOOTER_FONT_SIZE = 24;
 const CITY_FONT_SIZE = 22;
 
 type ArtworkTheme = {
-  name: "blue" | "orange" | "white" | "dark";
+  name: ArtworkThemeName;
   background: string;
   foreground: string;
   logoPath: string;
 };
+
+export const ARTWORK_THEME_NAMES = ["blue", "orange", "white", "dark"] as const;
+export type ArtworkThemeName = (typeof ARTWORK_THEME_NAMES)[number];
 
 const ARTWORK_THEMES: ArtworkTheme[] = [
   { name: "blue", background: "#4ec5ec", foreground: "#25282c", logoPath: "/branding/logo-stamp-black.png" },
@@ -177,8 +180,11 @@ function drawEpisodeTag(
 export async function createShowArtwork(
   sourceFile: Blob,
   details: ShowArtworkDetails,
+  themeName?: ArtworkThemeName,
 ) {
-  const theme = ARTWORK_THEMES[Math.floor(Math.random() * ARTWORK_THEMES.length)];
+  const theme = themeName
+    ? ARTWORK_THEMES.find((candidate) => candidate.name === themeName) ?? ARTWORK_THEMES[0]
+    : ARTWORK_THEMES[Math.floor(Math.random() * ARTWORK_THEMES.length)];
   const sourceUrl = URL.createObjectURL(sourceFile);
   try {
     const [sourceImage, logo] = await Promise.all([

@@ -14,7 +14,9 @@ import {
 } from "react";
 import { MIXCLOUD_DESCRIPTION_MAX_LENGTH } from "@/lib/submission-limits";
 import {
+  ARTWORK_THEME_NAMES,
   createShowArtwork,
+  type ArtworkThemeName,
   type ResidentArtworkProfile,
   type ShowArtworkDetails,
 } from "@/lib/show-artwork";
@@ -482,6 +484,8 @@ export function SubmissionForm({ selectedShowStart, selectedShowEnd, selectedSho
   const tagInputRef = useRef<HTMLInputElement | null>(null);
   const submitAllSuccessTimeoutRef = useRef<number | null>(null);
   const residentProfileSourceRef = useRef<File | null>(null);
+  const artworkSourceRef = useRef<File | null>(null);
+  const artworkThemeIndexRef = useRef<number | null>(null);
   const manualArtworkSelectionRef = useRef(false);
 
   function resetDraftState() {
@@ -489,6 +493,8 @@ export function SubmissionForm({ selectedShowStart, selectedShowEnd, selectedSho
     setImageFile(null);
     setArtworkProfile(null);
     residentProfileSourceRef.current = null;
+    artworkSourceRef.current = null;
+    artworkThemeIndexRef.current = null;
     manualArtworkSelectionRef.current = false;
     setIsArtworkGenerating(false);
     setDescription("");
@@ -523,7 +529,7 @@ export function SubmissionForm({ selectedShowStart, selectedShowEnd, selectedSho
   }
 
   const generateArtwork = useCallback(
-    async (sourceFile: Blob, profile: ResidentArtworkProfile) => {
+    async (sourceFile: Blob, profile: ResidentArtworkProfile, themeName: ArtworkThemeName) => {
       const details: ShowArtworkDetails = {
         producerName: profile.producerName || "PARANOISE RADIO",
         radioShow: profile.radioShow || selectedShowTitle || "PARANOISE RADIO",
@@ -531,7 +537,7 @@ export function SubmissionForm({ selectedShowStart, selectedShowEnd, selectedSho
         startsAt: selectedShowStart,
         endsAt: selectedShowEnd,
       };
-      return createShowArtwork(sourceFile, details);
+      return createShowArtwork(sourceFile, details, themeName);
     },
     [selectedShowEnd, selectedShowStart, selectedShowTitle],
   );
@@ -683,8 +689,11 @@ export function SubmissionForm({ selectedShowStart, selectedShowEnd, selectedSho
         residentProfileSourceRef.current = sourceFile;
         if (manualArtworkSelectionRef.current) return;
 
-        const generatedArtwork = await generateArtwork(sourceFile, profile);
+        const themeIndex = Math.floor(Math.random() * ARTWORK_THEME_NAMES.length);
+        const generatedArtwork = await generateArtwork(sourceFile, profile, ARTWORK_THEME_NAMES[themeIndex]);
         if (!manualArtworkSelectionRef.current) {
+          artworkSourceRef.current = sourceFile;
+          artworkThemeIndexRef.current = themeIndex;
           setImageFile(generatedArtwork);
         }
       } catch (error) {
@@ -790,7 +799,10 @@ export function SubmissionForm({ selectedShowStart, selectedShowEnd, selectedSho
       const profile = artworkProfile || await fetchResidentArtworkProfile();
       if (!profile) throw new Error("The resident profile could not be loaded for the artwork tag.");
       setArtworkProfile(profile);
-      const generatedArtwork = await generateArtwork(sourceFile, profile);
+      const themeIndex = Math.floor(Math.random() * ARTWORK_THEME_NAMES.length);
+      const generatedArtwork = await generateArtwork(sourceFile, profile, ARTWORK_THEME_NAMES[themeIndex]);
+      artworkSourceRef.current = sourceFile;
+      artworkThemeIndexRef.current = themeIndex;
       setImageFile(generatedArtwork);
       clearPersistedImagePreviewUrl();
     } catch (error) {
@@ -840,10 +852,37 @@ export function SubmissionForm({ selectedShowStart, selectedShowEnd, selectedSho
     if (fallbackSource && artworkProfile) {
       void setArtworkSource(fallbackSource, false);
     } else {
+      artworkSourceRef.current = null;
+      artworkThemeIndexRef.current = null;
       setImageFile(null);
     }
     clearPersistedImagePreviewUrl();
     if (imageInputRef.current) imageInputRef.current.value = "";
+  }
+
+  async function changeArtworkColor(event: MouseEvent<HTMLButtonElement>) {
+    event.preventDefault();
+    event.stopPropagation();
+    const sourceFile = artworkSourceRef.current;
+    if (!sourceFile || !artworkProfile || isArtworkGenerating || isLoading) return;
+
+    const currentThemeIndex = artworkThemeIndexRef.current ?? 0;
+    const nextThemeIndex = (currentThemeIndex + 1) % ARTWORK_THEME_NAMES.length;
+    setIsArtworkGenerating(true);
+    setErrorMessage("");
+    try {
+      const generatedArtwork = await generateArtwork(
+        sourceFile,
+        artworkProfile,
+        ARTWORK_THEME_NAMES[nextThemeIndex],
+      );
+      artworkThemeIndexRef.current = nextThemeIndex;
+      setImageFile(generatedArtwork);
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "The artwork color could not be changed.");
+    } finally {
+      setIsArtworkGenerating(false);
+    }
   }
 
   function downloadArtwork(event: MouseEvent<HTMLButtonElement>) {
@@ -1216,9 +1255,19 @@ export function SubmissionForm({ selectedShowStart, selectedShowEnd, selectedSho
                   />
                   <div className="cover-preview-actions">
                     {imagePreviewUrl ? (
-                      <button className="btn-tertiary" type="button" onClick={downloadArtwork}>
-                        Download artwork
-                      </button>
+                      <>
+                        <button className="btn-tertiary" type="button" onClick={downloadArtwork}>
+                          Download artwork
+                        </button>
+                        <button
+                          className="btn-tertiary"
+                          type="button"
+                          onClick={changeArtworkColor}
+                          disabled={isArtworkGenerating || isLoading}
+                        >
+                          Change color
+                        </button>
+                      </>
                     ) : null}
                     <button className="btn-tertiary" type="button" onClick={clearImageFile}>
                       Remove artwork
