@@ -192,8 +192,19 @@ export async function POST(request: Request) {
       ftp_message: string | null;
     };
     const allShowSubmissions: DownloadSubmission[] = [];
+    const episodeMetadataByShow = new Map<string, { description: string; tags: string[] }>();
     for (const key of showKeys) {
       const [producerEmail, airingDate] = key.split("|");
+      const { data: episode } = await adminSupabase
+        .from("episodes")
+        .select("description,tags")
+        .ilike("producer_email", producerEmail)
+        .eq("airing_date", airingDate)
+        .maybeSingle();
+      episodeMetadataByShow.set(key, {
+        description: typeof episode?.description === "string" ? episode.description : "",
+        tags: Array.isArray(episode?.tags) ? episode.tags : [],
+      });
       const { data: showSubs, error: showError } = await adminSupabase
         .from("submissions")
         .select(
@@ -225,24 +236,17 @@ export async function POST(request: Request) {
 
     for (const sub of allShowSubmissions) {
       const key = `${sub.producer_email}|${sub.airing_date}`;
-      const ftpMessage = typeof sub.ftp_message === "string" ? sub.ftp_message.toLowerCase() : "";
-      const rowHasDescription =
-        (typeof sub.submitted_description === "string" && sub.submitted_description.trim().length > 0) ||
-        ftpMessage.includes("description uploaded") ||
-        ftpMessage.includes("description upload failed");
 
       if (!showsWithAudio.has(key)) {
+        const episodeMetadata = episodeMetadataByShow.get(key) || { description: "", tags: [] };
         showsWithAudio.set(key, {
           producerEmail: sub.producer_email,
           airingDate: sub.airing_date,
           audioFilename: sub.audio_filename || null,
           imageFilename: sub.image_filename || null,
-          submittedDescription:
-            typeof sub.submitted_description === "string" && sub.submitted_description.trim()
-              ? sub.submitted_description.trim()
-              : null,
-          submittedTags: Array.isArray(sub.submitted_tags) ? sub.submitted_tags : [],
-          hasDescription: rowHasDescription,
+          submittedDescription: episodeMetadata.description.trim() || null,
+          submittedTags: episodeMetadata.tags,
+          hasDescription: Boolean(episodeMetadata.description.trim()),
         });
         continue;
       }
@@ -253,15 +257,6 @@ export async function POST(request: Request) {
       }
       if (!existing.imageFilename && sub.image_filename) {
         existing.imageFilename = sub.image_filename;
-      }
-      if (!existing.submittedDescription && typeof sub.submitted_description === "string" && sub.submitted_description.trim()) {
-        existing.submittedDescription = sub.submitted_description.trim();
-      }
-      if (Array.isArray(sub.submitted_tags) && sub.submitted_tags.length > 0) {
-        existing.submittedTags = [...new Set([...existing.submittedTags, ...sub.submitted_tags])];
-      }
-      if (rowHasDescription) {
-        existing.hasDescription = true;
       }
     }
 

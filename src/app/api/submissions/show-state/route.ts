@@ -55,7 +55,7 @@ export async function GET(request: Request) {
     const producerEmail = getProducerEmail(user);
     const { data: episode, error: episodeError } = await supabase
       .from("episodes")
-      .select("audio_filename,image_filename,audio_submitted_at,image_submitted_at,completed_at")
+      .select("description,tags,audio_filename,image_filename,audio_submitted_at,image_submitted_at,completed_at")
       .ilike("producer_email", producerEmail)
       .eq("show_start_at", showStart)
       .maybeSingle();
@@ -97,22 +97,22 @@ export async function GET(request: Request) {
       rows = data || [];
     }
 
-    let description: string | null = null;
-    let tags: string[] = [];
+    let legacyDescription: string | null = null;
+    let legacyTags: string[] = [];
 
     for (const row of rows) {
-      if (!description && typeof row.submitted_description === "string" && row.submitted_description.trim()) {
-        description = row.submitted_description.trim();
+      if (!legacyDescription && typeof row.submitted_description === "string" && row.submitted_description.trim()) {
+        legacyDescription = row.submitted_description.trim();
       }
 
-      if (tags.length === 0) {
+      if (legacyTags.length === 0) {
         const normalized = normalizeTags(row.submitted_tags);
         if (normalized.length > 0) {
-          tags = normalized;
+          legacyTags = normalized;
         }
       }
 
-      if (description && tags.length > 0) {
+      if (legacyDescription && legacyTags.length > 0) {
         break;
       }
     }
@@ -132,8 +132,8 @@ export async function GET(request: Request) {
     const imageFilename = episode?.image_filename || legacyImageFilename?.image_filename || null;
 
     return NextResponse.json({
-      description,
-      tags,
+      description: episode ? episode.description : legacyDescription,
+      tags: episode ? normalizeTags(episode.tags) : legacyTags,
       audioFilename,
       imageFilename,
       audioSubmitted: episodeUnavailable ? Boolean(audioFilename) : Boolean(episode?.audio_submitted_at),

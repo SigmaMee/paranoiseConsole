@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import {
   claimEpisodeMedia,
   finalizeEpisodeMedia,
+  saveEpisodeMetadata,
   getDriveWeekdayFolderIdForShowStart,
   persistSubmissionStatus,
   routeAudioStreamToFtp,
@@ -553,8 +554,10 @@ export async function POST(request: Request) {
       imageObjectKey ? downloadFromR2(imageObjectKey, imageContentType, imageFilename) : null,
     ]);
 
+    const hasMetadataPayload = Boolean(selectedShowStartRaw)
+      && (Object.hasOwn(body, "description") || Object.hasOwn(body, "tags"));
     const hasAnyPayload =
-      Boolean(audioObjectKey) || Boolean(optionalImage) || Boolean(descriptionFileContent);
+      Boolean(audioObjectKey) || Boolean(optionalImage) || Boolean(descriptionFileContent) || hasMetadataPayload;
     if (!hasAnyPayload) {
       console.warn("[SUBMISSIONS_TRACE_NO_PAYLOAD]", { traceId, stage, ...logContext });
       return NextResponse.json({ error: "At least one upload input is required." }, { status: 400 });
@@ -615,11 +618,22 @@ export async function POST(request: Request) {
       : audioFilename || "show-description";
 
     const episodeAiringDate = toAiringDateIso(persistedShowStart);
-    if ((audioObjectKey || optionalImage) && (!persistedShowStart || !episodeAiringDate)) {
+    if ((!persistedShowStart || !episodeAiringDate) && (audioObjectKey || optionalImage || hasMetadataPayload)) {
       return NextResponse.json(
         { error: "A valid show must be selected before uploading media." },
         { status: 400 },
       );
+    }
+
+    if (persistedShowStart && episodeAiringDate) {
+      stage = "episode:save-metadata";
+      await saveEpisodeMetadata({
+        producerEmail,
+        showStartAt: persistedShowStart,
+        airingDate: episodeAiringDate,
+        description,
+        tags,
+      });
     }
 
     if ((audioObjectKey || optionalImage) && persistedShowStart && episodeAiringDate) {
@@ -1052,7 +1066,7 @@ export async function POST(request: Request) {
       );
     }
 
-    if (stage === "episode:claim-media") {
+    if (stage === "episode:claim-media" || stage === "episode:save-metadata") {
       return NextResponse.json(
         { error: errorMessage || "This media component has already been submitted." },
         { status: 409 },

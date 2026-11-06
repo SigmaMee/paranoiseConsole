@@ -275,6 +275,12 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
         .gte("airing_date", selectedWeekStart)
         .lte("airing_date", selectedWeekEnd);
 
+      const { data: episodeMetadata } = await adminSupabase
+        .from("episodes")
+        .select("producer_email,airing_date,description,tags")
+        .gte("airing_date", selectedWeekStart)
+        .lte("airing_date", selectedWeekEnd);
+
       const scheduledEmails = Object.values(scheduledShowsForWeek).flatMap((shows) => shows.flatMap((show) => show.attendeeEmails));
       const calendarEmails = Array.from(new Set([
         ...(data || []).map((row) => String(row.producer_email || "").toLowerCase()),
@@ -292,19 +298,18 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
         }, {});
       }
 
-      submissionMetadataByShow = (data || []).reduce<Record<string, { description: string; tags: string[] }>>((metadata, row) => {
+      submissionMetadataByShow = (episodeMetadata || []).reduce<Record<string, { description: string; tags: string[] }>>((metadata, row) => {
         const email = String(row.producer_email || "").toLowerCase();
         const dateIso = typeof row.airing_date === "string" ? row.airing_date : "";
         if (!email || !dateIso) return metadata;
         const key = `${email}|${dateIso}`;
-        const existing = metadata[key] || { description: "", tags: [] };
-        const description = typeof row.submitted_description === "string" ? row.submitted_description.trim() : "";
-        const tags = Array.isArray(row.submitted_tags)
-          ? row.submitted_tags.filter((tag): tag is string => typeof tag === "string" && Boolean(tag.trim())).map((tag) => tag.trim())
+        const description = typeof row.description === "string" ? row.description.trim() : "";
+        const tags = Array.isArray(row.tags)
+          ? row.tags.filter((tag): tag is string => typeof tag === "string" && Boolean(tag.trim())).map((tag) => tag.trim())
           : [];
         metadata[key] = {
-          description: existing.description || description,
-          tags: Array.from(new Set([...existing.tags, ...tags])),
+          description,
+          tags,
         };
         return metadata;
       }, {});
@@ -371,6 +376,17 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
           )
           .gte("airing_date", PUBLISH_MONITORING_START)
           .order("airing_date", { ascending: true });
+
+      const { data: activityEpisodes } = await adminSupabase
+        .from("episodes")
+        .select("producer_email,show_start_at,airing_date,description,tags")
+        .gte("airing_date", PUBLISH_MONITORING_START);
+      const activityEpisodeByShow = new Map(
+        (activityEpisodes || []).map((episode) => [
+          `${String(episode.producer_email || "").toLowerCase()}|${episode.show_start_at || episode.airing_date || "no-date"}`,
+          episode,
+        ]),
+      );
 
       const activityDates = Array.from(new Set(
         (submissions || []).map((row) => String(row.airing_date || "")).filter(Boolean),
@@ -458,8 +474,6 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
         const showStartAt = typeof row.show_start_at === "string" ? row.show_start_at : null;
         const audioFilename = typeof row.audio_filename === "string" ? row.audio_filename.trim() : "";
         const imageFilename = typeof row.image_filename === "string" ? row.image_filename.trim() : "";
-        const submittedDescription = typeof row.submitted_description === "string" ? row.submitted_description.trim() : "";
-        const submittedTags = Array.isArray(row.submitted_tags) ? row.submitted_tags : [];
         const submissionId = typeof row.id === "string" ? row.id : "";
         const mixcloudStatus = typeof row.mixcloud === "string" ? row.mixcloud : "not ready";
         const webflowStatus = typeof row.webflow_status === "string" ? row.webflow_status : "not ready";
@@ -468,6 +482,9 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
           && Boolean(webflowPublishedAt && webflowPublishedAt >= currentMonthStart);
 
         const groupKey = `${producerEmail}|${showStartAt || airingDate || "no-date"}`;
+        const episode = activityEpisodeByShow.get(groupKey);
+        const episodeDescription = typeof episode?.description === "string" ? episode.description.trim() : "";
+        const episodeTags = Array.isArray(episode?.tags) ? episode.tags : [];
 
         const existing = groupedSubmissions.get(groupKey);
         if (existing) {
@@ -477,8 +494,8 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
           existing.audioObjectKey ||= typeof row.audio_object_key === "string" ? row.audio_object_key : null;
           existing.audioDeliverySucceeded ||= row.ftp_status === "success" && Boolean(audioFilename);
           existing.hasCoverImage = existing.hasCoverImage || Boolean(imageFilename);
-          existing.hasDescription ||= Boolean(submittedDescription);
-          existing.hasTags ||= submittedTags.some((tag) => typeof tag === "string" && tag.trim());
+          existing.hasDescription = Boolean(episodeDescription);
+          existing.hasTags = episodeTags.some((tag) => typeof tag === "string" && tag.trim());
           existing.mixcloudStatuses.push(mixcloudStatus);
           existing.hasMixcloudUrl = existing.hasMixcloudUrl || Boolean(row.mixcloud_url);
           existing.mixcloudUrl ||= typeof row.mixcloud_url === "string" ? row.mixcloud_url : null;
@@ -498,8 +515,8 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
             audioObjectKey: typeof row.audio_object_key === "string" ? row.audio_object_key : null,
             audioDeliverySucceeded: row.ftp_status === "success" && Boolean(audioFilename),
             hasCoverImage: Boolean(imageFilename),
-            hasDescription: Boolean(submittedDescription),
-            hasTags: submittedTags.some((tag) => typeof tag === "string" && tag.trim()),
+            hasDescription: Boolean(episodeDescription),
+            hasTags: episodeTags.some((tag) => typeof tag === "string" && tag.trim()),
             mixcloudStatuses: [mixcloudStatus],
             hasMixcloudUrl: Boolean(row.mixcloud_url),
             mixcloudUrl: typeof row.mixcloud_url === "string" ? row.mixcloud_url : null,

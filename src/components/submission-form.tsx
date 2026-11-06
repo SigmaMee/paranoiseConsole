@@ -1453,6 +1453,7 @@ export function SubmissionForm({ selectedShowStart, selectedShowEnd, selectedSho
                   value={description}
                   placeholder="What the listenrs should expect from your show, or any other details you'd like to share."
                   onChange={(event) => setDescription(event.target.value)}
+                  disabled={isSubmissionComplete}
                   maxLength={MIXCLOUD_DESCRIPTION_MAX_LENGTH}
                   aria-describedby="show-description-limit"
                   rows={4}
@@ -1477,6 +1478,7 @@ export function SubmissionForm({ selectedShowStart, selectedShowEnd, selectedSho
                       type="button"
                       className="tag-chip-remove"
                       onClick={() => removeTag(tag)}
+                      disabled={isSubmissionComplete}
                       aria-label={`Remove ${tag}`}
                     >
                       ×
@@ -1494,6 +1496,7 @@ export function SubmissionForm({ selectedShowStart, selectedShowEnd, selectedSho
                   onBlur={() => { window.setTimeout(() => setIsTagMenuOpen(false), 100); }}
                   onChange={(event) => { setTagInputValue(event.target.value); setIsTagMenuOpen(true); }}
                   onKeyDown={onTagInputKeyDown}
+                  disabled={isSubmissionComplete}
                 />
               </div>
               {isTagMenuOpen && (filteredTagSuggestions.length > 0 || normalizedTagInput) ? (

@@ -36,6 +36,8 @@ export type PersistPayload = {
 };
 
 export type EpisodeState = {
+  description: string;
+  tags: string[];
   audio_filename: string | null;
   image_filename: string | null;
   image_object_key: string | null;
@@ -563,6 +565,29 @@ export async function claimEpisodeMedia(payload: {
     requested_audio: payload.hasAudio,
     requested_image: payload.hasImage,
     requested_claim_token: payload.claimToken,
+  });
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return data as EpisodeState;
+}
+
+export async function saveEpisodeMetadata(payload: {
+  producerEmail: string;
+  showStartAt: string;
+  airingDate: string;
+  description: string;
+  tags: string[];
+}) {
+  const supabase = createAdminSupabaseClient();
+  const { data, error } = await supabase.rpc("save_episode_metadata", {
+    requested_producer_email: payload.producerEmail,
+    requested_show_start_at: payload.showStartAt,
+    requested_airing_date: payload.airingDate,
+    requested_description: payload.description,
+    requested_tags: payload.tags,
   });
 
   if (error) {

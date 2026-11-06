@@ -17,7 +17,7 @@ export async function POST(request: Request) {
     // Fetch submissions
     const { data: submissions, error } = await supabase
       .from("submissions")
-      .select("id, mixcloud, audio_filename, image_filename, image_object_key, airing_date, submitted_tags")
+      .select("id, producer_email, show_start_at, mixcloud, audio_filename, image_filename, image_object_key, airing_date")
       .in("id", submissionIds);
 
     if (error) {
@@ -43,7 +43,16 @@ export async function POST(request: Request) {
           : undefined;
         
         const name = sub.airing_date ? `Show ${sub.airing_date}` : "Show";
-        const tags = (sub.submitted_tags as string[]) || [];
+        const episodeQuery = supabase
+          .from("episodes")
+          .select("description,tags")
+          .ilike("producer_email", sub.producer_email);
+        const { data: episode, error: episodeError } = sub.show_start_at
+          ? await episodeQuery.eq("show_start_at", sub.show_start_at).maybeSingle()
+          : await episodeQuery.eq("airing_date", sub.airing_date).maybeSingle();
+        if (episodeError) throw episodeError;
+        const tags = Array.isArray(episode?.tags) ? episode.tags : [];
+        const description = typeof episode?.description === "string" ? episode.description : "";
 
         if (!audioUrl) throw new Error("Missing audio file");
 
@@ -51,6 +60,7 @@ export async function POST(request: Request) {
           audioUrl,
           name,
           tags,
+          description,
           pictureUrl,
         });
 

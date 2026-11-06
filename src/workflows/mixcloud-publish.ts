@@ -81,7 +81,7 @@ async function publishShowFromR2(submissionId: string, workflowRunId: string) {
   const supabase = adminClient();
   const { data: selected, error: selectedError } = await supabase
     .from("submissions")
-    .select("producer_email,airing_date")
+    .select("producer_email,airing_date,show_start_at")
     .eq("id", submissionId)
     .maybeSingle();
   if (selectedError) throw selectedError;
@@ -112,6 +112,14 @@ async function publishShowFromR2(submissionId: string, workflowRunId: string) {
   if (error) throw error;
 
   const rows = (data || []) as SubmissionRecord[];
+  const episodeQuery = supabase
+    .from("episodes")
+    .select("description,tags")
+    .ilike("producer_email", selected.producer_email);
+  const { data: episode, error: episodeError } = selected.show_start_at
+    ? await episodeQuery.eq("show_start_at", selected.show_start_at).maybeSingle()
+    : await episodeQuery.eq("airing_date", selected.airing_date).maybeSingle();
+  if (episodeError) throw episodeError;
   const alreadyPublished = rows.find((row) => row.mixcloud === "published" && row.mixcloud_url);
   if (alreadyPublished?.mixcloud_url) {
     return {
@@ -172,8 +180,8 @@ async function publishShowFromR2(submissionId: string, workflowRunId: string) {
     const pictureUrl = pictureObjectKey && await fileExistsInR2(pictureObjectKey)
       ? await getSignedR2Url(pictureObjectKey)
       : undefined;
-    const tags = Array.from(new Set(rows.flatMap((row) => row.submitted_tags || [])));
-    const description = rows.find((row) => row.submitted_description?.trim())?.submitted_description?.trim();
+    const tags = Array.isArray(episode?.tags) ? episode.tags : [];
+    const description = typeof episode?.description === "string" ? episode.description.trim() : "";
 
     try {
       result = await uploadToMixcloud({
