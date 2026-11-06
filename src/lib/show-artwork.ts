@@ -226,7 +226,6 @@ export async function createShowArtwork(
 const STORY_TAG_BOTTOM_SAFE_AREA = 228;
 const STORY_TAG_MIN_WIDTH = 632;
 const STORY_TAG_HEADER_HEIGHT = 84;
-const STORY_TAG_BODY_HEIGHT = 168;
 const STORY_LOGO_WIDTH = 248;
 const STORY_LOGO_HEIGHT = 60;
 const STORY_MAIN_FONT_SIZE = 64;
@@ -257,13 +256,15 @@ function drawStoryEpisodeTag(
   const contentWidth = Math.max(producerMetrics.width, showMetrics.width, footerMetrics.width)
     + TAG_CONTENT_INSET * 2;
   const tagWidth = Math.ceil(Math.max(STORY_TAG_MIN_WIDTH, headerWidth, contentWidth));
+  const storyLineOffset = 76;
+  const bodyHeight = TAG_PADDING + storyLineOffset + visibleTextHeight(showMetrics) + TAG_PADDING;
   const footerHeight = TAG_DIVIDER_HEIGHT + TAG_PADDING
     + visibleTextHeight(footerMetrics) + TAG_PADDING + TAG_BORDER;
-  const tagHeight = STORY_TAG_HEADER_HEIGHT + STORY_TAG_BODY_HEIGHT + footerHeight;
+  const tagHeight = STORY_TAG_HEADER_HEIGHT + bodyHeight + footerHeight;
   const tagX = Math.round((STORY_ARTWORK_WIDTH - tagWidth) / 2);
   const tagY = STORY_ARTWORK_HEIGHT - STORY_TAG_BOTTOM_SAFE_AREA - tagHeight;
   const headerDividerY = tagY + STORY_TAG_HEADER_HEIGHT - TAG_DIVIDER_HEIGHT;
-  const footerDividerY = tagY + STORY_TAG_HEADER_HEIGHT + STORY_TAG_BODY_HEIGHT;
+  const footerDividerY = tagY + STORY_TAG_HEADER_HEIGHT + bodyHeight;
 
   context.fillStyle = theme.background;
   context.fillRect(tagX, tagY, tagWidth, tagHeight);
@@ -303,7 +304,7 @@ function drawStoryEpisodeTag(
   const bodyTop = headerDividerY + TAG_DIVIDER_HEIGHT;
   const producerTop = bodyTop + TAG_PADDING;
   context.fillText(producerName, tagX + TAG_CONTENT_INSET, visibleTextBaseline(producerTop, producerMetrics));
-  const showTop = producerTop + 76;
+  const showTop = producerTop + storyLineOffset;
   context.fillText(radioShow, tagX + TAG_CONTENT_INSET, visibleTextBaseline(showTop, showMetrics));
 
   const footerTop = footerDividerY + TAG_DIVIDER_HEIGHT + TAG_PADDING;
