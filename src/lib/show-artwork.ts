@@ -231,6 +231,7 @@ const STORY_LOGO_HEIGHT = 60;
 const STORY_MAIN_FONT_SIZE = 64;
 const STORY_META_FONT_SIZE = 40;
 const STORY_CITY_HEIGHT = 52;
+const STORY_BODY_VERTICAL_PADDING = 16;
 
 function drawStoryEpisodeTag(
   context: CanvasRenderingContext2D,
@@ -257,7 +258,8 @@ function drawStoryEpisodeTag(
     + TAG_CONTENT_INSET * 2;
   const tagWidth = Math.ceil(Math.max(STORY_TAG_MIN_WIDTH, headerWidth, contentWidth));
   const storyLineOffset = 76;
-  const bodyHeight = TAG_PADDING + storyLineOffset + visibleTextHeight(showMetrics) + TAG_PADDING;
+  const bodyHeight = STORY_BODY_VERTICAL_PADDING + storyLineOffset
+    + visibleTextHeight(showMetrics) + STORY_BODY_VERTICAL_PADDING;
   const footerHeight = TAG_DIVIDER_HEIGHT + TAG_PADDING
     + visibleTextHeight(footerMetrics) + TAG_PADDING + TAG_BORDER;
   const tagHeight = STORY_TAG_HEADER_HEIGHT + bodyHeight + footerHeight;
@@ -302,7 +304,7 @@ function drawStoryEpisodeTag(
   context.textAlign = "left";
   context.font = `500 ${STORY_MAIN_FONT_SIZE}px "Favoritpro", Arial, sans-serif`;
   const bodyTop = headerDividerY + TAG_DIVIDER_HEIGHT;
-  const producerTop = bodyTop + TAG_PADDING;
+  const producerTop = bodyTop + STORY_BODY_VERTICAL_PADDING;
   context.fillText(producerName, tagX + TAG_CONTENT_INSET, visibleTextBaseline(producerTop, producerMetrics));
   const showTop = producerTop + storyLineOffset;
   context.fillText(radioShow, tagX + TAG_CONTENT_INSET, visibleTextBaseline(showTop, showMetrics));
