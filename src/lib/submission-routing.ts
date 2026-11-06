@@ -35,7 +35,7 @@ export type PersistPayload = {
   driveMessage: string;
 };
 
-export type SubmissionSlotState = {
+export type EpisodeState = {
   audio_filename: string | null;
   image_filename: string | null;
   image_object_key: string | null;
@@ -547,7 +547,7 @@ function createAdminSupabaseClient() {
   return createClient(url, serviceRoleKey);
 }
 
-export async function claimSubmissionSlotMedia(payload: {
+export async function claimEpisodeMedia(payload: {
   producerEmail: string;
   showStartAt: string;
   airingDate: string;
@@ -556,7 +556,7 @@ export async function claimSubmissionSlotMedia(payload: {
   claimToken: string;
 }) {
   const supabase = createAdminSupabaseClient();
-  const { data, error } = await supabase.rpc("claim_submission_slot_media", {
+  const { data, error } = await supabase.rpc("claim_episode_media", {
     requested_producer_email: payload.producerEmail,
     requested_show_start_at: payload.showStartAt,
     requested_airing_date: payload.airingDate,
@@ -569,10 +569,10 @@ export async function claimSubmissionSlotMedia(payload: {
     throw new Error(error.message);
   }
 
-  return data as SubmissionSlotState;
+  return data as EpisodeState;
 }
 
-export async function finalizeSubmissionSlotMedia(payload: {
+export async function finalizeEpisodeMedia(payload: {
   claimToken: string;
   audioFilename: string;
   imageFilename: string;
@@ -581,7 +581,7 @@ export async function finalizeSubmissionSlotMedia(payload: {
   imageSuccess: boolean;
 }) {
   const supabase = createAdminSupabaseClient();
-  const { data, error } = await supabase.rpc("finalize_submission_slot_media", {
+  const { data, error } = await supabase.rpc("finalize_episode_media", {
     requested_claim_token: payload.claimToken,
     requested_audio_filename: payload.audioFilename,
     requested_image_filename: payload.imageFilename,
@@ -594,7 +594,7 @@ export async function finalizeSubmissionSlotMedia(payload: {
     throw new Error(error.message);
   }
 
-  return data as SubmissionSlotState;
+  return data as EpisodeState;
 }
 
 export async function persistSubmissionStatus(payload: PersistPayload) {

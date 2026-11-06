@@ -2,8 +2,8 @@ import { NextResponse } from "next/server";
 import { MIXCLOUD_DESCRIPTION_MAX_LENGTH } from "@/lib/submission-limits";
 import { createClient } from "@/lib/supabase/server";
 import {
-  claimSubmissionSlotMedia,
-  finalizeSubmissionSlotMedia,
+  claimEpisodeMedia,
+  finalizeEpisodeMedia,
   getDriveWeekdayFolderIdForShowStart,
   persistSubmissionStatus,
   routeAudioStreamToFtp,
@@ -614,21 +614,21 @@ export async function POST(request: Request) {
       ? `${selectedShowTitle}-${formatShowDateDdMmYy(dateForSuffix)}`
       : audioFilename || "show-description";
 
-    const slotAiringDate = toAiringDateIso(persistedShowStart);
-    if ((audioObjectKey || optionalImage) && (!persistedShowStart || !slotAiringDate)) {
+    const episodeAiringDate = toAiringDateIso(persistedShowStart);
+    if ((audioObjectKey || optionalImage) && (!persistedShowStart || !episodeAiringDate)) {
       return NextResponse.json(
         { error: "A valid show must be selected before uploading media." },
         { status: 400 },
       );
     }
 
-    if ((audioObjectKey || optionalImage) && persistedShowStart && slotAiringDate) {
-      stage = "slot:claim-media";
+    if ((audioObjectKey || optionalImage) && persistedShowStart && episodeAiringDate) {
+      stage = "episode:claim-media";
       mediaClaimToken = randomUUID();
-      await claimSubmissionSlotMedia({
+      await claimEpisodeMedia({
         producerEmail,
         showStartAt: persistedShowStart,
-        airingDate: slotAiringDate,
+        airingDate: episodeAiringDate,
         hasAudio: Boolean(audioObjectKey),
         hasImage: Boolean(optionalImage),
         claimToken: mediaClaimToken,
@@ -913,7 +913,7 @@ export async function POST(request: Request) {
         ...logContext,
       });
       if (mediaClaimToken && !mediaClaimFinalized) {
-        await finalizeSubmissionSlotMedia({
+        await finalizeEpisodeMedia({
           claimToken: mediaClaimToken,
           audioFilename: uploadedAudioFilename,
           imageFilename: uploadedImageFilename,
@@ -945,8 +945,8 @@ export async function POST(request: Request) {
     const allSucceeded = ftpResult.success && driveResult.success && (!centovaResult || centovaResult.success);
 
     if (mediaClaimToken) {
-      stage = "slot:finalize-media";
-      await finalizeSubmissionSlotMedia({
+      stage = "episode:finalize-media";
+      await finalizeEpisodeMedia({
         claimToken: mediaClaimToken,
         audioFilename: uploadedAudioFilename,
         imageFilename: uploadedImageFilename,
@@ -1018,7 +1018,7 @@ export async function POST(request: Request) {
     );
   } catch (error) {
     if (mediaClaimToken && !mediaClaimFinalized) {
-      await finalizeSubmissionSlotMedia({
+      await finalizeEpisodeMedia({
         claimToken: mediaClaimToken,
         audioFilename: deliveredAudioFilename,
         imageFilename: deliveredImageFilename,
@@ -1052,7 +1052,7 @@ export async function POST(request: Request) {
       );
     }
 
-    if (stage === "slot:claim-media") {
+    if (stage === "episode:claim-media") {
       return NextResponse.json(
         { error: errorMessage || "This media component has already been submitted." },
         { status: 409 },

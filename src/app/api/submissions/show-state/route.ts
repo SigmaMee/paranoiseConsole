@@ -53,8 +53,8 @@ export async function GET(request: Request) {
     }
 
     const producerEmail = getProducerEmail(user);
-    const { data: slot, error: slotError } = await supabase
-      .from("submission_slots")
+    const { data: episode, error: episodeError } = await supabase
+      .from("episodes")
       .select("audio_filename,image_filename,audio_submitted_at,image_submitted_at,completed_at")
       .ilike("producer_email", producerEmail)
       .eq("show_start_at", showStart)
@@ -117,7 +117,7 @@ export async function GET(request: Request) {
       }
     }
 
-    const slotUnavailable = slotError?.message?.toLowerCase().includes('relation "submission_slots"');
+    const episodeUnavailable = episodeError?.message?.toLowerCase().includes('relation "episodes"');
     const legacyAudioFilename = rows.find((row) => {
       const candidate = row as { audio_filename?: string | null };
       return Boolean(candidate.audio_filename?.trim()) && row.ftp_status === "success";
@@ -128,17 +128,17 @@ export async function GET(request: Request) {
         && row.ftp_status === "success"
         && row.drive_status === "success";
     }) as { image_filename?: string | null } | undefined;
-    const audioFilename = slot?.audio_filename || legacyAudioFilename?.audio_filename || null;
-    const imageFilename = slot?.image_filename || legacyImageFilename?.image_filename || null;
+    const audioFilename = episode?.audio_filename || legacyAudioFilename?.audio_filename || null;
+    const imageFilename = episode?.image_filename || legacyImageFilename?.image_filename || null;
 
     return NextResponse.json({
       description,
       tags,
       audioFilename,
       imageFilename,
-      audioSubmitted: slotUnavailable ? Boolean(audioFilename) : Boolean(slot?.audio_submitted_at),
-      imageSubmitted: slotUnavailable ? Boolean(imageFilename) : Boolean(slot?.image_submitted_at),
-      completed: Boolean(slot?.completed_at),
+      audioSubmitted: episodeUnavailable ? Boolean(audioFilename) : Boolean(episode?.audio_submitted_at),
+      imageSubmitted: episodeUnavailable ? Boolean(imageFilename) : Boolean(episode?.image_submitted_at),
+      completed: Boolean(episode?.completed_at),
     });
   } catch {
     return NextResponse.json({ description: null, tags: [] });
