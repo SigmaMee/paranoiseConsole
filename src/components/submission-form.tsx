@@ -466,6 +466,8 @@ export function SubmissionForm({ selectedShowStart, selectedShowEnd, selectedSho
   const [isAudioSubmitted, setIsAudioSubmitted] = useState(false);
   const [isImageSubmitted, setIsImageSubmitted] = useState(false);
   const [isSubmissionComplete, setIsSubmissionComplete] = useState(false);
+  const [isEpisodeLocked, setIsEpisodeLocked] = useState(false);
+  const [editableUntil, setEditableUntil] = useState<string | null>(null);
   const [artworkProfile, setArtworkProfile] = useState<ResidentArtworkProfile | null>(null);
   const [waveformBars, setWaveformBars] = useState<number[]>([]);
   const [audioDuration, setAudioDuration] = useState(0);
@@ -495,7 +497,7 @@ export function SubmissionForm({ selectedShowStart, selectedShowEnd, selectedSho
   const manualArtworkSelectionRef = useRef(false);
   const imageSubmittedRef = useRef(false);
 
-  function resetDraftState() {
+  function resetDraftState(preserveMetadata = false) {
     setAudioFile(null);
     setImageFile(null);
     setIsFallbackArtwork(false);
@@ -505,8 +507,10 @@ export function SubmissionForm({ selectedShowStart, selectedShowEnd, selectedSho
     artworkThemeIndexRef.current = null;
     manualArtworkSelectionRef.current = false;
     setIsArtworkGenerating(false);
-    setDescription("");
-    setSelectedTags([]);
+    if (!preserveMetadata) {
+      setDescription("");
+      setSelectedTags([]);
+    }
     setTagInputValue("");
     setIsTagMenuOpen(false);
     setHighlightedTagIndex(0);
@@ -615,6 +619,8 @@ export function SubmissionForm({ selectedShowStart, selectedShowEnd, selectedSho
     setIsAudioSubmitted(false);
     setIsImageSubmitted(false);
     setIsSubmissionComplete(false);
+    setIsEpisodeLocked(false);
+    setEditableUntil(null);
     imageSubmittedRef.current = false;
 
     clearPersistedImagePreviewUrl();
@@ -647,6 +653,8 @@ export function SubmissionForm({ selectedShowStart, selectedShowEnd, selectedSho
           audioSubmitted?: boolean;
           imageSubmitted?: boolean;
           completed?: boolean;
+          locked?: boolean;
+          editableUntil?: string | null;
         } | null;
 
         const audioSubmitted = payload?.audioSubmitted === true;
@@ -655,6 +663,8 @@ export function SubmissionForm({ selectedShowStart, selectedShowEnd, selectedSho
         setIsAudioSubmitted(audioSubmitted);
         setIsImageSubmitted(imageSubmitted);
         setIsSubmissionComplete(payload?.completed === true);
+        setIsEpisodeLocked(payload?.locked === true);
+        setEditableUntil(payload?.editableUntil || null);
         imageSubmittedRef.current = imageSubmitted;
 
         if (payload && typeof payload.description === "string") {
@@ -992,8 +1002,8 @@ export function SubmissionForm({ selectedShowStart, selectedShowEnd, selectedSho
     const hasDescription = Boolean(description.trim());
     const hasTags = selectedTags.length > 0;
 
-    if (isSubmissionComplete) {
-      return "This show submission is complete and closed.";
+    if (isEpisodeLocked) {
+      return "This episode closed for editing at 09:00 Greece time on its airtime date.";
     }
 
     if (!hasAudio && !hasImage && !hasDescription && !hasTags) {
@@ -1280,7 +1290,7 @@ export function SubmissionForm({ selectedShowStart, selectedShowEnd, selectedSho
       );
     } finally {
       setIsLoading(false);
-      resetDraftState();
+      resetDraftState(true);
     }
   }
 
@@ -1364,16 +1374,16 @@ export function SubmissionForm({ selectedShowStart, selectedShowEnd, selectedSho
                 type="file"
                 accept="image/*"
                 onChange={onImageInputChange}
-                disabled={isImageSubmitted || isSubmissionComplete}
+                disabled={isEpisodeLocked}
               />
               {activeCoverPreviewUrl ? (
                 <div
                   className="cover-preview-card"
-                  role={isImageSubmitted ? undefined : "button"}
-                  tabIndex={isImageSubmitted ? undefined : 0}
-                  onClick={isImageSubmitted ? undefined : openImagePicker}
-                  onKeyDown={isImageSubmitted ? undefined : (event) => onDropzoneKeyDown(event, openImagePicker)}
-                  aria-label={isImageSubmitted ? "Submitted show artwork" : "Replace cover image"}
+                  role={isEpisodeLocked ? undefined : "button"}
+                  tabIndex={isEpisodeLocked ? undefined : 0}
+                  onClick={isEpisodeLocked ? undefined : openImagePicker}
+                  onKeyDown={isEpisodeLocked ? undefined : (event) => onDropzoneKeyDown(event, openImagePicker)}
+                  aria-label={isEpisodeLocked ? "Submitted show artwork" : "Replace cover image"}
                 >
                   <Image
                     className="cover-preview-image"
@@ -1383,7 +1393,7 @@ export function SubmissionForm({ selectedShowStart, selectedShowEnd, selectedSho
                     height={800}
                     unoptimized
                   />
-                  {!isImageSubmitted ? <div className="cover-preview-actions">
+                  {!isEpisodeLocked ? <div className="cover-preview-actions">
                     {imagePreviewUrl ? (
                       <>
                         <button className="btn-tertiary" type="button" onClick={downloadArtwork}>
@@ -1399,9 +1409,15 @@ export function SubmissionForm({ selectedShowStart, selectedShowEnd, selectedSho
                         </button>
                       </>
                     ) : null}
-                    <button className="btn-tertiary" type="button" onClick={clearImageFile}>
-                      Remove artwork
-                    </button>
+                    {imagePreviewUrl ? (
+                      <button className="btn-tertiary" type="button" onClick={clearImageFile}>
+                        Remove artwork
+                      </button>
+                    ) : (
+                      <button className="btn-tertiary" type="button" onClick={openImagePicker}>
+                        Replace artwork
+                      </button>
+                    )}
                   </div> : null}
                 </div>
               ) : null}
@@ -1438,7 +1454,7 @@ export function SubmissionForm({ selectedShowStart, selectedShowEnd, selectedSho
                   type="file"
                   accept=".mp3,audio/mpeg"
                   onChange={onAudioInputChange}
-                  disabled={isAudioSubmitted || isSubmissionComplete}
+                  disabled={isEpisodeLocked}
                 />
                 {activeAudioPreviewUrl ? (
                   <div className="audio-preview-card">
@@ -1489,10 +1505,17 @@ export function SubmissionForm({ selectedShowStart, selectedShowEnd, selectedSho
                         </span>
                       </div>
                     </div>
-                    {isAudioSubmitted ? (
-                      persistedAudioFilename ? (
-                        <p className="upload-zone-secondary">{persistedAudioFilename}</p>
-                      ) : null
+                    {isAudioSubmitted && !audioFile ? (
+                      <>
+                        {persistedAudioFilename ? (
+                          <p className="upload-zone-secondary">{persistedAudioFilename}</p>
+                        ) : null}
+                        {!isEpisodeLocked ? (
+                          <button className="btn-tertiary" type="button" onClick={openAudioPicker}>
+                            Replace audio
+                          </button>
+                        ) : null}
+                      </>
                     ) : (
                       <button className="btn-tertiary" type="button" onClick={clearAudioFile}>
                         Remove audio file
@@ -1521,7 +1544,7 @@ export function SubmissionForm({ selectedShowStart, selectedShowEnd, selectedSho
                   value={description}
                   placeholder="What the listenrs should expect from your show, or any other details you'd like to share."
                   onChange={(event) => setDescription(event.target.value)}
-                  disabled={isSubmissionComplete}
+                  disabled={isEpisodeLocked}
                   maxLength={MIXCLOUD_DESCRIPTION_MAX_LENGTH}
                   aria-describedby="show-description-limit"
                   rows={4}
@@ -1546,7 +1569,7 @@ export function SubmissionForm({ selectedShowStart, selectedShowEnd, selectedSho
                       type="button"
                       className="tag-chip-remove"
                       onClick={() => removeTag(tag)}
-                      disabled={isSubmissionComplete}
+                      disabled={isEpisodeLocked}
                       aria-label={`Remove ${tag}`}
                     >
                       ×
@@ -1564,7 +1587,7 @@ export function SubmissionForm({ selectedShowStart, selectedShowEnd, selectedSho
                   onBlur={() => { window.setTimeout(() => setIsTagMenuOpen(false), 100); }}
                   onChange={(event) => { setTagInputValue(event.target.value); setIsTagMenuOpen(true); }}
                   onKeyDown={onTagInputKeyDown}
-                  disabled={isSubmissionComplete}
+                  disabled={isEpisodeLocked}
                 />
               </div>
               {isTagMenuOpen && (filteredTagSuggestions.length > 0 || normalizedTagInput) ? (
@@ -1594,19 +1617,25 @@ export function SubmissionForm({ selectedShowStart, selectedShowEnd, selectedSho
           </div>
 
           <div className="submission-submit-wrap">
-            {isSubmissionComplete ? (
+            {isSubmissionComplete && !isEpisodeLocked ? (
               <p className="message" role="status">
-                This show submission is complete. Artwork and audio have both been received.
+                This episode has artwork and audio. You can replace any content until 09:00 Greece time on its airtime date.
+              </p>
+            ) : null}
+            {isEpisodeLocked ? (
+              <p className="message" role="status">
+                Editing closed at 09:00 Greece time on the airtime date.
+                {editableUntil ? ` (${new Intl.DateTimeFormat("en-GB", { dateStyle: "medium", timeStyle: "short", timeZone: "Europe/Athens" }).format(new Date(editableUntil))})` : ""}
               </p>
             ) : null}
             <button
               className={submitAllSuccess ? "button-success-static submission-submit" : "button button-primary submission-submit"}
               type="button"
               onClick={() => onSubmit()}
-              disabled={isLoading || isArtworkGenerating || isSubmissionComplete}
+              disabled={isLoading || isArtworkGenerating || isEpisodeLocked}
             >
-              {isSubmissionComplete
-                ? "Submission complete"
+              {isEpisodeLocked
+                ? "Editing closed"
                 : isLoading
                 ? "Submitting show..."
                 : submitAllSuccess

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getProducerEmail } from "@/lib/producer-identity";
+import { getEpisodeEditDeadline, isEpisodeEditingClosed } from "@/lib/episode-editing";
 
 export const runtime = "nodejs";
 
@@ -139,6 +140,8 @@ export async function GET(request: Request) {
       audioSubmitted: episodeUnavailable ? Boolean(audioFilename) : Boolean(episode?.audio_submitted_at),
       imageSubmitted: episodeUnavailable ? Boolean(imageFilename) : Boolean(episode?.image_submitted_at),
       completed: Boolean(episode?.completed_at),
+      locked: isEpisodeEditingClosed(showStart),
+      editableUntil: getEpisodeEditDeadline(showStart)?.toISOString() ?? null,
     });
   } catch {
     return NextResponse.json({ description: null, tags: [] });

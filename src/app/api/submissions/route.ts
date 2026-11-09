@@ -4,7 +4,6 @@ import { createClient } from "@/lib/supabase/server";
 import {
   claimEpisodeMedia,
   finalizeEpisodeMedia,
-  saveEpisodeMetadata,
   getDriveWeekdayFolderIdForShowStart,
   persistSubmissionStatus,
   routeAudioStreamToFtp,
@@ -12,6 +11,7 @@ import {
   routeDescriptionToFtp,
   routeImageToDrive,
   routeTextToDrive,
+  saveEpisodeMetadata,
   validateSubmission,
   sanitizeFilename,
 } from "@/lib/submission-routing";
@@ -40,6 +40,7 @@ import {
 } from "@/lib/upload-security";
 import { writeUploadSecurityEvent } from "@/lib/upload-security-audit";
 import { randomUUID } from "crypto";
+import { getEpisodeEditDeadline, isEpisodeEditingClosed } from "@/lib/episode-editing";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -649,6 +650,16 @@ export async function POST(request: Request) {
     }
 
     if (persistedShowStart && episodeAiringDate) {
+      if (isEpisodeEditingClosed(persistedShowStart)) {
+        return NextResponse.json(
+          {
+            error: "This episode closed for editing at 09:00 Europe/Athens on its airtime date.",
+            editableUntil: getEpisodeEditDeadline(persistedShowStart)?.toISOString() ?? null,
+          },
+          { status: 409 },
+        );
+      }
+
       stage = "episode:save-metadata";
       await saveEpisodeMetadata({
         producerEmail,
@@ -921,7 +932,11 @@ export async function POST(request: Request) {
 
     try {
       stage = "persist:submission-status";
-      const airingDate = toAiringDateIso(persistedShowStart);
+      if (!persistedShowStart) {
+        throw new Error("The selected episode start time could not be resolved.");
+      }
+      const finalShowStart = persistedShowStart;
+      const airingDate = toAiringDateIso(finalShowStart);
       retainedImageObjectKey = imageObjectKey && optionalImage
         ? await retainCoverInR2(imageObjectKey, user.id, airingDate, optionalImage)
         : null;
@@ -934,7 +949,7 @@ export async function POST(request: Request) {
         audioFtpFolder: uploadedAudioFilename ? producerFolderName : null,
         imageFilename: uploadedImageFilename,
         imageObjectKey: retainedImageObjectKey,
-        showStartAt: persistedShowStart,
+        showStartAt: finalShowStart,
         airingDate,
         submittedDescription: description,
         submittedTags: tags,
