@@ -10,11 +10,17 @@ const TAG_HEADER_HEIGHT = 64;
 const TAG_BODY_HEIGHT = 104;
 const TAG_DIVIDER_HEIGHT = 4;
 const TAG_CONTENT_INSET = TAG_BORDER + TAG_PADDING;
-const LOGO_WIDTH = 156;
-const LOGO_HEIGHT = 38;
-const MAIN_FONT_SIZE = 36;
-const FOOTER_FONT_SIZE = 24;
-const CITY_FONT_SIZE = 22;
+const CONTENT_SCALE = 1.1;
+const BASE_LOGO_WIDTH = 156;
+const BASE_LOGO_HEIGHT = 38;
+const LOGO_WIDTH = BASE_LOGO_WIDTH * CONTENT_SCALE;
+const LOGO_HEIGHT = BASE_LOGO_HEIGHT * CONTENT_SCALE;
+const BASE_MAIN_FONT_SIZE = 36;
+const BASE_FOOTER_FONT_SIZE = 24;
+const BASE_CITY_FONT_SIZE = 22;
+const MAIN_FONT_SIZE = BASE_MAIN_FONT_SIZE * CONTENT_SCALE;
+const FOOTER_FONT_SIZE = BASE_FOOTER_FONT_SIZE * CONTENT_SCALE;
+const CITY_FONT_SIZE = BASE_CITY_FONT_SIZE * CONTENT_SCALE;
 
 type ArtworkTheme = {
   name: ArtworkThemeName;
@@ -118,26 +124,37 @@ function drawEpisodeTag(
   const footer = formatArtworkDateTime(details.startsAt, details.endsAt);
 
   context.textBaseline = "alphabetic";
+  context.font = `500 ${BASE_MAIN_FONT_SIZE}px "Favoritpro", Arial, sans-serif`;
+  const baseProducerMetrics = context.measureText(producerName);
+  const baseShowMetrics = context.measureText(radioShow);
   context.font = `500 ${MAIN_FONT_SIZE}px "Favoritpro", Arial, sans-serif`;
   const producerMetrics = context.measureText(producerName);
   const showMetrics = context.measureText(radioShow);
+  context.font = `500 ${BASE_CITY_FONT_SIZE}px "Favoritpro", Arial, sans-serif`;
+  const baseCityMetrics = context.measureText(city);
   context.font = `500 ${CITY_FONT_SIZE}px "Favoritpro", Arial, sans-serif`;
   const cityMetrics = context.measureText(city);
   context.font = `500 ${FOOTER_FONT_SIZE}px "Favoritpro", Arial, sans-serif`;
   const footerMetrics = context.measureText(footer);
 
+  const headerHeight = TAG_HEADER_HEIGHT + (LOGO_HEIGHT - BASE_LOGO_HEIGHT);
+  const cityHeight = 34 + visibleTextHeight(cityMetrics) - visibleTextHeight(baseCityMetrics);
   const cityWidth = Math.ceil(cityMetrics.width + TAG_PADDING * 2);
   const headerWidth = TAG_CONTENT_INSET + LOGO_WIDTH + 12 + cityWidth + TAG_CONTENT_INSET;
   const contentWidth = Math.max(producerMetrics.width, showMetrics.width, footerMetrics.width)
     + TAG_CONTENT_INSET * 2;
   const tagWidth = Math.ceil(Math.max(TAG_MIN_WIDTH, headerWidth, contentWidth));
+  const previousBodyPadding = (TAG_BODY_HEIGHT - 42 - visibleTextHeight(baseShowMetrics)) / 2;
+  const previousLineGap = 42 - visibleTextHeight(baseProducerMetrics);
+  const lineOffset = visibleTextHeight(producerMetrics) + previousLineGap;
+  const bodyHeight = previousBodyPadding * 2 + lineOffset + visibleTextHeight(showMetrics);
   const footerTextHeight = visibleTextHeight(footerMetrics);
   const footerHeight = TAG_DIVIDER_HEIGHT + TAG_PADDING + footerTextHeight + TAG_PADDING + TAG_BORDER;
-  const tagHeight = TAG_HEADER_HEIGHT + TAG_BODY_HEIGHT + footerHeight;
+  const tagHeight = headerHeight + bodyHeight + footerHeight;
   const tagX = ARTWORK_SIZE - TAG_EDGE_OFFSET - tagWidth;
   const tagY = ARTWORK_SIZE - TAG_EDGE_OFFSET - tagHeight;
-  const headerDividerY = tagY + TAG_HEADER_HEIGHT - TAG_DIVIDER_HEIGHT;
-  const footerDividerY = tagY + TAG_HEADER_HEIGHT + TAG_BODY_HEIGHT;
+  const headerDividerY = tagY + headerHeight - TAG_DIVIDER_HEIGHT;
+  const footerDividerY = tagY + headerHeight + bodyHeight;
 
   context.fillStyle = theme.background;
   context.fillRect(tagX, tagY, tagWidth, tagHeight);
@@ -156,27 +173,27 @@ function drawEpisodeTag(
   context.drawImage(
     logo,
     tagX + TAG_CONTENT_INSET,
-    tagY + (TAG_HEADER_HEIGHT - TAG_DIVIDER_HEIGHT - LOGO_HEIGHT) / 2,
+    tagY + (headerHeight - TAG_DIVIDER_HEIGHT - LOGO_HEIGHT) / 2,
     LOGO_WIDTH,
     LOGO_HEIGHT,
   );
 
   const cityX = tagX + tagWidth - TAG_CONTENT_INSET - cityWidth;
-  const cityY = tagY + (TAG_HEADER_HEIGHT - TAG_DIVIDER_HEIGHT - 34) / 2;
-  context.fillRect(cityX, cityY, cityWidth, 34);
+  const cityY = tagY + (headerHeight - TAG_DIVIDER_HEIGHT - cityHeight) / 2;
+  context.fillRect(cityX, cityY, cityWidth, cityHeight);
   context.fillStyle = theme.background;
   context.font = `500 ${CITY_FONT_SIZE}px "Favoritpro", Arial, sans-serif`;
   context.textAlign = "center";
-  const cityBaseline = cityY + (34 - visibleTextHeight(cityMetrics)) / 2 + cityMetrics.actualBoundingBoxAscent;
+  const cityBaseline = cityY + (cityHeight - visibleTextHeight(cityMetrics)) / 2 + cityMetrics.actualBoundingBoxAscent;
   context.fillText(city, cityX + cityWidth / 2, cityBaseline);
 
   context.fillStyle = theme.foreground;
   context.textAlign = "left";
   context.font = `500 ${MAIN_FONT_SIZE}px "Favoritpro", Arial, sans-serif`;
   const bodyTop = headerDividerY + TAG_DIVIDER_HEIGHT;
-  const producerTop = bodyTop + TAG_PADDING;
+  const producerTop = bodyTop + previousBodyPadding;
   context.fillText(producerName, tagX + TAG_CONTENT_INSET, visibleTextBaseline(producerTop, producerMetrics));
-  const showTop = producerTop + 42;
+  const showTop = producerTop + lineOffset;
   context.fillText(radioShow, tagX + TAG_CONTENT_INSET, visibleTextBaseline(showTop, showMetrics));
 
   const footerTop = footerDividerY + TAG_DIVIDER_HEIGHT + TAG_PADDING;
