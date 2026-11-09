@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import {
-  buildSubmissionConfirmationHtml,
+  buildAudioConfirmationHtml,
+  buildCoverConfirmationHtml,
   buildDailyReportHtml,
 } from "@/lib/email";
 
@@ -16,7 +17,7 @@ export async function GET(request: Request): Promise<NextResponse> {
   }
 
   const { searchParams } = new URL(request.url);
-  const template = searchParams.get("template") ?? "confirmation";
+  const template = searchParams.get("template") ?? "cover";
 
   let html: string;
 
@@ -56,27 +57,26 @@ export async function GET(request: Request): Promise<NextResponse> {
         { title: "LateBroadcast", scheduledTime: "23:30" },
       ],
     }));
-  } else {
-    ({ html } = buildSubmissionConfirmationHtml({
+  } else if (template === "audio") {
+    ({ html } = buildAudioConfirmationHtml({
       to: "producer@example.com",
       producerName: "Azem",
       showTitle: "Azem — Culture Gazon mix",
       showStartAt: "2026-04-19T19:00:00.000Z",
-      audioFilename: "Azem - Culture Gazon mix-190426.mp3",
-      imageFilename: "Azem-190426.jpg",
-      hasDescription: true,
-      ftpSuccess: true,
-      driveSuccess: true,
-      centovaResult: {
-        success: true,
-        message: "Scheduled playlist \"Azem\" for 2026-04-19 22:00:00 Athens time",
-      },
+    }));
+  } else {
+    ({ html } = buildCoverConfirmationHtml({
+      to: "producer@example.com",
+      producerName: "Azem",
+      showTitle: "Azem — Culture Gazon mix",
+      showStartAt: "2026-04-19T19:00:00.000Z",
     }));
   }
 
   const nav = `<div style="font-family:Arial,sans-serif;background:#333;padding:10px 20px;display:flex;gap:16px;align-items:center;">
     <span style="color:#aaa;font-size:12px;text-transform:uppercase;letter-spacing:.06em;">Email Preview</span>
-    <a href="?template=confirmation" style="color:${template === "confirmation" ? "#44c8f5" : "#fff"};text-decoration:none;font-size:13px;">Submission confirmation</a>
+    <a href="?template=cover"        style="color:${template === "cover"        ? "#44c8f5" : "#fff"};text-decoration:none;font-size:13px;">Cover confirmation</a>
+    <a href="?template=audio"        style="color:${template === "audio"        ? "#44c8f5" : "#fff"};text-decoration:none;font-size:13px;">Audio confirmation</a>
     <a href="?template=report"       style="color:${template === "report"       ? "#44c8f5" : "#fff"};text-decoration:none;font-size:13px;">Daily report</a>
   </div>`;
 

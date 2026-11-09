@@ -89,10 +89,6 @@ function emailWrapper(body: string): string {
 // Shared helpers
 // ---------------------------------------------------------------------------
 
-const tick = `<span style="color:${C.blue};font-weight:700;">✓</span>`;
-const cross = `<span style="color:${C.red};font-weight:700;">✗</span>`;
-const dash = `<span style="color:${C.muted};">–</span>`;
-
 function tableHeader(...cols: string[]) {
   const cells = cols
     .map(
@@ -104,20 +100,17 @@ function tableHeader(...cols: string[]) {
 }
 
 // ---------------------------------------------------------------------------
-// 1. Submission confirmation
+// 1. Media submission confirmations
 // ---------------------------------------------------------------------------
 
-export type SubmissionEmailPayload = {
+export type MediaConfirmationEmailPayload = {
   to: string;
   producerName: string;
   showTitle: string;
   showStartAt: string | null;
-  audioFilename: string;
-  imageFilename: string;
-  hasDescription: boolean;
-  ftpSuccess: boolean;
-  driveSuccess: boolean;
-  centovaResult: { success: boolean; message: string } | null;
+};
+
+export type CoverConfirmationEmailPayload = MediaConfirmationEmailPayload & {
   storyArtwork?: {
     filename: string;
     content: Buffer;
@@ -125,29 +118,19 @@ export type SubmissionEmailPayload = {
   } | null;
 };
 
-export function buildSubmissionConfirmationHtml(payload: SubmissionEmailPayload): { html: string; subject: string } {
+function buildMediaConfirmationHtml(
+  payload: MediaConfirmationEmailPayload,
+  subject: string,
+  message: string,
+): { html: string; subject: string } {
   const showDateFormatted = payload.showStartAt
     ? formatInTimeZone(new Date(payload.showStartAt), ATHENS_TZ, "d MMMM yyyy 'at' HH:mm")
     : null;
 
-  const audioStatus = payload.ftpSuccess && payload.audioFilename ? tick : payload.audioFilename ? cross : dash;
-  const coverStatus = payload.imageFilename ? (payload.driveSuccess ? tick : cross) : dash;
-  const descStatus = payload.hasDescription ? tick : dash;
-  const storyStatus = payload.storyArtwork ? tick : dash;
-
-  const centovaRow =
-    payload.centovaResult !== null
-      ? `<tr>
-          <td style="padding:8px 12px;border-bottom:1px solid #222;color:${C.white};">Centova scheduling</td>
-          <td style="padding:8px 12px;border-bottom:1px solid #222;">${payload.centovaResult.success ? tick : cross}</td>
-          <td style="padding:8px 12px;border-bottom:1px solid #222;color:${C.muted};font-size:13px;">${payload.centovaResult.message}</td>
-        </tr>`
-      : "";
-
   const body = `
     <tr>
       <td style="padding:36px 0 20px;">
-        <h1 style="margin:0 0 6px;font-size:22px;font-weight:700;color:${C.white};">Show submitted</h1>
+        <h1 style="margin:0 0 6px;font-size:22px;font-weight:700;color:${C.white};">${subject}</h1>
         ${
           showDateFormatted
             ? `<p style="margin:0;color:${C.blue};font-size:15px;">Scheduled for ${showDateFormatted} Athens time</p>`
@@ -158,50 +141,35 @@ export function buildSubmissionConfirmationHtml(payload: SubmissionEmailPayload)
     <tr>
       <td style="padding-bottom:24px;">
         <p style="margin:0 0 8px;font-size:15px;color:${C.white};">Hi ${payload.producerName},</p>
-        <p style="margin:0;font-size:14px;color:#ccc;line-height:1.6;">Here is a summary of your submission for <strong style="color:${C.white};">${payload.showTitle}</strong>.</p>
-      </td>
-    </tr>
-    <tr>
-      <td>
-        <table role="presentation" width="100%" style="border-collapse:collapse;font-size:14px;">
-          ${tableHeader("Item", "Status", "Detail")}
-          <tr>
-            <td style="padding:8px 12px;border-bottom:1px solid #222;color:${C.white};">Audio</td>
-            <td style="padding:8px 12px;border-bottom:1px solid #222;">${audioStatus}</td>
-            <td style="padding:8px 12px;border-bottom:1px solid #222;color:${C.muted};font-size:13px;">${payload.audioFilename || "Not included"}</td>
-          </tr>
-          <tr>
-            <td style="padding:8px 12px;border-bottom:1px solid #222;color:${C.white};">Cover</td>
-            <td style="padding:8px 12px;border-bottom:1px solid #222;">${coverStatus}</td>
-            <td style="padding:8px 12px;border-bottom:1px solid #222;color:${C.muted};font-size:13px;">${payload.imageFilename || "Not included"}</td>
-          </tr>
-          <tr>
-            <td style="padding:8px 12px;border-bottom:1px solid #222;color:${C.white};">Description</td>
-            <td style="padding:8px 12px;border-bottom:1px solid #222;">${descStatus}</td>
-            <td style="padding:8px 12px;border-bottom:1px solid #222;color:${C.muted};font-size:13px;">${payload.hasDescription ? "Included" : "Not included"}</td>
-          </tr>
-          <tr>
-            <td style="padding:8px 12px;border-bottom:1px solid #222;color:${C.white};">Story artwork</td>
-            <td style="padding:8px 12px;border-bottom:1px solid #222;">${storyStatus}</td>
-            <td style="padding:8px 12px;border-bottom:1px solid #222;color:${C.muted};font-size:13px;">${payload.storyArtwork ? "Attached — ready to post" : "Not included"}</td>
-          </tr>
-          ${centovaRow}
-        </table>
+        <p style="margin:0 0 8px;font-size:14px;color:#ccc;line-height:1.6;">${message}</p>
+        <p style="margin:0;font-size:13px;color:${C.muted};line-height:1.6;">${payload.showTitle}</p>
       </td>
     </tr>`;
-
-  const subject = showDateFormatted
-    ? `Show submitted — ${payload.showTitle} · ${showDateFormatted}`
-    : `Show submitted — ${payload.showTitle}`;
 
   return { html: emailWrapper(body), subject };
 }
 
-export async function sendSubmissionConfirmationEmail(
-  payload: SubmissionEmailPayload,
+export function buildCoverConfirmationHtml(payload: CoverConfirmationEmailPayload) {
+  return buildMediaConfirmationHtml(
+    payload,
+    "Your upcoming show on Paranoise now has a cover",
+    "Thanks for the pic! 😎 Here's a version in attachment of it you can use in a story. Don't forget to tag the radio!",
+  );
+}
+
+export function buildAudioConfirmationHtml(payload: MediaConfirmationEmailPayload) {
+  return buildMediaConfirmationHtml(
+    payload,
+    "Audio is in, loud and clear!",
+    "On air soon, if it hasn't already aired, and soon on mixcloud and website. Thanks for the transmission!",
+  );
+}
+
+export async function sendCoverConfirmationEmail(
+  payload: CoverConfirmationEmailPayload,
 ): Promise<void> {
   const resend = getResend();
-  const { html, subject } = buildSubmissionConfirmationHtml(payload);
+  const { html, subject } = buildCoverConfirmationHtml(payload);
   await resend.emails.send({
     from: FROM,
     to: payload.to,
@@ -214,6 +182,19 @@ export async function sendSubmissionConfirmationEmail(
           contentType: payload.storyArtwork.contentType,
         }]
       : undefined,
+  });
+}
+
+export async function sendAudioConfirmationEmail(
+  payload: MediaConfirmationEmailPayload,
+): Promise<void> {
+  const resend = getResend();
+  const { html, subject } = buildAudioConfirmationHtml(payload);
+  await resend.emails.send({
+    from: FROM,
+    to: payload.to,
+    subject,
+    html,
   });
 }
 

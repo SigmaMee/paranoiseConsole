@@ -20,7 +20,7 @@ import {
   getNextUpcomingShowStartByProducerEmail,
 } from "@/lib/google-calendar";
 import { updateShowPlaylist } from "@/lib/centova-api";
-import { sendSubmissionConfirmationEmail } from "@/lib/email";
+import { sendAudioConfirmationEmail, sendCoverConfirmationEmail } from "@/lib/email";
 import {
   DeleteObjectCommand,
   GetObjectCommand,
@@ -1032,10 +1032,10 @@ export async function POST(request: Request) {
       },
     });
 
-    // Fire confirmation email non-blocking — does not affect the response
-    if (ftpResult.success) {
+    // Fire media-specific confirmation emails non-blocking — they do not affect the response.
+    if (audioDeliverySuccessful || imageDeliverySuccessful) {
       stage = "email:confirmation";
-      const storyArtwork = optionalStoryArtwork
+      const storyArtwork = imageDeliverySuccessful && optionalStoryArtwork
         ? {
             filename: optionalStoryArtwork.name,
             content: Buffer.from(await optionalStoryArtwork.arrayBuffer()),
@@ -1048,20 +1048,32 @@ export async function POST(request: Request) {
         });
         stagedStoryObjectKey = null;
       }
-      void sendSubmissionConfirmationEmail({
-        to: userEmail,
-        producerName: producerFolderName,
-        showTitle: selectedShowTitle,
-        showStartAt: persistedShowStart,
-        audioFilename: uploadedAudioFilename,
-        imageFilename: uploadedImageFilename,
-        hasDescription: Boolean(description.trim()),
-        ftpSuccess: ftpResult.success,
-        driveSuccess: driveResult.success,
-        centovaResult: centovaResult ?? null,
-        storyArtwork,
-      }).catch((err: unknown) => {
-        console.error("Failed to send submission confirmation email:", err);
+
+      const confirmationEmails: Promise<void>[] = [];
+      if (imageDeliverySuccessful) {
+        confirmationEmails.push(sendCoverConfirmationEmail({
+          to: userEmail,
+          producerName: producerFolderName,
+          showTitle: selectedShowTitle,
+          showStartAt: persistedShowStart,
+          storyArtwork,
+        }));
+      }
+      if (audioDeliverySuccessful) {
+        confirmationEmails.push(sendAudioConfirmationEmail({
+          to: userEmail,
+          producerName: producerFolderName,
+          showTitle: selectedShowTitle,
+          showStartAt: persistedShowStart,
+        }));
+      }
+
+      void Promise.allSettled(confirmationEmails).then((results) => {
+        for (const result of results) {
+          if (result.status === "rejected") {
+            console.error("Failed to send media confirmation email:", result.reason);
+          }
+        }
       });
     } else if (storyObjectKey) {
       await deleteStagedObject(storyObjectKey).catch((cleanupError: unknown) => {
