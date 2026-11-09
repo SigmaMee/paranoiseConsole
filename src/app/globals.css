@@ -822,10 +822,10 @@ a {
   appearance: none;
   display: grid;
   gap: 0.2rem;
-  border: 1px solid var(--orange);
+  border: 1px solid var(--blue);
   border-radius: 8px;
   background: var(--black);
-  color: var(--orange);
+  color: var(--blue);
   padding: 0.6rem 0.75rem;
   font-size: 0.86rem;
   font-weight: 700;
@@ -864,9 +864,9 @@ a {
 }
 
 .dashboard-show-selector-option-active {
-  background: var(--orange);
+  background: var(--blue);
   color: var(--black);
-  border-color: var(--orange);
+  border-color: var(--blue);
 }
 
 .dashboard-show-selector-current {
@@ -877,7 +877,7 @@ a {
 }
 
 .dashboard-show-selector-link {
-  color: var(--orange);
+  color: var(--blue);
   text-decoration: underline;
 }
 
