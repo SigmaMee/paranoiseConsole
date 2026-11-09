@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getProducerEmail } from "@/lib/producer-identity";
-import { getEpisodeEditDeadline, isEpisodeEditingClosed } from "@/lib/episode-editing";
 
 export const runtime = "nodejs";
 
@@ -56,7 +55,7 @@ export async function GET(request: Request) {
     const producerEmail = getProducerEmail(user);
     const { data: episode, error: episodeError } = await supabase
       .from("episodes")
-      .select("description,tags,audio_filename,image_filename,audio_submitted_at,image_submitted_at,completed_at")
+      .select("description,tags,audio_filename,image_filename,audio_submitted_at,image_submitted_at,completed_at,published_at,archived_at")
       .ilike("producer_email", producerEmail)
       .eq("show_start_at", showStart)
       .maybeSingle();
@@ -140,8 +139,9 @@ export async function GET(request: Request) {
       audioSubmitted: episodeUnavailable ? Boolean(audioFilename) : Boolean(episode?.audio_submitted_at),
       imageSubmitted: episodeUnavailable ? Boolean(imageFilename) : Boolean(episode?.image_submitted_at),
       completed: Boolean(episode?.completed_at),
-      locked: isEpisodeEditingClosed(showStart),
-      editableUntil: getEpisodeEditDeadline(showStart)?.toISOString() ?? null,
+      published: Boolean(episode?.published_at),
+      archived: Boolean(episode?.archived_at),
+      locked: Boolean(episode?.published_at || episode?.archived_at),
     });
   } catch {
     return NextResponse.json({ description: null, tags: [] });

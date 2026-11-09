@@ -192,18 +192,19 @@ export async function POST(request: Request) {
       ftp_message: string | null;
     };
     const allShowSubmissions: DownloadSubmission[] = [];
-    const episodeMetadataByShow = new Map<string, { description: string; tags: string[] }>();
+    const episodeMetadataByShow = new Map<string, { description: string; tags: string[]; audioSubmitted: boolean }>();
     for (const key of showKeys) {
       const [producerEmail, airingDate] = key.split("|");
       const { data: episode } = await adminSupabase
         .from("episodes")
-        .select("description,tags")
+        .select("description,tags,audio_submitted_at")
         .ilike("producer_email", producerEmail)
         .eq("airing_date", airingDate)
         .maybeSingle();
       episodeMetadataByShow.set(key, {
         description: typeof episode?.description === "string" ? episode.description : "",
         tags: Array.isArray(episode?.tags) ? episode.tags : [],
+        audioSubmitted: Boolean(episode?.audio_submitted_at),
       });
       const { data: showSubs, error: showError } = await adminSupabase
         .from("submissions")
@@ -232,13 +233,14 @@ export async function POST(request: Request) {
       submittedDescription: string | null;
       submittedTags: string[];
       hasDescription: boolean;
+      audioSubmitted: boolean;
     }>();
 
     for (const sub of allShowSubmissions) {
       const key = `${sub.producer_email}|${sub.airing_date}`;
 
       if (!showsWithAudio.has(key)) {
-        const episodeMetadata = episodeMetadataByShow.get(key) || { description: "", tags: [] };
+        const episodeMetadata = episodeMetadataByShow.get(key) || { description: "", tags: [], audioSubmitted: false };
         showsWithAudio.set(key, {
           producerEmail: sub.producer_email,
           airingDate: sub.airing_date,
@@ -247,6 +249,7 @@ export async function POST(request: Request) {
           submittedDescription: episodeMetadata.description.trim() || null,
           submittedTags: episodeMetadata.tags,
           hasDescription: Boolean(episodeMetadata.description.trim()),
+          audioSubmitted: episodeMetadata.audioSubmitted,
         });
         continue;
       }
@@ -261,7 +264,7 @@ export async function POST(request: Request) {
     }
 
     const eligibleShows = Array.from(showsWithAudio.values()).filter(
-      (show) => Boolean(show.audioFilename),
+      (show) => show.audioSubmitted && Boolean(show.audioFilename),
     );
 
     if (eligibleShows.length === 0) {
@@ -285,6 +288,7 @@ export async function POST(request: Request) {
       });
       archive.on("error", (err) => reject(err));
     });
+    const archivedShowKeys = new Set<string>();
 
     // Download each show package (audio + cover + metadata) and add to archive
     let appendedCount = 0;
@@ -312,6 +316,7 @@ export async function POST(request: Request) {
           if (audioBuffer) {
             archive.append(audioBuffer, { name: `${showFolder}/${show.audioFilename}` });
             appendedCount += 1;
+            archivedShowKeys.add(`${show.producerEmail}|${show.airingDate}`);
             console.log(`Added audio ${show.audioFilename} to archive`);
           } else {
             console.warn(`Failed to download audio ${show.audioFilename} from FTP or R2`);
@@ -355,6 +360,15 @@ export async function POST(request: Request) {
     await archive.finalize();
     await archiveDone;
     const zipBuffer = Buffer.concat(chunks);
+
+    for (const key of archivedShowKeys) {
+      const [producerEmail, airingDate] = key.split("|");
+      const { error: archiveError } = await adminSupabase.rpc("mark_episode_archived", {
+        requested_producer_email: producerEmail,
+        requested_airing_date: airingDate,
+      });
+      if (archiveError) throw archiveError;
+    }
 
     console.log(`ZIP created, size: ${zipBuffer.length} bytes`);
 

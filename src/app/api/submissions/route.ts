@@ -40,7 +40,6 @@ import {
 } from "@/lib/upload-security";
 import { writeUploadSecurityEvent } from "@/lib/upload-security-audit";
 import { randomUUID } from "crypto";
-import { getEpisodeEditDeadline, isEpisodeEditingClosed } from "@/lib/episode-editing";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -650,16 +649,6 @@ export async function POST(request: Request) {
     }
 
     if (persistedShowStart && episodeAiringDate) {
-      if (isEpisodeEditingClosed(persistedShowStart)) {
-        return NextResponse.json(
-          {
-            error: "This episode closed for editing at 09:00 Europe/Athens on its airtime date.",
-            editableUntil: getEpisodeEditDeadline(persistedShowStart)?.toISOString() ?? null,
-          },
-          { status: 409 },
-        );
-      }
-
       stage = "episode:save-metadata";
       await saveEpisodeMetadata({
         producerEmail,

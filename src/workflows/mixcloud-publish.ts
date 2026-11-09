@@ -29,6 +29,20 @@ type SubmissionRecord = {
   mixcloud_url: string | null;
 };
 
+async function lockPublishedEpisode(
+  supabase: ReturnType<typeof adminClient>,
+  producerEmail: string,
+  showStartAt: string | null,
+  airingDate: string,
+) {
+  const { error } = await supabase.rpc("mark_episode_published", {
+    requested_producer_email: producerEmail,
+    requested_show_start_at: showStartAt,
+    requested_airing_date: airingDate,
+  });
+  if (error) throw error;
+}
+
 function getRequiredEnv(name: string) {
   const value = process.env[name];
   if (!value) throw new Error(`Missing required environment variable: ${name}`);
@@ -114,14 +128,23 @@ async function publishShowFromR2(submissionId: string, workflowRunId: string) {
   const rows = (data || []) as SubmissionRecord[];
   const episodeQuery = supabase
     .from("episodes")
-    .select("description,tags")
+    .select("description,tags,audio_submitted_at")
     .ilike("producer_email", selected.producer_email);
   const { data: episode, error: episodeError } = selected.show_start_at
     ? await episodeQuery.eq("show_start_at", selected.show_start_at).maybeSingle()
     : await episodeQuery.eq("airing_date", selected.airing_date).maybeSingle();
   if (episodeError) throw episodeError;
+  if (!episode?.audio_submitted_at) {
+    throw new FatalError("An episode without submitted audio cannot be published.");
+  }
   const alreadyPublished = rows.find((row) => row.mixcloud === "published" && row.mixcloud_url);
   if (alreadyPublished?.mixcloud_url) {
+    await lockPublishedEpisode(
+      supabase,
+      selected.producer_email,
+      selected.show_start_at,
+      selected.airing_date,
+    );
     return {
       status: "already-published" as const,
       submissionId,
@@ -219,6 +242,13 @@ async function publishShowFromR2(submissionId: string, workflowRunId: string) {
     .eq("producer_email", selected.producer_email)
     .eq("airing_date", selected.airing_date);
   if (updateError) throw updateError;
+
+  await lockPublishedEpisode(
+    supabase,
+    selected.producer_email,
+    selected.show_start_at,
+    selected.airing_date,
+  );
 
   console.info("[MIXCLOUD_WORKFLOW_PUBLISH_COMPLETE]", { submissionId, mixcloudUrl });
   return {

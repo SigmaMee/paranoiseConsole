@@ -467,7 +467,6 @@ export function SubmissionForm({ selectedShowStart, selectedShowEnd, selectedSho
   const [isImageSubmitted, setIsImageSubmitted] = useState(false);
   const [isSubmissionComplete, setIsSubmissionComplete] = useState(false);
   const [isEpisodeLocked, setIsEpisodeLocked] = useState(false);
-  const [editableUntil, setEditableUntil] = useState<string | null>(null);
   const [artworkProfile, setArtworkProfile] = useState<ResidentArtworkProfile | null>(null);
   const [waveformBars, setWaveformBars] = useState<number[]>([]);
   const [audioDuration, setAudioDuration] = useState(0);
@@ -620,7 +619,6 @@ export function SubmissionForm({ selectedShowStart, selectedShowEnd, selectedSho
     setIsImageSubmitted(false);
     setIsSubmissionComplete(false);
     setIsEpisodeLocked(false);
-    setEditableUntil(null);
     imageSubmittedRef.current = false;
 
     clearPersistedImagePreviewUrl();
@@ -643,7 +641,7 @@ export function SubmissionForm({ selectedShowStart, selectedShowEnd, selectedSho
         );
 
         if (!response.ok) {
-          return;
+          return false;
         }
 
         const payload = (await response.json().catch(() => null)) as {
@@ -654,7 +652,6 @@ export function SubmissionForm({ selectedShowStart, selectedShowEnd, selectedSho
           imageSubmitted?: boolean;
           completed?: boolean;
           locked?: boolean;
-          editableUntil?: string | null;
         } | null;
 
         const audioSubmitted = payload?.audioSubmitted === true;
@@ -664,7 +661,6 @@ export function SubmissionForm({ selectedShowStart, selectedShowEnd, selectedSho
         setIsImageSubmitted(imageSubmitted);
         setIsSubmissionComplete(payload?.completed === true);
         setIsEpisodeLocked(payload?.locked === true);
-        setEditableUntil(payload?.editableUntil || null);
         imageSubmittedRef.current = imageSubmitted;
 
         if (payload && typeof payload.description === "string") {
@@ -679,8 +675,12 @@ export function SubmissionForm({ selectedShowStart, selectedShowEnd, selectedSho
             .slice(0, 5);
           setSelectedTags(normalized);
         }
+        return audioSubmitted
+          || Boolean(payload?.description?.trim())
+          || Boolean(payload?.tags?.length);
       } catch {
         // silent: persisted state is optional
+        return false;
       }
     };
 
@@ -755,10 +755,12 @@ export function SubmissionForm({ selectedShowStart, selectedShowEnd, selectedSho
     };
 
     void (async () => {
-      await loadPersistedShowState();
+      const shouldLoadResidentFallback = await loadPersistedShowState();
       await Promise.all([
         loadPersistedCoverPreview(),
-        imageSubmittedRef.current ? Promise.resolve() : loadResidentFallbackArtwork(),
+        imageSubmittedRef.current || !shouldLoadResidentFallback
+          ? Promise.resolve()
+          : loadResidentFallbackArtwork(),
       ]);
     })();
 
@@ -1003,7 +1005,7 @@ export function SubmissionForm({ selectedShowStart, selectedShowEnd, selectedSho
     const hasTags = selectedTags.length > 0;
 
     if (isEpisodeLocked) {
-      return "This episode closed for editing at 09:00 Greece time on its airtime date.";
+      return "This episode has been published or archived and can no longer be edited.";
     }
 
     if (!hasAudio && !hasImage && !hasDescription && !hasTags) {
@@ -1619,13 +1621,12 @@ export function SubmissionForm({ selectedShowStart, selectedShowEnd, selectedSho
           <div className="submission-submit-wrap">
             {isSubmissionComplete && !isEpisodeLocked ? (
               <p className="message" role="status">
-                This episode has artwork and audio. You can replace any content until 09:00 Greece time on its airtime date.
+                This episode has artwork and audio. You can replace any content until it is published or archived.
               </p>
             ) : null}
             {isEpisodeLocked ? (
               <p className="message" role="status">
-                Editing closed at 09:00 Greece time on the airtime date.
-                {editableUntil ? ` (${new Intl.DateTimeFormat("en-GB", { dateStyle: "medium", timeStyle: "short", timeZone: "Europe/Athens" }).format(new Date(editableUntil))})` : ""}
+                This episode has been published or archived. All content is locked.
               </p>
             ) : null}
             <button
@@ -1635,7 +1636,7 @@ export function SubmissionForm({ selectedShowStart, selectedShowEnd, selectedSho
               disabled={isLoading || isArtworkGenerating || isEpisodeLocked}
             >
               {isEpisodeLocked
-                ? "Editing closed"
+                ? "Episode locked"
                 : isLoading
                 ? "Submitting show..."
                 : submitAllSuccess

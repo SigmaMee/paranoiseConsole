@@ -45,12 +45,15 @@ export async function POST(request: Request) {
         const name = sub.airing_date ? `Show ${sub.airing_date}` : "Show";
         const episodeQuery = supabase
           .from("episodes")
-          .select("description,tags")
+          .select("description,tags,audio_submitted_at")
           .ilike("producer_email", sub.producer_email);
         const { data: episode, error: episodeError } = sub.show_start_at
           ? await episodeQuery.eq("show_start_at", sub.show_start_at).maybeSingle()
           : await episodeQuery.eq("airing_date", sub.airing_date).maybeSingle();
         if (episodeError) throw episodeError;
+        if (!episode?.audio_submitted_at) {
+          throw new Error("An episode without submitted audio cannot be published.");
+        }
         const tags = Array.isArray(episode?.tags) ? episode.tags : [];
         const description = typeof episode?.description === "string" ? episode.description : "";
 
@@ -69,6 +72,13 @@ export async function POST(request: Request) {
           .from("submissions")
           .update({ mixcloud: "published" })
           .eq("id", sub.id);
+
+        const { error: episodePublishError } = await supabase.rpc("mark_episode_published", {
+          requested_producer_email: sub.producer_email,
+          requested_show_start_at: sub.show_start_at,
+          requested_airing_date: sub.airing_date,
+        });
+        if (episodePublishError) throw episodePublishError;
 
         // Delete files from R2 after successful upload
         if (sub.audio_filename) {
