@@ -306,6 +306,30 @@ export async function addAudioToPlaylist(
 
     await parseCentovaJsonResponse(response);
 
+    const clearParams = new URLSearchParams({
+      xm: "server.playlist",
+      f: "json",
+      "a[username]": username,
+      "a[password]": password,
+      "a[action]": "remove",
+      "a[playlistname]": playlistName,
+      // Centova treats these values as search terms. An empty track path
+      // matches every track currently assigned to the playlist.
+      "a[trackpath]": "",
+    });
+
+    let clearWarning: string | null = null;
+    try {
+      const clearResponse = await fetch(`${apiUrl}?${clearParams.toString()}`, {
+        method: "POST",
+      });
+
+      await parseCentovaJsonResponse(clearResponse);
+    } catch (error) {
+      clearWarning = error instanceof Error ? error.message : "Unknown error";
+      console.warn(`Failed to clear Centova playlist ${playlistName}: ${clearWarning}`);
+    }
+
     const trackPathCandidates = [
       audioFilename,
       `${producerFolderName}/${audioFilename}`,
@@ -332,7 +356,9 @@ export async function addAudioToPlaylist(
         if (addData.type === "success") {
           return {
             success: true,
-            message: `Imported and added ${audioFilename} to playlist ${playlistName} (trackpath: ${trackPath})`,
+            message: clearWarning
+              ? `Imported and added ${audioFilename} to playlist ${playlistName} (trackpath: ${trackPath}); playlist clear failed: ${clearWarning}`
+              : `Cleared playlist ${playlistName}, then imported and added ${audioFilename} (trackpath: ${trackPath})`,
           };
         }
 
