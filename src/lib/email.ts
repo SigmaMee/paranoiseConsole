@@ -220,8 +220,11 @@ export function buildShowReminderHtml(payload: ShowReminderEmailPayload) {
         <li>the audio file if your show is recorded.</li>
       </ul>
       <p style="margin:0 0 20px;">No rush for the rest—you can always log in to Console and submit it after your show.</p>
-      <p style="margin:0 0 24px;">If unfortunately you cannot make it tomorrow, use the Cancel show action on the next screen.</p>
-      <a href="${payload.accessUrl}" style="display:inline-block;padding:14px 22px;background:${C.orange};color:${C.black};font-weight:700;text-decoration:none;text-transform:uppercase;">Get ready for your show</a>
+      <p style="margin:0 0 24px;">If unfortunately you cannot make it tomorrow, press that big Cancel show button.</p>
+      <table role="presentation" cellpadding="0" cellspacing="0"><tr>
+        <td style="padding:0 12px 12px 0;"><a href="${payload.accessUrl}?intent=submit" style="display:inline-block;padding:14px 22px;background:${C.blue};color:${C.black};font-weight:700;text-decoration:none;text-transform:uppercase;">Get ready for your show</a></td>
+        <td style="padding:0 0 12px;"><a href="${payload.accessUrl}?intent=cancel" style="display:inline-block;padding:13px 22px;border:1px solid ${C.red};background:${C.redBg};color:${C.red};font-weight:700;text-decoration:none;text-transform:uppercase;">Cancel show</a></td>
+      </tr></table>
     </td></tr>`;
   return { html: emailWrapper(body), subject: "Reminder: You have a show on Paranoise tomorrow!" };
 }
