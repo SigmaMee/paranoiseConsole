@@ -172,7 +172,9 @@ export function ShowSubmissionToggle({
           selectedShowStart={selectedShowStart}
           selectedShowEnd={selectedShowEnd}
           selectedShowTitle={selectedShowTitle}
-          onCancelShow={selectedShow?.id === mostRecentFutureShow?.id ? () => setShowCancellation(true) : undefined}
+          onCancelShow={selectedShow && mostRecentFutureShow && selectedShow.id === mostRecentFutureShow.id
+            ? () => setShowCancellation(true)
+            : undefined}
         />
       </section>
     </>
