@@ -1535,6 +1535,15 @@ a {
 
 .submission-submit-wrap {
   margin-top: 1rem;
+  display: grid;
+  gap: var(--space-3);
+}
+
+.submission-cancel {
+  width: 100%;
+  border-color: var(--orange);
+  background: var(--orange);
+  color: var(--black);
 }
 
 .cover-preview-image {

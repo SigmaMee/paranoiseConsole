@@ -129,6 +129,7 @@ type SubmissionFormProps = {
   selectedShowStart: string | null;
   selectedShowEnd: string | null;
   selectedShowTitle: string | null;
+  onCancelShow?: () => void;
 };
 
 type MultipartUploadOptions = {
@@ -454,7 +455,7 @@ async function uploadFileToR2WithAdaptiveFallback(
 // Component
 // ---------------------------------------------------------------------------
 
-export function SubmissionForm({ selectedShowStart, selectedShowEnd, selectedShowTitle }: SubmissionFormProps) {
+export function SubmissionForm({ selectedShowStart, selectedShowEnd, selectedShowTitle, onCancelShow }: SubmissionFormProps) {
   const [audioFile, setAudioFile] = useState<File | null>(null);
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [isFallbackArtwork, setIsFallbackArtwork] = useState(false);
@@ -1643,6 +1644,16 @@ export function SubmissionForm({ selectedShowStart, selectedShowEnd, selectedSho
                   ? "Show submitted successfully."
                   : "Submit show"}
             </button>
+            {onCancelShow ? (
+              <button
+                className="show-cancel-trigger submission-cancel"
+                type="button"
+                onClick={onCancelShow}
+                disabled={isLoading || isArtworkGenerating}
+              >
+                Cancel show
+              </button>
+            ) : null}
           </div>
         </>
       )}
