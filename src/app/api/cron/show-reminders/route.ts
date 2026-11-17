@@ -63,13 +63,7 @@ async function residentByCalendarEmail() {
   return residents;
 }
 
-export async function GET(request: Request) {
-  if (!authorized(request)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const now = new Date();
-  if (formatInTimeZone(now, ATHENS_TZ, "HH:mm") !== "09:00") {
-    return NextResponse.json({ skipped: true, reason: "Outside the 09:00 Greece-time window" });
-  }
-
+export async function deliverShowReminders(now = new Date()) {
   const tomorrow = new Date(now.getTime() + 24 * 60 * 60 * 1000);
   const dateIso = formatInTimeZone(tomorrow, ATHENS_TZ, "yyyy-MM-dd");
   const [shows, residents] = await Promise.all([getShowsForDate(dateIso), residentByCalendarEmail()]);
@@ -126,4 +120,12 @@ export async function GET(request: Request) {
     }
   }
   return NextResponse.json({ date: dateIso, results });
+}
+
+export async function GET(request: Request) {
+  if (!authorized(request)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (formatInTimeZone(new Date(), ATHENS_TZ, "HH:mm") !== "09:00") {
+    return NextResponse.json({ skipped: true, reason: "Outside the 09:00 Greece-time window" });
+  }
+  return deliverShowReminders();
 }
