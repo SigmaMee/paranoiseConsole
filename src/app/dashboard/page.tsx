@@ -141,8 +141,8 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
       ? user.user_metadata.full_name.trim()
       : user.email?.split("@")[0] || "Producer";
 
-  let mostRecentPastShow: { title: string; startsAt: string; endsAt: string | null } | null = null;
-  let mostRecentFutureShow: { title: string; startsAt: string; endsAt: string | null } | null = null;
+  let mostRecentPastShow: { id: string; title: string; startsAt: string; endsAt: string | null } | null = null;
+  let mostRecentFutureShow: { id: string; title: string; startsAt: string; endsAt: string | null } | null = null;
 
   if (user.email && !isAdmin) {
     try {
@@ -151,6 +151,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
       );
       mostRecentPastShow = selection.mostRecentPastShow
         ? {
+            id: selection.mostRecentPastShow.id,
             title: selection.mostRecentPastShow.title,
             startsAt: selection.mostRecentPastShow.startsAt,
             endsAt: selection.mostRecentPastShow.endsAt || null,
@@ -158,6 +159,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
         : null;
       mostRecentFutureShow = selection.mostRecentFutureShow
         ? {
+            id: selection.mostRecentFutureShow.id,
             title: selection.mostRecentFutureShow.title,
             startsAt: selection.mostRecentFutureShow.startsAt,
             endsAt: selection.mostRecentFutureShow.endsAt || null,

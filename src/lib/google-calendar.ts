@@ -9,6 +9,13 @@ export type UpcomingShow = {
   attendeeEmails?: string[];
 };
 
+export type CancellableShow = UpcomingShow & {
+  attendeeEmails: string[];
+  status: string;
+  recurringEventId: string | null;
+  isSeriesMaster: boolean;
+};
+
 type ProducerShowSelection = {
   mostRecentPastShow: UpcomingShow | null;
   mostRecentFutureShow: UpcomingShow | null;
@@ -41,6 +48,39 @@ function getRequiredEnv(name: string) {
     throw new Error(`Missing required environment variable: ${name}`);
   }
   return value;
+}
+
+function getCalendarClient(scope = "https://www.googleapis.com/auth/calendar.readonly") {
+  const serviceAccountEmail = getRequiredEnv("GOOGLE_SERVICE_ACCOUNT_EMAIL");
+  const privateKey = getRequiredEnv("GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY").replace(/\\n/g, "\n");
+  const auth = new google.auth.JWT({ email: serviceAccountEmail, key: privateKey, scopes: [scope] });
+  return { calendar: google.calendar({ version: "v3", auth }), calendarId: getRequiredEnv("GOOGLE_CALENDAR_ID") };
+}
+
+export async function getCalendarShowOccurrenceById(eventId: string): Promise<CancellableShow | null> {
+  const { calendar, calendarId } = getCalendarClient();
+  try {
+    const { data: event } = await calendar.events.get({ calendarId, eventId });
+    const show = mapCalendarEventToShow(event);
+    return {
+      ...show,
+      attendeeEmails: show.attendeeEmails ?? [],
+      status: event.status ?? "confirmed",
+      recurringEventId: event.recurringEventId ?? null,
+      isSeriesMaster: Array.isArray(event.recurrence) && event.recurrence.length > 0,
+    };
+  } catch (error: unknown) {
+    const status = typeof error === "object" && error !== null && "code" in error
+      ? Number((error as { code?: unknown }).code)
+      : null;
+    if (status === 404 || status === 410) return null;
+    throw error;
+  }
+}
+
+export async function deleteCalendarShowOccurrence(eventId: string): Promise<void> {
+  const { calendar, calendarId } = getCalendarClient("https://www.googleapis.com/auth/calendar.events");
+  await calendar.events.delete({ calendarId, eventId, sendUpdates: "all" });
 }
 
 function normalizeTitle(value: string) {

@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { SubmissionForm } from "@/components/submission-form";
 
 type ProducerShow = {
+  id: string;
   title: string;
   startsAt: string;
   endsAt: string | null;
@@ -24,12 +25,14 @@ function formatShow(startsAt: string) {
     day: "2-digit",
     month: "2-digit",
     year: "numeric",
+    timeZone: "Europe/Athens",
   }).format(date);
 
   const formattedTime = new Intl.DateTimeFormat("en-GB", {
     hour: "2-digit",
     minute: "2-digit",
     hour12: false,
+    timeZone: "Europe/Athens",
   }).format(date);
 
   return `${formattedDate} - ${formattedTime}`;
@@ -63,6 +66,29 @@ export function ShowSubmissionToggle({
   const selectedShowStart = selectedShow?.startsAt || null;
   const selectedShowEnd = selectedShow?.endsAt || null;
   const selectedShowTitle = selectedShow?.title || null;
+  const [showCancellation, setShowCancellation] = useState(false);
+  const [isCancelling, setIsCancelling] = useState(false);
+  const [cancellationMessage, setCancellationMessage] = useState("");
+
+  async function cancelShowOccurrence() {
+    if (!mostRecentFutureShow) return;
+    setIsCancelling(true);
+    setCancellationMessage("");
+    try {
+      const response = await fetch("/api/shows/cancel", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ eventId: mostRecentFutureShow.id }),
+      });
+      const result = await response.json() as { message?: string; error?: string };
+      setCancellationMessage(result.message || result.error || "The cancellation could not be completed.");
+      if (response.ok) setShowCancellation(false);
+    } catch {
+      setCancellationMessage("The cancellation could not be completed. Please try again.");
+    } finally {
+      setIsCancelling(false);
+    }
+  }
 
   return (
     <>
@@ -106,8 +132,33 @@ export function ShowSubmissionToggle({
           <p className="dashboard-show-selector-current">
             Selected show: {selectedShowStart ? formatShow(selectedShowStart) : "TBD"}
           </p>
+          {mostRecentFutureShow ? (
+            <button className="show-cancel-trigger" type="button" onClick={() => setShowCancellation(true)}>
+              Cancel show
+            </button>
+          ) : null}
+          {cancellationMessage ? <p className="show-cancel-message" role="status">{cancellationMessage}</p> : null}
         </div>
       </section>
+
+      {showCancellation && mostRecentFutureShow ? (
+        <div className="show-cancel-overlay" role="presentation" onMouseDown={(event) => {
+          if (event.target === event.currentTarget) setShowCancellation(false);
+        }}>
+          <section className="show-cancel-dialog" role="dialog" aria-modal="true" aria-labelledby="cancel-show-title">
+            <h2 id="cancel-show-title">Cancel this show?</h2>
+            <p>{mostRecentFutureShow.title}</p>
+            <p>{formatShow(mostRecentFutureShow.startsAt)} Greece time</p>
+            <p>Only this occurrence will be removed. Future shows in the repeating series will stay scheduled.</p>
+            <div className="show-cancel-actions">
+              <button className="btn-neutral" type="button" onClick={() => setShowCancellation(false)} disabled={isCancelling}>Keep show</button>
+              <button className="show-cancel-confirm" type="button" onClick={() => void cancelShowOccurrence()} disabled={isCancelling}>
+                {isCancelling ? "Cancelling…" : "Yes, cancel this show"}
+              </button>
+            </div>
+          </section>
+        </div>
+      ) : null}
 
       <section className="dashboard-panel">
         <SubmissionForm
