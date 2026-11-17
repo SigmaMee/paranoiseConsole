@@ -6,12 +6,19 @@
     },
     "src/app/api/cron/daily-report/route.ts": {
       "maxDuration": 60
+    },
+    "src/app/api/cron/show-reminders/route.ts": {
+      "maxDuration": 60
     }
   },
   "crons": [
     {
       "path": "/api/cron/daily-report",
       "schedule": "0 19 * * *"
+    },
+    {
+      "path": "/api/cron/show-reminders",
+      "schedule": "0 * * * *"
     }
   ]
 }

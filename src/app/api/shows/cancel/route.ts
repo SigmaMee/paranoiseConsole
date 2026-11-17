@@ -3,6 +3,7 @@ import { createClient as createAdminClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
 import { getProducerCalendarEmails, getProducerEmail } from "@/lib/producer-identity";
 import { deleteCalendarShowOccurrence, getCalendarShowOccurrenceById } from "@/lib/google-calendar";
+import { revokeReminderAccess } from "@/lib/show-reminders";
 
 export const runtime = "nodejs";
 
@@ -57,6 +58,7 @@ export async function POST(request: Request) {
 
     await deleteCalendarShowOccurrence(eventId);
     await writeAudit({ calendar_event_id: eventId, recurring_event_id: show.recurringEventId, producer_email: producerEmail, actor_email: actorEmail, show_start_at: show.startsAt, show_title: show.title, outcome: "cancelled" });
+    await revokeReminderAccess(producerEmail, show.startsAt);
     return NextResponse.json({ message: "This show occurrence has been cancelled." });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown cancellation error";

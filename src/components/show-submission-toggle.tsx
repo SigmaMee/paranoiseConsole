@@ -44,7 +44,14 @@ export function ShowSubmissionToggle({
 }: ShowSubmissionToggleProps) {
   useEffect(() => {
     const currentUrl = new URL(window.location.href);
+    const cancellationEventId = currentUrl.searchParams.get("cancel_show");
+    if (cancellationEventId && cancellationEventId === mostRecentFutureShow?.id) {
+      setShowCancellation(true);
+    }
+    currentUrl.searchParams.delete("cancel_show");
     if (!currentUrl.searchParams.has("show_selection")) {
+      const nextSearch = currentUrl.searchParams.toString();
+      window.history.replaceState(window.history.state, "", `${currentUrl.pathname}${nextSearch ? `?${nextSearch}` : ""}${currentUrl.hash}`);
       return;
     }
 
@@ -52,7 +59,7 @@ export function ShowSubmissionToggle({
     const nextSearch = currentUrl.searchParams.toString();
     const nextUrl = `${currentUrl.pathname}${nextSearch ? `?${nextSearch}` : ""}${currentUrl.hash}`;
     window.history.replaceState(window.history.state, "", nextUrl);
-  }, []);
+  }, [mostRecentFutureShow?.id]);
 
   const [selectedShowType, setSelectedShowType] = useState<"past" | "future">(
     mostRecentFutureShow ? "future" : "past",

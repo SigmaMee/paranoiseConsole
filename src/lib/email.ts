@@ -198,6 +198,39 @@ export async function sendAudioConfirmationEmail(
   });
 }
 
+export type ShowReminderEmailPayload = {
+  to: string;
+  showTitle: string;
+  showStartAt: string;
+  accessUrl: string;
+};
+
+export function buildShowReminderHtml(payload: ShowReminderEmailPayload) {
+  const showDate = formatInTimeZone(new Date(payload.showStartAt), ATHENS_TZ, "d MMMM yyyy 'at' HH:mm");
+  const body = `
+    <tr><td style="padding:36px 0 20px;">
+      <h1 style="margin:0 0 8px;font-size:22px;font-weight:700;color:${C.white};">You have a show tomorrow!</h1>
+      <p style="margin:0;color:${C.blue};font-size:15px;">${payload.showTitle} · ${showDate} Greece time</p>
+    </td></tr>
+    <tr><td style="padding-bottom:24px;color:#ccc;font-size:15px;line-height:1.6;">
+      <p style="margin:0 0 12px;">Hello!</p>
+      <p style="margin:0 0 8px;">Get ready by submitting at least:</p>
+      <ul style="margin:0 0 16px;padding-left:24px;">
+        <li>an image if you will be streaming live;</li>
+        <li>the audio file if your show is recorded.</li>
+      </ul>
+      <p style="margin:0 0 20px;">No rush for the rest—you can always log in to Console and submit it after your show.</p>
+      <p style="margin:0 0 24px;">If unfortunately you cannot make it tomorrow, use the Cancel show action on the next screen.</p>
+      <a href="${payload.accessUrl}" style="display:inline-block;padding:14px 22px;background:${C.orange};color:${C.black};font-weight:700;text-decoration:none;text-transform:uppercase;">Get ready for your show</a>
+    </td></tr>`;
+  return { html: emailWrapper(body), subject: "Reminder: You have a show on Paranoise tomorrow!" };
+}
+
+export async function sendShowReminderEmail(payload: ShowReminderEmailPayload) {
+  const { html, subject } = buildShowReminderHtml(payload);
+  await getResend().emails.send({ from: FROM, to: payload.to, subject, html });
+}
+
 // ---------------------------------------------------------------------------
 // 2. Daily Centova vs Calendar report
 // ---------------------------------------------------------------------------

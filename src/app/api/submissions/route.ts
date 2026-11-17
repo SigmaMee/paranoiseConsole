@@ -31,6 +31,7 @@ import {
 import type { Readable } from "stream";
 import { getReferenceNow } from "@/lib/reference-time";
 import { getProducerCalendarEmails, getProducerEmail } from "@/lib/producer-identity";
+import { revokeReminderAccess } from "@/lib/show-reminders";
 import {
   assertOwnedStagingObjectKey,
   assertStagingObjectMatchesFilename,
@@ -1080,6 +1081,12 @@ export async function POST(request: Request) {
       centovaSuccess: centovaResult ? centovaResult.success : null,
       ...logContext,
     });
+
+    if (allSucceeded && persistedShowStart) {
+      await revokeReminderAccess(producerEmail, persistedShowStart).catch((error: unknown) => {
+        console.error("Failed to revoke reminder access after submission:", error);
+      });
+    }
 
     return NextResponse.json(
       {
