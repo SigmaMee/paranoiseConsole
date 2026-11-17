@@ -210,7 +210,8 @@ export function buildShowReminderHtml(payload: ShowReminderEmailPayload) {
   const body = `
     <tr><td style="padding:36px 0 20px;">
       <h1 style="margin:0 0 8px;font-size:22px;font-weight:700;color:${C.white};">You have a show tomorrow!</h1>
-      <p style="margin:0;color:${C.blue};font-size:15px;">${payload.showTitle} · ${showDate} Greece time</p>
+      <p style="margin:0 0 4px;color:${C.blue};font-size:15px;"><strong>Show:</strong> ${payload.showTitle}</p>
+      <p style="margin:0;color:${C.blue};font-size:15px;"><strong>Scheduled:</strong> ${showDate}, Europe/Athens</p>
     </td></tr>
     <tr><td style="padding-bottom:24px;color:#ccc;font-size:15px;line-height:1.6;">
       <p style="margin:0 0 12px;">Hello!</p>
@@ -223,7 +224,7 @@ export function buildShowReminderHtml(payload: ShowReminderEmailPayload) {
       <p style="margin:0 0 24px;">If unfortunately you cannot make it tomorrow, press that big Cancel show button.</p>
       <table role="presentation" cellpadding="0" cellspacing="0"><tr>
         <td style="padding:0 12px 12px 0;"><a href="${payload.accessUrl}?intent=submit" style="display:inline-block;padding:14px 22px;background:${C.blue};color:${C.black};font-weight:700;text-decoration:none;text-transform:uppercase;">Get ready for your show</a></td>
-        <td style="padding:0 0 12px;"><a href="${payload.accessUrl}?intent=cancel" style="display:inline-block;padding:13px 22px;border:1px solid ${C.red};background:${C.redBg};color:${C.red};font-weight:700;text-decoration:none;text-transform:uppercase;">Cancel show</a></td>
+        <td style="padding:0 0 12px;"><a href="${payload.accessUrl}?intent=cancel" style="display:inline-block;padding:14px 22px;background:${C.orange};color:${C.black};font-weight:700;text-decoration:none;text-transform:uppercase;">Cancel show</a></td>
       </tr></table>
     </td></tr>`;
   return { html: emailWrapper(body), subject: "Reminder: You have a show on Paranoise tomorrow!" };
