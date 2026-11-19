@@ -16,10 +16,21 @@ export async function PATCH(request: Request) {
     process.env.SUPABASE_SERVICE_ROLE_KEY!,
   );
   const roles = payload.sharing ? ["production", "sharing"] : ["production"];
+  const { data: membership, error: membershipError } = await supabase
+    .from("resident_profile_memberships")
+    .select("resident_profile_id")
+    .eq("profile_id", payload.profileId)
+    .maybeSingle();
+
+  if (membershipError) return NextResponse.json({ error: membershipError.message }, { status: 500 });
+  if (!membership?.resident_profile_id) {
+    return NextResponse.json({ error: "The resident profile must be provisioned before roles can be changed." }, { status: 404 });
+  }
+
   const { data, error } = await supabase
     .from("resident_profiles")
     .update({ roles })
-    .eq("profile_id", payload.profileId)
+    .eq("id", membership.resident_profile_id)
     .select("roles")
     .maybeSingle();
 

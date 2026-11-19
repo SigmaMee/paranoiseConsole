@@ -44,10 +44,17 @@ export async function getResidentModuleRoles(user: User): Promise<ResidentModule
   const profile = profileByUserId || profileByEmail;
   if (!profile?.id) return ["production"];
 
+  const { data: membership } = await supabase
+    .from("resident_profile_memberships")
+    .select("resident_profile_id")
+    .eq("profile_id", profile.id)
+    .maybeSingle();
+  if (!membership?.resident_profile_id) return ["production"];
+
   const { data: residentProfile } = await supabase
     .from("resident_profiles")
     .select("roles")
-    .eq("profile_id", profile.id)
+    .eq("id", membership.resident_profile_id)
     .maybeSingle();
   return normalizeRoles(residentProfile?.roles);
 }

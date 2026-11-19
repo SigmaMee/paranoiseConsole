@@ -34,10 +34,20 @@ async function getAuthenticatedResident() {
   if (profileError) throw profileError;
   if (!profile?.id) return { unauthorized: false as const, resident: null };
 
+  const { data: membership, error: membershipError } = await adminSupabase
+    .from("resident_profile_memberships")
+    .select("resident_profile_id")
+    .eq("profile_id", profile.id)
+    .maybeSingle();
+  if (membershipError) throw membershipError;
+  if (!membership?.resident_profile_id) {
+    return { unauthorized: false as const, resident: null };
+  }
+
   const { data: resident, error: residentError } = await adminSupabase
     .from("resident_profiles")
     .select("producer_name,radio_show,city,profile_picture_path,source_profile_picture_url")
-    .eq("profile_id", profile.id)
+    .eq("id", membership.resident_profile_id)
     .maybeSingle();
   if (residentError) throw residentError;
   return { unauthorized: false as const, resident };
