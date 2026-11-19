@@ -12,7 +12,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { MIXCLOUD_DESCRIPTION_MAX_LENGTH } from "@/lib/submission-limits";
+import { MIXCLOUD_DESCRIPTION_MAX_LENGTH } from "@/lib/submission-limits.mjs";
 import {
   ARTWORK_THEME_NAMES,
   createShowArtwork,

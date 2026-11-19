@@ -5,6 +5,7 @@ import { Readable } from "node:stream";
 import type { ReadableStream as NodeReadableStream } from "node:stream/web";
 import path from "node:path";
 import FormData from "form-data";
+import { limitMixcloudDescription } from "@/lib/submission-limits.mjs";
 
 function getRequiredEnv(name: string) {
   const value = process.env[name];
@@ -209,7 +210,7 @@ export async function uploadToMixcloud({
   // constant memory usage instead of being copied into both a Buffer and File.
   const formData = new FormData();
   formData.append("name", name);
-  if (description) formData.append("description", description);
+  if (description) formData.append("description", limitMixcloudDescription(description));
   
   // Mixcloud expects tags in the format tags-X-tag where X is 0-4
   if (tags && tags.length > 0) {

@@ -10,6 +10,7 @@
     "dev": "next dev",
     "build": "next build",
     "test:drive-destination": "node --test src/lib/google-drive-destination.test.mjs",
+    "test:submission-limits": "node --test src/lib/submission-limits.test.mjs",
     "start": "next start",
     "lint": "eslint",
     "import:profiles": "node scripts/import-webflow-profiles.mjs",

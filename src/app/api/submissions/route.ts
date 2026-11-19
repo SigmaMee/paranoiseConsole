@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { MIXCLOUD_DESCRIPTION_MAX_LENGTH } from "@/lib/submission-limits";
+import { MIXCLOUD_DESCRIPTION_MAX_LENGTH } from "@/lib/submission-limits.mjs";
 import { createClient } from "@/lib/supabase/server";
 import {
   claimEpisodeMedia,
